@@ -17,6 +17,7 @@ import {
   bayesUpdate,
   computeSpread,
   contractKey,
+  evalBreakers,
   extractSignal,
   price,
   requiredReserve,
@@ -161,6 +162,7 @@ export async function executeTrade(
   const q = dto.q;
   const side: Side = q >= 0 ? 'buy' : 'sell';
 
+  let sigma0 = 0; // genesis σ₀, captured inside the txn for the circuit breakers
   const result = await withMarketLock(marketId, () =>
     db.transaction(async (tx): Promise<FillResult> => {
       const mrows = await tx
@@ -171,6 +173,7 @@ export async function executeTrade(
       const m = mrows[0];
       if (!m) throw new HttpError(404, 'Market not found');
       if (m.status !== 'OPEN') throw new HttpError(409, 'Market is not open for trading');
+      sigma0 = m.initialSigma;
 
       const cfg = m.cfg as unknown as EngineConfig;
       const reserveOpts = reserveOptsFor(cfg);
@@ -441,6 +444,28 @@ export async function executeTrade(
     marketId,
     tradeId: result.tradeId,
   });
+
+  // Circuit breakers — evaluate post-commit and broadcast any
+  // alerts to the system topic so admins see them live. v1 alerts only (does not
+  // auto-suspend); the action field tells the admin what recommends.
+  const priceMovePct =
+    Math.abs(result.fair) > 1e-9 ? (fairAfter - result.fair) / Math.abs(result.fair) : 0;
+  const alerts = evalBreakers({
+    sigma: result.beliefAfter.sigma,
+    sigma0,
+    priceMovePct,
+    cash: result.cash,
+    reserve: result.reserveRequired,
+  });
+  for (const alert of alerts) {
+    publish(topics.system, {
+      type: 'system:alert',
+      marketId,
+      ...alert,
+      at: new Date().toISOString(),
+    });
+  }
+
   await writeAudit({
     actorId: actor.userId,
     action: 'trade_execute',

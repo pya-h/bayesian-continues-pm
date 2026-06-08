@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.tsx';
+import { AlertsBanner } from '../components/AlertsBanner.tsx';
 import { Button, ErrorNote, Panel, Spinner, Stat, StatusBadge } from '../components/ui.tsx';
 import { qk, useAdminOverview, useAdminUsers, useMarkets } from '../hooks/queries.ts';
 import { ApiError, api } from '../lib/api.ts';
@@ -18,6 +19,7 @@ export function AdminPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-lg font-semibold">Admin</h1>
+      <AlertsBanner />
       <CreateMarketForm />
       <MyMarkets creatorId={user?.userId ?? ''} />
       <UsersSection />

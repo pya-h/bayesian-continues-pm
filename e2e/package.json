@@ -1,0 +1,16 @@
+{
+  "name": "@bmm/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Playwright browser smoke for the BMM web app. Not part of the workspace globs so it never runs in `bun run test`; install + run it on demand.",
+  "scripts": {
+    "install:browsers": "playwright install chromium",
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed",
+    "e2e:ui": "playwright test --ui"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

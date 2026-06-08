@@ -60,3 +60,24 @@ export {
   positionStats,
   secondMoment,
 } from './stats.ts';
+
+// circuit breakers
+export {
+  type Alert,
+  type AlertSeverity,
+  type BreakerKind,
+  type BreakerAction,
+  type BreakerInput,
+  type BreakerThresholds,
+  DEFAULT_BREAKER_THRESHOLDS,
+  evalBreakers,
+} from './breakers.ts';
+
+// monte-carlo simulation
+export {
+  type SimParams,
+  type SimRun,
+  type SimSummary,
+  simulateRun,
+  runMonteCarlo,
+} from './sim.ts';

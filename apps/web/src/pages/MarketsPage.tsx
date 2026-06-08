@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { ErrorNote, Spinner, StatusBadge } from '../components/ui.tsx';
+import { ErrorNote, Skeleton, StatusBadge } from '../components/ui.tsx';
 import { useMarkets, usePortfolio } from '../hooks/queries.ts';
 import { ApiError } from '../lib/api.ts';
 import { fmt, fmtCompact } from '../lib/format.ts';
@@ -21,7 +21,19 @@ export function MarketsPage() {
     return map;
   }, [portfolio.data]);
 
-  if (markets.isLoading) return <Spinner label="Loading markets…" />;
+  if (markets.isLoading)
+    return (
+      <div>
+        <div className="mb-4 flex items-baseline justify-between">
+          <h1 className="text-lg font-semibold">Markets</h1>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <Skeleton key={i} className="h-40" />
+          ))}
+        </div>
+      </div>
+    );
   if (markets.error)
     return (
       <ErrorNote>

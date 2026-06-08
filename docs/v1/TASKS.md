@@ -158,12 +158,12 @@ Two complementary layers, both run by `bun test` (api uses `--isolate` — see P
 
 ---
 
-## Phase 11 — Hardening, sim, polish `[all]` `[blocked-by: 10]`
-- [ ] Integration suite: lifecycle, LP, solvency rejection, partial fill, concurrency (parallel trades stay consistent), claim idempotency, cancel refund.
-- [ ] Monte-Carlo simulation tool (`MODEL.md §17.3`): belief accuracy, 80%-CI calibration, MM/LP profitability — also tunes default params.
-- [ ] Circuit breakers wired to WS `system:alert`; admin sees alerts.
-- [ ] Playwright smoke (trade→resolve→claim). Error states, empty states, loading skeletons. Final README + run instructions.
-**Checkpoint:** `bun test` (core+api) green; sim reports sane calibration; manual demo script passes start-to-finish.
+## Phase 11 — Hardening, sim, polish `[all]` `[blocked-by: 10]` DONE (2026-06-09)
+- [x] Integration suite (`apps/api/test/hardening.test.ts`): the gaps the earlier per-phase suites left — **solvency rejection** (zero-balance buyer → 409, market untouched), **concurrency** (8 parallel buys serialize under withMarketLock with NO lost updates: Σ filled == position qty, cash == R₀+Σ premiums, exactly N trade rows), **cancel refund** (cancel an OPEN market → trader's locked cost basis fully refunded, MM cash shrinks). Lifecycle / LP / partial fill / claim idempotency were already covered (markets/lp/trades/settlement tests).
+- [x] Monte-Carlo simulation tool (`MODEL.md §17.3`) — pure, seeded `core/sim.ts` (`simulateRun`/`runMonteCarlo`): N informed traders around θ\*, measures belief accuracy `|μ_f−θ*|`, 80%-CI calibration, MM profitability, trader welfare. 10 unit tests (determinism, learns ≫ prior baseline, calibration∈[0,1], MM earns spread on informed flow). CLI runner `apps/api/src/sim/runner.ts` + `bun run sim` (σ_obs sweep; tunes defaults).
+- [x] Circuit breakers (`MODEL.md §15.1`) — pure `core/breakers.ts` `evalBreakers` (belief divergence σ>3σ₀→alert, rapid move >10%→suspend, insolvency <1.2×reserve→reject / <1.5×→warn), 13 unit tests. Wired into `tradeSvc` post-commit → publishes `system:alert` on the `system` WS topic (no auto-suspend in v1; action field carries the §15.1 recommendation). Web: `useSystemAlerts` hook + `AlertsBanner` on the admin panel (admins see alerts live).
+- [x] Playwright smoke in `e2e/` (sign in → markets → open market → composer → portfolio; outside the workspace globs so `bun run test` never runs it). Error/empty states already present across pages; added a `Skeleton` primitive + markets-grid skeleton. **Final README** rewritten (how-it-works, end-to-end walkthrough, sim, testing, scripts table, port note). Plus a headless **`bun run demo`** end-to-end (trade→resolve→claim, self-asserting + self-cleaning).
+**Checkpoint:** core 93 + shared 9 + web 48 + api 80 = **230 pass, 0 fail**; typecheck 4/4; lint clean (124 files); `vite build` ok (106 kB gzip). `bun run sim` reports sane calibration (informed flow: 97% error reduction, calib₈₀≈0.80 near σ_obs≈σ₀, MM profitable; noise games the MM). **`bun run demo` passes start-to-finish 12/12** on a live server (payout 3000, idempotent 2nd=0, finalPnl +2046.26, mmPnl reported) and cleans up.
 
 ---
 

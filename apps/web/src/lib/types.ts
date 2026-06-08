@@ -273,3 +273,15 @@ export interface CreateMarketInput {
   initialReserve: number;
   cfg?: MarketCfgInput;
 }
+
+export interface SystemAlert {
+  type: 'system:alert';
+  marketId: string;
+  kind: 'belief_divergence' | 'rapid_price_move' | 'insolvency_risk';
+  severity: 'info' | 'warning' | 'critical';
+  action: 'alert' | 'suspend' | 'reject';
+  message: string;
+  value: number;
+  threshold: number;
+  at: string;
+}

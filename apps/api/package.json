@@ -9,6 +9,8 @@
     "build": "bun build src/index.ts --target bun --outdir dist",
     "typecheck": "tsc -p tsconfig.json",
     "test": "bun test --isolate --env-file=../../.env --pass-with-no-tests",
+    "sim": "bun src/sim/runner.ts",
+    "demo": "bun --env-file=../../.env src/scripts/demo.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun --env-file=../../.env src/db/migrate.ts",
     "db:seed": "bun --env-file=../../.env src/db/seed.ts"
