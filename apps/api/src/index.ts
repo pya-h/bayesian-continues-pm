@@ -10,6 +10,7 @@ import { setServer } from './realtime.ts';
 import { adminRoutes } from './routes/admin.ts';
 import { adminMarketRoutes } from './routes/adminMarkets.ts';
 import { authRoutes } from './routes/auth.ts';
+import { claimRoutes } from './routes/claims.ts';
 import { marketRoutes } from './routes/markets.ts';
 import { tradeRoutes } from './routes/trades.ts';
 import { wsRoutes } from './ws.ts';
@@ -54,6 +55,7 @@ export const app = new Elysia()
   .use(authRoutes)
   .use(marketRoutes)
   .use(tradeRoutes)
+  .use(claimRoutes)
   .use(adminRoutes)
   .use(adminMarketRoutes)
   .use(wsRoutes);

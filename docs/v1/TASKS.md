@@ -93,14 +93,15 @@ Two complementary layers, both run by `bun test` (api uses `--isolate` — see P
 
 ---
 
-## Phase 6 — Settlement & trader claims `[api]` `[blocked-by: 5]`
+## Phase 6 — Settlement & trader claims `[api]` `[blocked-by: 5]` DONE
 **Goal:** resolve a market and let traders claim.
-- [ ] On `resolve(θ*)`: compute every position payout `Σ position·f(θ*)` (`MODEL.md §8`), record `claims` rows (computed, uncredited), transition RESOLVED→ payouts ready.
-- [ ] `POST /markets/:id/claim` (SETTLED): idempotent credit of recorded payout to balance; mark claimed.
-- [ ] Optional per-contract proximity/tiered settlement config (`MODEL.md §8.3`), off by default.
-- [ ] CANCELLED path: unwind trades at cost basis, refund.
-- [ ] **Unit tests:** payout = `Σ position·f(θ*)` per contract type (extract a pure settlement helper); refund/cost-basis math. **Integration:** trade→resolve→claim credits once; double-claim no-op; cancel refunds.
-**Checkpoint:** full trade→resolve→claim crediting verified; double-claim is a no-op; cancel refunds.
+- [x] On `resolve(θ*)`: `settleSvc.recordClaims` computes every open position's payout `quantity·f(θ*)` (`MODEL.md §8`) into uncredited `claims` rows (one per position, `claimedAt=null`), inside the resolve transaction. Status → `RESOLVED`.
+- [x] New `settle` lifecycle action `RESOLVED → SETTLED` (admin, `POST /admin/markets/:id/settle`) — the gate that opens claiming. (Kept separate from `resolve` so payouts are *computed* at resolve but only *creditable* once settled; it's also the hook where Phase 7 finalizes LP `cash_final`.)
+- [x] `POST /markets/:id/claim` (requires `SETTLED`): idempotent credit of the trader's recorded payouts to balance; marks `claimedAt`. Serialized on the trader row (`FOR UPDATE`) so a double-submit can't double-pay — a second call finds nothing pending (`credited: 0, alreadyClaimed: true`). WS `claim_paid` to the user topic.
+- [x] CANCELLED path (`settleSvc.refundPositions`): refund each non-infinite trader the open cost basis `quantity·avgEntryPrice`, shrink MM `cash` by the same total — inside the cancel transaction. Atomic SQL `balance + amount` increments (no cross-market read-modify-write race).
+- [~] Optional per-contract proximity/tiered settlement config (`MODEL.md §8.3`) — **deferred** (off by default in v1; payoff is the exact `f(θ*)`). Revisit if a market needs graded settlement.
+- [x] **Unit tests (8, no DB):** `settleMath` — `positionPayout` for LINEAR/CALL/PUT/BINARY_CALL/SPREAD/GAUSSIAN (ITM + OTM) and `positionRefund` (cost basis, zero-qty). **Integration (4, real DB):** resolve→settle→claim credits the exact payout once + double-claim no-op; claim before settle → 409; claim with no position → 0-credit no-op; cancel refunds the open cost basis.
+**Checkpoint:** full trade→resolve→settle→claim crediting verified; double-claim is a no-op; cancel refunds the cost basis. Full suite **125 pass** (shared 9 + core 69 + api 47); typecheck 4/4; lint clean.
 
 ---
 

@@ -16,14 +16,16 @@ import { writeAudit } from '../lib/audit.ts';
 import { HttpError } from '../lib/errors.ts';
 import { publish, topics } from '../realtime.ts';
 import { withMarketLock } from './marketQueue.ts';
+import { recordClaims, refundPositions } from './settleSvc.ts';
 
-type LifecycleAction = 'open' | 'suspend' | 'resume' | 'resolve' | 'cancel' | 'close';
+type LifecycleAction = 'open' | 'suspend' | 'resume' | 'resolve' | 'settle' | 'cancel' | 'close';
 
 const ACTIONS: Record<LifecycleAction, { from: MarketStatus[]; to: MarketStatus }> = {
   open: { from: ['CREATED', 'SUSPENDED'], to: 'OPEN' },
   suspend: { from: ['OPEN'], to: 'SUSPENDED' },
   resume: { from: ['SUSPENDED'], to: 'OPEN' },
   resolve: { from: ['OPEN', 'SUSPENDED'], to: 'RESOLVED' },
+  settle: { from: ['RESOLVED'], to: 'SETTLED' },
   cancel: { from: ['CREATED', 'OPEN', 'SUSPENDED'], to: 'CANCELLED' },
   close: { from: ['SETTLED'], to: 'CLOSED' },
 };
@@ -142,6 +144,13 @@ export async function transitionMarket(
           resolvedValue: opts.thetaStar,
           confidence: 1,
         });
+        // Compute every open position's payout into uncredited `claims` rows.
+        await recordClaims(tx, marketId, opts.thetaStar);
+      }
+      if (action === 'cancel') {
+        // Unwind: refund traders' open cost basis and shrink MM cash to match.
+        const refunded = await refundPositions(tx, marketId);
+        patch.cash = subMoney(m.cash, refunded);
       }
       if (action === 'open' && m.status === 'CREATED' && !m.opensAt) {
         patch.opensAt = new Date();

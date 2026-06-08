@@ -38,6 +38,10 @@ export const adminMarketRoutes = new Elysia({ prefix: '/admin/markets' })
     const m = await transitionMarket(user as UserRow, params.id, 'resolve', { thetaStar });
     return { market: await buildMarketView(m) };
   })
+  .post('/:id/settle', async ({ params, user }) => {
+    const m = await transitionMarket(user as UserRow, params.id, 'settle');
+    return { market: await buildMarketView(m) };
+  })
   .post('/:id/cancel', async ({ params, user }) => {
     const m = await transitionMarket(user as UserRow, params.id, 'cancel');
     return { market: await buildMarketView(m) };
