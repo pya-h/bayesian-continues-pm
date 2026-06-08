@@ -36,14 +36,14 @@ Legend: `core`=`packages/core` · `shared`=`packages/shared` · `api`=`apps/api`
 
 ---
 
-## Phase 2 — Shared contracts & DB foundation `[shared, api]` `[blocked-by: 1]`
+## Phase 2 — Shared contracts & DB foundation `[shared, api]` `[blocked-by: 1]` DONE
 **Goal:** typed DTOs + schema + migrations + admin seed.
-- [ ] `shared`: enums (MarketStatus, ContractType, …), zod DTOs for every API body/response, `money.ts` (numeric round-half-even, add/sub/mul guards), re-export `BeliefStateDTO`.
-- [ ] `api`: Drizzle schema for all tables (`TDD.md §9`) + relations + indexes.
-- [ ] `drizzle-kit` migrations; `db:migrate` script.
-- [ ] `db:seed`: upsert admin (`ADMIN_USERNAME/PASSWORD`, `role=admin`, `is_infinite=true`); a couple demo users.
-- [ ] DB access layer / repositories (thin) per entity.
-**Checkpoint:** migrate + seed against Postgres; admin row present; `bun test` (shared zod round-trips) green.
+- [x] `shared`: `enums.ts` (MarketStatus, ContractType, UserRole, BeliefKind, LpLedgerKind, UserTier), `dto.ts` zod schemas (contractSpec, belief, marketCfg, register/login, createMarket, quote/trade, lp deposit/withdraw, topup), `money.ts` (round-half-even + add/sub/mul/sum), barrel.
+- [x] `api`: Drizzle schema for all 10 tables (`TDD §9`) + indexes + uniques; custom `numeric(20,8)`⇄`number` money type; θ/belief as double precision.
+- [x] `drizzle-kit generate` → `drizzle/0000_*.sql`; programmatic `db:migrate` (postgres.js migrator); scripts load root `.env` via `--env-file`.
+- [x] DB layer: `url.ts` (strips Prisma `?schema=`, sets search_path), `client.ts` (lazy postgres.js + Drizzle), `repos.ts` (thin `userRepo`: byUsername/byId/create/credit).
+- [x] `db:seed`: upsert admin (`ADMIN_USERNAME/PASSWORD`, `role=admin`, `is_infinite=true`, tier institutional) + demo users alice/bob (hashed, balance 10k). Idempotent.
+**Checkpoint:** migrate + seed against `bmm_db` (all 10 tables created, admin row `is_infinite=true`); re-running migrate/seed is idempotent; `bun test` 78 pass (shared 9 + core 69); typecheck 4/4; lint clean.
 
 ---
 
