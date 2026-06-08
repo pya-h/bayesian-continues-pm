@@ -47,13 +47,14 @@ Legend: `core`=`packages/core` · `shared`=`packages/shared` · `api`=`apps/api`
 
 ---
 
-## Phase 3 — API skeleton, auth, admin user mgmt `[api]` `[blocked-by: 2]`
+## Phase 3 — API skeleton, auth, admin user mgmt `[api]` `[blocked-by: 2]` DONE
 **Goal:** server boots; auth works; admin can top up.
-- [ ] Elysia app: cors, swagger, jwt, error handler, request logging; health route.
-- [ ] `AuthSvc` + routes: register/login (`Bun.password` hash), `/auth/me`; JWT bearer guard; `requireAdmin` guard.
-- [ ] `/admin/users` list; `POST /admin/users/:id/topup` (credits balance, audit row); admin infinite-balance handling.
-- [ ] WS plugin mounted at `/ws` with subscribe/topic plumbing (no domain events yet).
-**Checkpoint:** register→login→/me; admin token tops up a user (visible balance change); Swagger UI lists routes.
+- [x] Elysia app: cors, swagger (`/swagger`), jwt, `onError` handler, request logging, `/health`.
+- [x] Auth routes: register/login (`Bun.password` argon2 hash), `/auth/me`; `authPlugin` (global `user` derive) + `requireAuth` / `requireAdmin` scoped guards.
+- [x] `GET /admin/users`; `POST /admin/users/:id/topup` (credits balance + `audit_events` row; infinite users left untouched). Added `audit_events` table (migration 0001).
+- [x] WS at `/ws` (subscribe/unsubscribe/ping) + `realtime.ts` publish bus (`market:`/`user:`/`system` topics) for later domain events.
+**Checkpoint:** 10-test integration suite (register 201 / dup 409 / bad-login 401 / me / no-token 401 / non-admin 403 / admin list / topup→balance / bad-amount 400) + live HTTP smoke (health, swagger 200, register JWT). Full suite **88 pass** (shared 9 + core 69 + api 10); typecheck 4/4; lint clean.
+**Note:** host port 3000 is occupied on this machine — set `PORT` (+ `VITE_API_URL`/`VITE_WS_URL`) to a free port to run the live server.
 
 ---
 

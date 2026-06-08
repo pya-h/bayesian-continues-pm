@@ -8,6 +8,13 @@
       "when": 1780894678989,
       "tag": "0000_glamorous_weapon_omega",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780896283140,
+      "tag": "0001_left_agent_brand",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,48 @@
+// Admin routes (role=admin only): list users, top up balances.
+
+import { topupSchema } from '@bmm/shared';
+import { Elysia } from 'elysia';
+import { requireAdmin } from '../auth/plugin.ts';
+import { db } from '../db/client.ts';
+import { userRepo } from '../db/repos.ts';
+import { users } from '../db/schema.ts';
+import { writeAudit } from '../lib/audit.ts';
+import { publicUser } from '../lib/user.ts';
+
+export const adminRoutes = new Elysia({ prefix: '/admin' })
+  .use(requireAdmin)
+  .get('/users', async () => {
+    const rows = await db
+      .select({
+        userId: users.userId,
+        username: users.username,
+        role: users.role,
+        balance: users.balance,
+        isInfinite: users.isInfinite,
+        tier: users.tier,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .orderBy(users.createdAt);
+    return { users: rows };
+  })
+  .post('/users/:id/topup', async ({ params, body, user, set }) => {
+    const parsed = topupSchema.safeParse(body);
+    if (!parsed.success) {
+      set.status = 400;
+      return { error: 'Validation failed', issues: parsed.error.issues };
+    }
+    const target = await userRepo.byId(params.id);
+    if (!target) {
+      set.status = 404;
+      return { error: 'User not found' };
+    }
+    const updated = await userRepo.credit(params.id, parsed.data.amount);
+    await writeAudit({
+      actorId: user?.userId ?? null,
+      action: 'topup',
+      targetId: target.userId,
+      payload: { amount: parsed.data.amount, infinite: target.isInfinite },
+    });
+    return { user: publicUser(updated ?? target) };
+  });

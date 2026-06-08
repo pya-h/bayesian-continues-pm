@@ -271,6 +271,24 @@ export const claims = pgTable(
   }),
 );
 
+// audit_events (admin actions, top-ups, lifecycle) ------------------------
+
+export const auditEvents = pgTable(
+  'audit_events',
+  {
+    eventId: uuid('event_id').defaultRandom().primaryKey(),
+    actorId: uuid('actor_id').references(() => users.userId),
+    action: varchar('action', { length: 64 }).notNull(),
+    targetId: uuid('target_id'),
+    payload: jsonb('payload').$type<Record<string, unknown>>(),
+    createdAt: createdAt(),
+  },
+  (t) => ({
+    idxActor: index('idx_audit_actor').on(t.actorId),
+    idxCreated: index('idx_audit_created').on(t.createdAt),
+  }),
+);
+
 export const schema = {
   users,
   markets,
@@ -282,4 +300,5 @@ export const schema = {
   lpLedger,
   oracles,
   claims,
+  auditEvents,
 };
