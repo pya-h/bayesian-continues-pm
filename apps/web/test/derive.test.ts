@@ -1,0 +1,250 @@
+import { describe, expect, test } from 'bun:test';
+import {
+  buildCreateMarketBody,
+  cleanCfg,
+  groupPositionsByMarket,
+  groupTotalPnl,
+  lifecycleActions,
+  lpDepositPreview,
+  lpWithdrawPreview,
+} from '../src/lib/derive.ts';
+import type { CreateMarketDraft } from '../src/lib/derive.ts';
+import type { LpPool, PortfolioPosition } from '../src/lib/types.ts';
+
+const close = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) <= tol;
+
+// A minimal PortfolioPosition factory — only the fields the roll-up reads matter.
+function pos(over: Partial<PortfolioPosition>): PortfolioPosition {
+  return {
+    marketId: 'm1',
+    marketTitle: 'Market One',
+    marketStatus: 'OPEN',
+    contractId: 'c1',
+    contractKey: 'CALL:60',
+    spec: { type: 'CALL', strike: 60 },
+    quantity: 10,
+    avgEntryPrice: 5,
+    costBasis: 50,
+    fair: 6,
+    bid: 5.5,
+    positionValue: 55,
+    unrealizedPnl: 5,
+    realizedPnl: 0,
+    peakProfit: 8,
+    drawdownFromPeak: 3,
+    final: null,
+    ...over,
+  };
+}
+
+const POOL: LpPool = {
+  cash: 12_000,
+  reserveRequired: 4000,
+  nav: 10_000,
+  sharesTotal: 8000,
+  sharePrice: 1.25,
+};
+
+describe('groupPositionsByMarket', () => {
+  test('sums P&L fields per market and orders by title', () => {
+    const groups = groupPositionsByMarket([
+      pos({
+        marketId: 'b',
+        marketTitle: 'Beta',
+        unrealizedPnl: 2,
+        realizedPnl: 1,
+        positionValue: 20,
+      }),
+      pos({
+        marketId: 'a',
+        marketTitle: 'Alpha',
+        unrealizedPnl: 3,
+        realizedPnl: 4,
+        positionValue: 30,
+      }),
+      pos({
+        marketId: 'a',
+        marketTitle: 'Alpha',
+        contractId: 'c2',
+        unrealizedPnl: 1,
+        realizedPnl: 2,
+        positionValue: 10,
+        costBasis: 8,
+        peakProfit: 5,
+        drawdownFromPeak: 1,
+      }),
+    ]);
+    expect(groups.map((g) => g.marketTitle)).toEqual(['Alpha', 'Beta']);
+    const alpha = groups[0];
+    expect(alpha?.positions.length).toBe(2);
+    expect(alpha?.unrealized).toBe(4);
+    expect(alpha?.realized).toBe(6);
+    expect(alpha?.value).toBe(40);
+    expect(groupTotalPnl(alpha!)).toBe(10);
+  });
+
+  test('claimable only when SETTLED with an unclaimed final', () => {
+    const settledUnclaimed = groupPositionsByMarket([
+      pos({
+        marketStatus: 'SETTLED',
+        final: { thetaStar: 70, payout: 100, finalPnl: 50, claimed: false },
+      }),
+    ]);
+    expect(settledUnclaimed[0]?.claimable).toBe(true);
+
+    const settledClaimed = groupPositionsByMarket([
+      pos({
+        marketStatus: 'SETTLED',
+        final: { thetaStar: 70, payout: 100, finalPnl: 50, claimed: true },
+      }),
+    ]);
+    expect(settledClaimed[0]?.claimable).toBe(false);
+
+    const resolvedNotSettled = groupPositionsByMarket([
+      pos({
+        marketStatus: 'RESOLVED',
+        final: { thetaStar: 70, payout: 100, finalPnl: 50, claimed: false },
+      }),
+    ]);
+    expect(resolvedNotSettled[0]?.claimable).toBe(false);
+  });
+
+  test('empty input yields no groups', () => {
+    expect(groupPositionsByMarket([])).toEqual([]);
+  });
+});
+
+describe('lpDepositPreview', () => {
+  test('mints pro-rata at NAV_before: ΔS = D·S/NAV', () => {
+    const { minted } = lpDepositPreview(1000, POOL); // 1000 * 8000 / 10000
+    expect(close(minted, 800)).toBe(true);
+  });
+  test('genesis pool mints 1 share per unit', () => {
+    const { minted, sharePctAfter } = lpDepositPreview(500, {
+      cash: 0,
+      reserveRequired: 0,
+      nav: 0,
+      sharesTotal: 0,
+      sharePrice: 1,
+    });
+    expect(minted).toBe(500);
+    expect(sharePctAfter).toBe(1);
+  });
+  test('ownership fraction reflects the mint', () => {
+    const { sharePctAfter } = lpDepositPreview(1000, POOL); // 800 / (8000+800)
+    expect(close(sharePctAfter, 800 / 8800)).toBe(true);
+  });
+  test('non-positive amount mints nothing', () => {
+    expect(lpDepositPreview(0, POOL).minted).toBe(0);
+    expect(lpDepositPreview(-5, POOL).minted).toBe(0);
+  });
+});
+
+describe('lpWithdrawPreview', () => {
+  test('cash out is pro-rata of NAV: ΔS/S·NAV', () => {
+    const { cashOut, sharesAfter } = lpWithdrawPreview(2000, POOL, 4000); // 2000/8000 * 10000
+    expect(close(cashOut, 2500)).toBe(true);
+    expect(sharesAfter).toBe(2000);
+  });
+  test('clamps the burn to the shares actually held', () => {
+    const { cashOut, sharesAfter } = lpWithdrawPreview(9999, POOL, 4000); // capped at 4000
+    expect(close(cashOut, 5000)).toBe(true);
+    expect(sharesAfter).toBe(0);
+  });
+});
+
+describe('cleanCfg', () => {
+  test('keeps finite numbers and booleans, drops blanks', () => {
+    expect(cleanCfg({ s0: 0.02, gamma: '', lambda: undefined, useSimplifiedUpdate: true })).toEqual(
+      {
+        s0: 0.02,
+        useSimplifiedUpdate: true,
+      },
+    );
+  });
+  test('drops NaN/Infinity', () => {
+    expect(cleanCfg({ alpha: Number.NaN, beta: Number.POSITIVE_INFINITY })).toBeUndefined();
+  });
+  test('all-blank cfg is undefined', () => {
+    expect(cleanCfg({ s0: '', gamma: null })).toBeUndefined();
+  });
+});
+
+describe('buildCreateMarketBody', () => {
+  const base: CreateMarketDraft = {
+    title: '  Temp 2026  ',
+    description: '   ',
+    outcomeUnit: ' °C ',
+    outcomeMin: '',
+    outcomeMax: '',
+    initialMu: 14,
+    initialSigma: 3,
+    initialReserve: 5000,
+    cfg: {},
+  };
+
+  test('trims, drops blank optionals, omits empty cfg', () => {
+    const body = buildCreateMarketBody(base);
+    expect(body).toEqual({
+      title: 'Temp 2026',
+      outcomeUnit: '°C',
+      initialMu: 14,
+      initialSigma: 3,
+      initialReserve: 5000,
+    });
+    expect('description' in body).toBe(false);
+    expect('outcomeMin' in body).toBe(false);
+    expect('cfg' in body).toBe(false);
+  });
+
+  test('includes bounds, description, and cleaned cfg when present', () => {
+    const body = buildCreateMarketBody({
+      ...base,
+      description: 'Avg June temp',
+      outcomeMin: 0,
+      outcomeMax: 40,
+      cfg: { reserveAlpha: 0.95, lambda: '' },
+    });
+    expect(body.description).toBe('Avg June temp');
+    expect(body.outcomeMin).toBe(0);
+    expect(body.outcomeMax).toBe(40);
+    expect(body.cfg).toEqual({ reserveAlpha: 0.95 });
+  });
+
+  test('rejects an empty title', () => {
+    expect(() => buildCreateMarketBody({ ...base, title: '   ' })).toThrow('Title is required');
+  });
+  test('rejects non-positive σ / R₀', () => {
+    expect(() => buildCreateMarketBody({ ...base, initialSigma: 0 })).toThrow('σ must be positive');
+    expect(() => buildCreateMarketBody({ ...base, initialReserve: -1 })).toThrow(
+      'must be positive',
+    );
+  });
+  test('rejects inverted outcome bounds', () => {
+    expect(() => buildCreateMarketBody({ ...base, outcomeMin: 40, outcomeMax: 0 })).toThrow(
+      'below outcome max',
+    );
+  });
+});
+
+describe('lifecycleActions', () => {
+  test('CREATED can open or cancel', () => {
+    expect(lifecycleActions('CREATED').map((a) => a.action)).toEqual(['open', 'cancel']);
+  });
+  test('OPEN can suspend/resolve/close/cancel', () => {
+    expect(lifecycleActions('OPEN').map((a) => a.action)).toEqual([
+      'suspend',
+      'resolve',
+      'close',
+      'cancel',
+    ]);
+  });
+  test('RESOLVED can only settle', () => {
+    expect(lifecycleActions('RESOLVED').map((a) => a.action)).toEqual(['settle']);
+  });
+  test('terminal states have no actions', () => {
+    expect(lifecycleActions('SETTLED')).toEqual([]);
+    expect(lifecycleActions('CANCELLED')).toEqual([]);
+    expect(lifecycleActions('CLOSED')).toEqual([]);
+  });
+});

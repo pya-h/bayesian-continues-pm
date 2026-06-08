@@ -147,12 +147,14 @@ Two complementary layers, both run by `bun test` (api uses `--isolate` — see P
 
 ---
 
-## Phase 10 — Frontend: portfolio, LP, admin panel `[web]` `[blocked-by: 6,7,8,9]`
+## Phase 10 — Frontend: portfolio, LP, admin panel `[web]` `[blocked-by: 6,7,8,9]` DONE (2026-06-08)
 **Goal:** complete the user/admin surfaces.
-- [ ] **Portfolio**: all markets touched; per-market state/PnL/peak/drawdown; RESOLVED→outcome+payout+**Claim**; expand→positions, belief snapshot, payout distribution.
-- [ ] **LP page**: pool NAV/share price/your shares+%/est. value; Deposit/Withdraw; post-resolution **Claim** (separate); LP PnL.
-- [ ] **Admin Panel**: create market (full cfg + R₀); list own markets; per-market overview (trades, traders, volume, exposure curve, reserve util, **creator/MM PnL**); lifecycle buttons incl. resolve(θ*); user list + **top-up**.
-**Checkpoint:** end-to-end demo: admin creates+funds market & tops up a user → user trades → admin resolves → user claims → portfolio & LP reflect final PnL; admin overview shows creator-side profitability.
+- [x] **Portfolio** (`PortfolioPage` + pure `groupPositionsByMarket`): global totals strip (market value / unrealized / realized / total PnL); one expandable card per market touched (status, summed PnL, peak, drawdown-from-peak); SETTLED→market-level **Claim payouts** button; each card expands into its positions reusing `PositionRow` (payout distribution via `core.positionStats`, resolved θ*/payout/finalPnl). `PositionRow` exported + `hideClaim` prop so the group owns the single claim.
+- [x] **LP page** (`LpPage` at `/markets/:id/lp`): pool NAV / share price / total shares / cash / reserve / your stake %; **Deposit** & **Withdraw** with live pro-rata previews (pure `lpDepositPreview`/`lpWithdrawPreview` mirroring `lpMath`, withdraw "may partial-fill at the 1.2× buffer" note + Max button); your est-value/deposited/withdrawn + **LP PnL**; separate post-resolution **Claim** (SETTLED only) showing credited + pnl; mutations fold the returned `LpView` into the cache and re-pull balance.
+- [x] **Admin Panel** (`AdminPage` at `/admin`, behind new `RequireAdmin` guard): **create market** (title/desc/unit/bounds/μ/σ/R₀ + collapsible advanced cfg — reserveAlpha/s0/gamma/lambda/eta/qMax/qThreshold/lr; pure `buildCreateMarketBody` validates + strips blanks); **your markets** (filtered by `creatorId`) each with `lifecycleActions(status)` buttons (open/suspend/resume/close/cancel + **resolve** with inline θ* input → `{thetaStar}`, settle) and an expandable **overview** (`GET /admin/markets/:id/overview`: volume/trades/traders, spread income, **creator/MM PnL**, NAV, E[liability], reserve util, belief drift, 80%-CI calibration); **users** list + per-user **top-up**.
+- [x] Client surface: `api.{lp,lpDeposit,lpWithdraw,lpClaim,adminCreateMarket,adminLifecycle,adminOverview,adminUsers,adminTopup}`; hooks `useLpView`/`useAdminUsers`/`useAdminOverview`; nav gains **Portfolio** (all) + **Admin** (role-gated); MarketPage gains a **Manage liquidity →** link.
+- [x] **Tests (21 new, pure → web suite 46):** `test/derive.test.ts` — `groupPositionsByMarket` sums/orders/claimable-gating, `lpDepositPreview`/`lpWithdrawPreview` (genesis + pro-rata + clamp, faithful to `lpMath`), `cleanCfg`, `buildCreateMarketBody` (trim/strip/validate/inverted-bounds), `lifecycleActions` transitions.
+**Checkpoint:** live wire smoke on `:4100` — admin create→open→**topup**→user **trade**→LP **deposit/withdraw**→**resolve θ\*=130**→**settle**→trader **claim** (payout 3000, idempotent 2nd=0)→**portfolio** final (finalPnl +2046.26, claimed)→**admin overview** (mmPnl + calibration)→**LP claim** (pnl −2046.26 = faithful zero-sum vs the trader's gain). All green. Web typecheck + lint clean; full repo typecheck 4/4, lint clean; `vite build` ok (105 kB gzip); **full suite 202 pass** (shared 9 + core 70 + api 77 + web 46). Smoke artifacts cleaned from `bmm_db`; the **[DEMO]** market remains.
 
 ---
 

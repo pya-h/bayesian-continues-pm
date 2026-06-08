@@ -168,3 +168,108 @@ export interface PositionDetail {
   storedPeakUnrealized: number;
   final: { thetaStar: number; payout: number; finalPnl: number } | null;
 }
+
+// LP (lpSvc.ts) ---
+
+export interface LpPool {
+  cash: number;
+  reserveRequired: number;
+  nav: number;
+  sharesTotal: number;
+  sharePrice: number;
+}
+
+export interface LpView {
+  marketId: string;
+  status: MarketStatus;
+  pool: LpPool;
+  your: {
+    shares: number;
+    sharePct: number;
+    totalDeposited: number;
+    totalWithdrawn: number;
+    estValue: number;
+    claimed: boolean;
+  } | null;
+}
+
+export interface LpDepositResult {
+  minted: number;
+  navBefore: number;
+  lp: LpView;
+}
+
+export interface LpWithdrawResult {
+  cashOut: number;
+  burned: number;
+  partial: boolean;
+  lp: LpView;
+}
+
+export interface LpClaimResult {
+  credited: number;
+  pnl: number;
+  alreadyClaimed: boolean;
+  cashFinal: number;
+  lp: LpView;
+}
+
+// admin ---
+
+export interface AdminUser {
+  userId: string;
+  username: string;
+  role: UserRole;
+  balance: number;
+  isInfinite: boolean;
+  tier: UserTier;
+  createdAt: string;
+}
+
+export interface AdminMarketOverview {
+  marketId: string;
+  status: MarketStatus;
+  belief: { mu: number; sigma: number; sigma2: number };
+  impliedPrice: number;
+  volume: number;
+  trades: number;
+  traders: number;
+  spreadIncome: number;
+  expectedLiability: number;
+  cash: number;
+  nav: number;
+  reserveRequired: number;
+  reserveUtil: number;
+  mmPnl: number;
+  beliefDrift: number;
+  calibration: { thetaStar: number; ci80: { lo: number; hi: number }; inCi80: boolean } | null;
+}
+
+export interface MarketCfgInput {
+  sigmaMin?: number;
+  sigmaEps?: number;
+  s0?: number;
+  gamma?: number;
+  lambda?: number;
+  eta?: number;
+  alpha?: number;
+  beta?: number;
+  qMax?: number;
+  qThreshold?: number;
+  lr?: number;
+  decay?: number;
+  reserveAlpha?: number;
+  useSimplifiedUpdate?: boolean;
+}
+
+export interface CreateMarketInput {
+  title: string;
+  description?: string;
+  outcomeUnit: string;
+  outcomeMin?: number;
+  outcomeMax?: number;
+  initialMu: number;
+  initialSigma: number;
+  initialReserve: number;
+  cfg?: MarketCfgInput;
+}

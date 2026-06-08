@@ -72,6 +72,12 @@ export function MarketPage() {
             <span className={`h-2 w-2 rounded-full ${connected ? 'bg-buy' : 'bg-muted'}`} />
             {connected ? 'live' : 'offline'}
           </span>
+          <Link
+            to={`/markets/${id}/lp`}
+            className="ml-auto rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-xs text-muted hover:text-fg"
+          >
+            Manage liquidity →
+          </Link>
         </div>
         {m.description && <p className="mt-1 max-w-3xl text-sm text-muted">{m.description}</p>}
       </div>

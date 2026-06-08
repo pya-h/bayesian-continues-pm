@@ -3,13 +3,21 @@
 // TanStack Query surfaces it uniformly.
 
 import type {
+  AdminMarketOverview,
+  AdminUser,
   AuthResponse,
+  CreateMarketInput,
   Fill,
+  LpClaimResult,
+  LpDepositResult,
+  LpView,
+  LpWithdrawResult,
   MarketHistory,
   MarketStats,
   MarketView,
   Portfolio,
   PositionDetail,
+  PublicUser,
   Quote,
 } from './types.ts';
 
@@ -103,4 +111,27 @@ export const api = {
   portfolio: () => request<{ portfolio: Portfolio }>('/users/me/portfolio'),
   positionDetail: (contractId: string) =>
     request<{ position: PositionDetail }>(`/users/me/positions/${contractId}`),
+
+  // liquidity provision ---
+  lp: (id: string) => request<{ lp: LpView }>(`/markets/${id}/lp`),
+  lpDeposit: (id: string, amount: number) =>
+    request<{ deposit: LpDepositResult }>(`/markets/${id}/lp/deposit`, { body: { amount } }),
+  lpWithdraw: (id: string, shares: number) =>
+    request<{ withdraw: LpWithdrawResult }>(`/markets/${id}/lp/withdraw`, { body: { shares } }),
+  lpClaim: (id: string) =>
+    request<{ claim: LpClaimResult }>(`/markets/${id}/lp/claim`, { method: 'POST' }),
+
+  // admin ---
+  adminCreateMarket: (input: CreateMarketInput) =>
+    request<{ market: MarketView }>('/admin/markets', { body: input }),
+  adminLifecycle: (id: string, action: string, body?: unknown) =>
+    request<{ market: MarketView }>(`/admin/markets/${id}/${action}`, {
+      method: 'POST',
+      body,
+    }),
+  adminOverview: (id: string) =>
+    request<{ overview: AdminMarketOverview }>(`/admin/markets/${id}/overview`),
+  adminUsers: () => request<{ users: AdminUser[] }>('/admin/users'),
+  adminTopup: (userId: string, amount: number) =>
+    request<{ user: PublicUser }>(`/admin/users/${userId}/topup`, { body: { amount } }),
 };

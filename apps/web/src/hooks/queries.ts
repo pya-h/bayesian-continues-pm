@@ -10,6 +10,9 @@ export const qk = {
   history: (id: string, key?: string) => ['history', id, key ?? null] as const,
   portfolio: ['portfolio'] as const,
   position: (contractId: string) => ['position', contractId] as const,
+  lp: (id: string) => ['lp', id] as const,
+  adminUsers: ['admin', 'users'] as const,
+  adminOverview: (id: string) => ['admin', 'overview', id] as const,
 };
 
 export function useMarkets() {
@@ -44,5 +47,28 @@ export function usePortfolio() {
   return useQuery({
     queryKey: qk.portfolio,
     queryFn: () => api.portfolio().then((r) => r.portfolio),
+  });
+}
+
+export function useLpView(id: string) {
+  return useQuery({
+    queryKey: qk.lp(id),
+    queryFn: () => api.lp(id).then((r) => r.lp),
+  });
+}
+
+export function useAdminUsers(enabled = true) {
+  return useQuery({
+    queryKey: qk.adminUsers,
+    queryFn: () => api.adminUsers().then((r) => r.users),
+    enabled,
+  });
+}
+
+export function useAdminOverview(id: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.adminOverview(id),
+    queryFn: () => api.adminOverview(id).then((r) => r.overview),
+    enabled,
   });
 }

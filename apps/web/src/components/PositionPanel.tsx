@@ -34,7 +34,10 @@ export function PositionPanel({ marketId }: { marketId: string }) {
   );
 }
 
-function PositionRow({ pos }: { pos: PortfolioPosition }) {
+export function PositionRow({
+  pos,
+  hideClaim = false,
+}: { pos: PortfolioPosition; hideClaim?: boolean }) {
   const [open, setOpen] = useState(false);
   const qc = useQueryClient();
   const { user, setUser } = useAuth();
@@ -83,7 +86,7 @@ function PositionRow({ pos }: { pos: PortfolioPosition }) {
               {fmtSigned(pos.final.finalPnl)}
             </span>
           </span>
-          {settled && !pos.final.claimed && (
+          {settled && !pos.final.claimed && !hideClaim && (
             <Button
               variant="primary"
               className="px-2.5 py-1 text-xs"

@@ -24,6 +24,14 @@ export function Layout() {
             <NavLink to="/" end className={navCls}>
               Markets
             </NavLink>
+            <NavLink to="/portfolio" className={navCls}>
+              Portfolio
+            </NavLink>
+            {user?.role === 'admin' && (
+              <NavLink to="/admin" className={navCls}>
+                Admin
+              </NavLink>
+            )}
           </nav>
           <div className="ml-auto flex items-center gap-3">
             {user && (
