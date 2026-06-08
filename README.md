@@ -54,7 +54,7 @@ bun run db:up               # start Postgres 16 in Docker (set POSTGRES_PORT if 
 bun run db:down             # stop it
 ```
 
-- API: http://localhost:3000 (Swagger at `/swagger`, health at `/health`)
+- API: http://localhost:4000 (Swagger at `/swagger`, health at `/health`)
 - Web: http://localhost:5173
 
 ## Workspace scripts

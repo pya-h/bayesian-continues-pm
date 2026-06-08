@@ -7,6 +7,16 @@ Legend: `core`=`packages/core` · `shared`=`packages/shared` · `api`=`apps/api`
 
 ---
 
+## Testing strategy (applies to every phase)
+Two complementary layers, both run by `bun test` (api uses `--isolate` — see Phase 4 note):
+- **Unit tests — pure, no IO, run unconditionally.** Pure functions tested in isolation: `packages/core` (math engine), `packages/shared` (money/DTO), and pure API helpers extracted out of the services (e.g. `apps/api/src/services/tradeMath.ts` — exec price, average-entry accounting, fill sizing). **Rule:** every new pure module ships with a sibling `*.test.ts`; logic that *can* be made IO-free *should* be, so it can be unit-tested without a DB.
+- **Integration tests — real DB.** `app.handle(new Request(...))` against local `bmm_db`, guarded by `describe.if(hasEnv)`, each creating throwaway rows and cleaning them up in `afterAll`. Cover the HTTP surface, persistence, and serialization.
+- v1 closes (Phase 11) with a cross-cutting integration suite + a Monte-Carlo simulation, plus a Playwright smoke for the UI happy path.
+
+**Definition of "phase DONE" includes:** its pure logic has unit tests and its endpoints have integration tests, all green; `typecheck` + `lint` clean.
+
+---
+
 ## Phase 0 — Scaffold & tooling DONE
 **Goal:** monorepo boots, lints, type-checks; Postgres reachable.
 - [x] Root `package.json` with **Bun workspaces** `["packages/*","apps/*"]`; scripts: `dev`, `build`, `test`, `typecheck`, `lint`, `db:up/down`, `db:migrate`, `db:seed`.
@@ -54,7 +64,7 @@ Legend: `core`=`packages/core` · `shared`=`packages/shared` · `api`=`apps/api`
 - [x] `GET /admin/users`; `POST /admin/users/:id/topup` (credits balance + `audit_events` row; infinite users left untouched). Added `audit_events` table (migration 0001).
 - [x] WS at `/ws` (subscribe/unsubscribe/ping) + `realtime.ts` publish bus (`market:`/`user:`/`system` topics) for later domain events.
 **Checkpoint:** 10-test integration suite (register 201 / dup 409 / bad-login 401 / me / no-token 401 / non-admin 403 / admin list / topup→balance / bad-amount 400) + live HTTP smoke (health, swagger 200, register JWT). Full suite **88 pass** (shared 9 + core 69 + api 10); typecheck 4/4; lint clean.
-**Note:** host port 3000 is occupied on this machine — set `PORT` (+ `VITE_API_URL`/`VITE_WS_URL`) to a free port to run the live server.
+**Note:** host port 4000 is occupied on this machine — set `PORT` (+ `VITE_API_URL`/`VITE_WS_URL`) to a free port to run the live server.
 
 ---
 
@@ -69,16 +79,17 @@ Legend: `core`=`packages/core` · `shared`=`packages/shared` · `api`=`apps/api`
 
 ---
 
-## Phase 5 — Quoting & trade engine `[api]` `[blocked-by: 4]`
+## Phase 5 — Quoting & trade engine `[api]` `[blocked-by: 4]` DONE
 **Goal:** real buy/sell with belief updates and solvency gating.
-- [ ] `POST /markets/:id/quote`: pure `core` quote w/ spread breakdown + projected belief/reserve (no state).
-- [ ] `TradeEngine.execute` (`MODEL.md §7.2` corrected, `TDD.md §5.2`): fair→spread→exec→slippage→balance/position checks→tentative apply→reserve recompute→solvency gate (`cash≥1.2×Reserve` to open)→commit txn→emit events.
-- [ ] Contract upsert by `contract_key`; update `mm_short`, `positions` (avg-entry accounting), `cash`, belief; write `trades` + `belief_updates`.
-- [ ] Sell-only-what-you-hold; "close position" = sell full holding at bid.
-- [ ] Partial fill via `maxExecutable` (`MODEL.md §7.3`).
-- [ ] WS emit: `trade_executed`, `belief_update`, `price_change`, `reserve_update`.
-- [ ] Insolvency-rejection + circuit breakers subset (`TDD.md §15`).
-**Checkpoint (integration test):** create→open→several buys/sells move μ correctly, cash/reserve update, a deliberately oversized trade is rejected for insolvency, a partial fill works.
+- [x] `POST /markets/:id/quote`: pure `core` quote w/ spread breakdown + projected belief/reserve + max feasible fill (no state); requires auth.
+- [x] `TradeEngine.execute` (`MODEL.md §7.2` corrected, `TDD.md §5.2`): fair→spread→exec→slippage→balance/position checks→size fill→tentative apply→reserve recompute→solvency gate→commit txn→emit events. Serialized per market (`withMarketLock` + `FOR UPDATE` on market & trader rows).
+- [x] Contract upsert by `contract_key`; update `mm_short`, `positions` (avg-entry accounting), `cash`, belief; write `trades` + `belief_updates`.
+- [x] Sell-only-what-you-hold; "close position" = sell full holding at bid.
+- [x] Partial fill (`MODEL.md §7.3`) via `solveFill` (monotone binary search on the solvency frontier). **Solvency model:** a buy's own premium inflow is *not* counted as backing for the risk it creates (`effectiveCash = cash + min(0, totalCost)`), so a trade can't self-fund unbounded exposure; circuit-breaker margin `effectiveCash ≥ 1.2×Reserve` to open new risk (`§15.1`), `≥ 1×` to reduce. Sizing & acceptance share the pre-update belief; the post-update reserve is recorded as the live mark.
+- [x] WS emit: `trade_executed`, `belief_update`, `price_change`, `reserve_update` (+ per-user `trade_executed`).
+- [x] Insolvency-rejection + circuit-breaker margin subset (`TDD.md §15`).
+- [x] **Unit tests (10, no DB):** `tradeMath` — exec price (ask/bid, bid floor), average-entry buys/sells/close + realized PnL, `solveFill` full/partial/balance-capped. **Integration (7, real DB):** quote shape; buy lifts μ + collects premium + opens reserve + records avg-entry position + debits balance; partial sell reduces qty + realizes PnL; sell-what-you-don't-hold → 400; oversized buy → partial fill at the frontier; trade on non-OPEN market → 409; unauthenticated → 401.
+**Checkpoint (integration test):** create→open→buys/sells move μ correctly, cash/reserve update, an oversized trade partial-fills at the solvency frontier, sell-only-what-you-hold enforced. Full suite **113 pass** (shared 9 + core 69 + api 35); typecheck 4/4; lint clean.
 
 ---
 
@@ -88,6 +99,7 @@ Legend: `core`=`packages/core` · `shared`=`packages/shared` · `api`=`apps/api`
 - [ ] `POST /markets/:id/claim` (SETTLED): idempotent credit of recorded payout to balance; mark claimed.
 - [ ] Optional per-contract proximity/tiered settlement config (`MODEL.md §8.3`), off by default.
 - [ ] CANCELLED path: unwind trades at cost basis, refund.
+- [ ] **Unit tests:** payout = `Σ position·f(θ*)` per contract type (extract a pure settlement helper); refund/cost-basis math. **Integration:** trade→resolve→claim credits once; double-claim no-op; cancel refunds.
 **Checkpoint:** full trade→resolve→claim crediting verified; double-claim is a no-op; cancel refunds.
 
 ---
@@ -98,6 +110,7 @@ Legend: `core`=`packages/core` · `shared`=`packages/shared` · `api`=`apps/api`
 - [ ] Routes: `GET /markets/:id/lp`, `POST …/lp/deposit|withdraw`; serialized on market queue.
 - [ ] LP settlement: `cash_final = cash − Σ user_payouts`; `POST …/lp/claim` credits `share% · cash_final`; LP PnL.
 - [ ] WS `lp_update`.
+- [ ] **Unit tests:** NAV / share-price / pro-rata mint & burn math (pure helper); `cash_final` split. **Integration:** deposit→trade→resolve→LP claim reflects MM PnL with creator's R₀ included.
 **Checkpoint (integration):** LP deposits → capacity rises → trades occur → resolve → LP claim reflects MM PnL (spread income minus payout losses), creator's R₀ included.
 
 ---
@@ -108,6 +121,7 @@ Legend: `core`=`packages/core` · `shared`=`packages/shared` · `api`=`apps/api`
 - [ ] Portfolio: `GET /users/me/portfolio` (per-market state, position value, PnL, peak profit, drawdown; resolved→final outcome+payout).
 - [ ] Position detail `GET /users/me/positions/:contractId` with payout distribution + per-position stats (`TDD.md §8`).
 - [ ] Belief/price history endpoints for charts.
+- [ ] **Unit tests:** peak-profit / drawdown / PnL aggregation over a synthetic time series (pure helpers); cross-check `core` stats. **Integration:** endpoints return formula-backed numbers on a seeded scenario.
 **Checkpoint:** endpoints return correct, formula-backed numbers (cross-checked against `core` and hand calc on a seeded scenario).
 
 ---

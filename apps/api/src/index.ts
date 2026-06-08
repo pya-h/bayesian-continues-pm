@@ -11,6 +11,7 @@ import { adminRoutes } from './routes/admin.ts';
 import { adminMarketRoutes } from './routes/adminMarkets.ts';
 import { authRoutes } from './routes/auth.ts';
 import { marketRoutes } from './routes/markets.ts';
+import { tradeRoutes } from './routes/trades.ts';
 import { wsRoutes } from './ws.ts';
 
 export const app = new Elysia()
@@ -52,6 +53,7 @@ export const app = new Elysia()
   }))
   .use(authRoutes)
   .use(marketRoutes)
+  .use(tradeRoutes)
   .use(adminRoutes)
   .use(adminMarketRoutes)
   .use(wsRoutes);

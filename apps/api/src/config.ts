@@ -11,7 +11,7 @@ function num(key: string, fallback: number): number {
 }
 
 export const config = {
-  port: num('PORT', 3000),
+  port: num('PORT', 4000),
   webOrigin: process.env.WEB_ORIGIN ?? 'http://localhost:5173',
   jwtSecret: process.env.JWT_SECRET ?? 'dev-insecure-secret-change-me',
   admin: {
