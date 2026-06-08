@@ -218,7 +218,7 @@ function Row({
 
 function FillReceipt({ fill }: { fill: Fill }) {
   return (
-    <div className="rounded-lg border border-buy/40 bg-buy-soft p-3 text-xs tnum">
+    <div className="rounded-lg border border-buy/40 bg-buy-soft p-3 text-xs tnum animate-pop">
       <div className="mb-1 font-semibold text-buy">
         Filled {fmt(fill.filledQ, 2)} {fill.partial ? '(partial)' : ''} @ {fmt(fill.execPrice)}
       </div>

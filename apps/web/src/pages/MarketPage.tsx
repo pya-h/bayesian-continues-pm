@@ -13,7 +13,7 @@ import { PositionPanel } from '../components/PositionPanel.tsx';
 import { PriceCurveChart } from '../components/PriceCurveChart.tsx';
 import { QuotePanel } from '../components/QuotePanel.tsx';
 import { TradesTape } from '../components/TradesTape.tsx';
-import { ErrorNote, Panel, Spinner, Stat, StatusBadge } from '../components/ui.tsx';
+import { ErrorNote, FlashNumber, Panel, Spinner, Stat, StatusBadge } from '../components/ui.tsx';
 import { useMarket, useMarketHistory, useMarketStats } from '../hooks/queries.ts';
 import { useMarketSocket } from '../hooks/useMarketSocket.ts';
 import { ApiError } from '../lib/api.ts';
@@ -84,8 +84,19 @@ export function MarketPage() {
 
       {/* stat strip */}
       <div className="grid grid-cols-2 gap-4 rounded-xl border border-edge bg-panel p-4 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat label="Consensus μ" value={`${fmt(mu, 0)} ${m.outcomeUnit}`} tone="accent" />
-        <Stat label="Uncertainty σ" value={fmt(sigma, 0)} />
+        <Stat
+          label="Consensus μ"
+          value={
+            <FlashNumber value={mu}>
+              {fmt(mu, 0)} {m.outcomeUnit}
+            </FlashNumber>
+          }
+          tone="accent"
+        />
+        <Stat
+          label="Uncertainty σ"
+          value={<FlashNumber value={sigma}>{fmt(sigma, 0)}</FlashNumber>}
+        />
         <Stat label="Pool NAV" value={fmtCompact(m.pool.nav)} />
         <Stat label="Cash" value={fmtCompact(m.cash)} />
         <Stat

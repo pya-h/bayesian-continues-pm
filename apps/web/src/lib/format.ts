@@ -1,4 +1,23 @@
-export function fmt(n: number | null | undefined, decimals = 2): string {
+// Display formatters. Pure functions, but they read two process-wide display
+// preferences (decimal precision + compact-numbers) that the UI's Preferences
+// panel sets via the setters below. Call sites that pass an explicit `decimals`
+// (axis ticks at 0, spread internals at 4, …) are unaffected — only the *money*
+// default tracks the user's precision.
+
+let DEFAULT_DECIMALS = 2;
+let COMPACT_NUMBERS = true;
+
+export function setNumberPrecision(decimals: number): void {
+  DEFAULT_DECIMALS = Math.max(0, Math.min(6, Math.round(decimals)));
+}
+export function getNumberPrecision(): number {
+  return DEFAULT_DECIMALS;
+}
+export function setCompactNumbers(on: boolean): void {
+  COMPACT_NUMBERS = on;
+}
+
+export function fmt(n: number | null | undefined, decimals = DEFAULT_DECIMALS): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—';
   return n.toLocaleString('en-US', {
     minimumFractionDigits: decimals,
@@ -8,13 +27,14 @@ export function fmt(n: number | null | undefined, decimals = 2): string {
 
 export function fmtCompact(n: number | null | undefined): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—';
+  if (!COMPACT_NUMBERS) return fmt(n);
   const abs = Math.abs(n);
   if (abs >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
   if (abs >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
-  return fmt(n, 2);
+  return fmt(n);
 }
 
-export function fmtSigned(n: number | null | undefined, decimals = 2): string {
+export function fmtSigned(n: number | null | undefined, decimals = DEFAULT_DECIMALS): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—';
   const s = fmt(Math.abs(n), decimals);
   return n < 0 ? `−${s}` : `+${s}`;

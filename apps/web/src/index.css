@@ -1,6 +1,13 @@
 @import "tailwindcss";
 
-/* BMM design tokens — a calm, dark "terminal" palette for a trading desk. */
+/*
+ * BMM design tokens. The default (no data-theme attribute) is the calm dark
+ * "trading desk" palette. Alternate themes override the scalar tokens under
+ * `:root[data-theme=…]`; accents override `--color-accent` under
+ * `:root[data-accent=…]`. The *soft* tints are derived with color-mix so they
+ * track whatever theme + accent are active — define them once, never per-theme.
+ * Every component and SVG chart reads these vars, so a swap re-tints everything.
+ */
 @theme {
   --color-ink: #0b0e14;
   --color-panel: #11151f;
@@ -8,14 +15,75 @@
   --color-edge: #232a3a;
   --color-muted: #8a93a6;
   --color-fg: #dfe5f0;
+
   --color-buy: #2ea36b;
-  --color-buy-soft: #143727;
   --color-sell: #d8504d;
-  --color-sell-soft: #3a1a1c;
   --color-accent: #5b8cff;
-  --color-accent-soft: #16233f;
   --color-warn: #e0a948;
+  --color-on-accent: #ffffff;
+
+  /* derived, theme- and accent-aware tints */
+  --color-buy-soft: color-mix(in oklab, var(--color-buy) 20%, var(--color-panel));
+  --color-sell-soft: color-mix(in oklab, var(--color-sell) 20%, var(--color-panel));
+  --color-accent-soft: color-mix(in oklab, var(--color-accent) 20%, var(--color-panel));
+  --color-warn-soft: color-mix(in oklab, var(--color-warn) 20%, var(--color-panel));
+
+  /* motion timing */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 }
+
+/* ── alternate base themes ───────────────────────────────────────────────── */
+
+:root[data-theme="midnight"] {
+  --color-ink: #060812;
+  --color-panel: #0c1020;
+  --color-panel-2: #131a30;
+  --color-edge: #222c48;
+  --color-muted: #7f8aa6;
+  --color-fg: #e7ecf9;
+}
+
+:root[data-theme="slate"] {
+  --color-ink: #0c0e12;
+  --color-panel: #14171d;
+  --color-panel-2: #1b1f27;
+  --color-edge: #2c323e;
+  --color-muted: #8b93a3;
+  --color-fg: #e4e8f0;
+}
+
+:root[data-theme="light"] {
+  --color-ink: #eef1f7;
+  --color-panel: #ffffff;
+  --color-panel-2: #f1f4fa;
+  --color-edge: #d7dde9;
+  --color-muted: #5c6678;
+  --color-fg: #1a2233;
+  --color-buy: #15935f;
+  --color-sell: #d0413d;
+  --color-warn: #b9831f;
+}
+
+/* ── accent presets (soft tints derive automatically) ────────────────────── */
+
+:root[data-accent="violet"] {
+  --color-accent: #8b7cff;
+}
+:root[data-accent="emerald"] {
+  --color-accent: #2fb37a;
+}
+:root[data-accent="amber"] {
+  --color-accent: #e0a948;
+  --color-on-accent: #1a1206;
+}
+:root[data-accent="rose"] {
+  --color-accent: #f2607d;
+}
+:root[data-accent="cyan"] {
+  --color-accent: #2bb6c4;
+}
+
+/* ── base document ───────────────────────────────────────────────────────── */
 
 html,
 body,
@@ -36,4 +104,173 @@ body {
 .tnum {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
+}
+
+/* A clearer keyboard focus ring everywhere. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Quiet, theme-aware scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-edge) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-edge);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+  background-clip: padding-box;
+}
+
+/* ── smooth theme cross-fade ─────────────────────────────────────────────── */
+/* A short global color transition makes theme/accent switches glide instead of
+   snapping. Layout/transform are never transitioned here, so it stays cheap. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-motion="off"]) * {
+    transition-property: background-color, border-color, color, fill, stroke, box-shadow,
+      outline-color;
+    transition-duration: 220ms;
+    transition-timing-function: ease;
+  }
+}
+
+/* ── animations ──────────────────────────────────────────────────────────── */
+
+@keyframes bmm-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes bmm-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes bmm-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes bmm-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  60% {
+    transform: scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes bmm-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+@keyframes bmm-flash-up {
+  0% {
+    background-color: color-mix(in oklab, var(--color-buy) 38%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+@keyframes bmm-flash-down {
+  0% {
+    background-color: color-mix(in oklab, var(--color-sell) 38%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.animate-fade-up {
+  animation: bmm-fade-up 0.45s var(--ease-out-soft) both;
+}
+.animate-fade-in {
+  animation: bmm-fade-in 0.4s ease both;
+}
+.animate-slide-in {
+  animation: bmm-slide-in 0.32s var(--ease-out-soft) both;
+}
+.animate-pop {
+  animation: bmm-pop 0.3s var(--ease-out-soft) both;
+}
+.flash-up {
+  animation: bmm-flash-up 0.9s ease-out;
+}
+.flash-down {
+  animation: bmm-flash-down 0.9s ease-out;
+}
+
+/* Gradient shimmer for skeleton placeholders. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-panel-2);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-fg) 8%, transparent),
+    transparent
+  );
+  animation: bmm-shimmer 1.4s infinite;
+}
+
+/* A reusable hover-lift for cards / interactive tiles. */
+.lift {
+  transition: transform 0.18s var(--ease-out-soft), border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.lift:hover {
+  transform: translateY(-2px);
+}
+
+/* ── honour reduced motion / the animations toggle ───────────────────────── */
+:root[data-motion="off"] *,
+:root[data-motion="off"] *::before,
+:root[data-motion="off"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

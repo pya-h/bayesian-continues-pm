@@ -55,8 +55,13 @@ export function MarketsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {rows.map((m) => (
-            <MarketCard key={m.marketId} market={m} held={heldByMarket.get(m.marketId) ?? 0} />
+          {rows.map((m, i) => (
+            <MarketCard
+              key={m.marketId}
+              market={m}
+              held={heldByMarket.get(m.marketId) ?? 0}
+              index={i}
+            />
           ))}
         </div>
       )}
@@ -64,12 +69,17 @@ export function MarketsPage() {
   );
 }
 
-function MarketCard({ market: m, held }: { market: MarketView; held: number }) {
+function MarketCard({
+  market: m,
+  held,
+  index,
+}: { market: MarketView; held: number; index: number }) {
   const { mu, sigma } = m.belief;
   return (
     <Link
       to={`/markets/${m.marketId}`}
-      className="group flex flex-col gap-3 rounded-xl border border-edge bg-panel p-4 transition-colors hover:border-muted"
+      style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
+      className="lift group flex flex-col gap-3 rounded-xl border border-edge bg-panel p-4 animate-fade-up hover:border-accent/60 hover:shadow-lg hover:shadow-black/20"
     >
       <div className="flex items-start justify-between gap-2">
         <h3 className="font-semibold leading-snug group-hover:text-accent">{m.title}</h3>

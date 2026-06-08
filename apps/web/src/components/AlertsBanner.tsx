@@ -42,7 +42,7 @@ export function AlertsBanner({ enabled = true }: { enabled?: boolean }) {
         {alerts.map((a) => (
           <li
             key={a.id}
-            className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-xs ${SEVERITY[a.severity] ?? SEVERITY.info}`}
+            className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-xs animate-slide-in ${SEVERITY[a.severity] ?? SEVERITY.info}`}
           >
             <div className="flex flex-col gap-0.5">
               <span className="font-semibold">

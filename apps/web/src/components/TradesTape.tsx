@@ -17,8 +17,11 @@ export function TradesTape({ tape }: { tape: TapeEntry[] }) {
           </tr>
         </thead>
         <tbody>
-          {tape.map((t) => (
-            <tr key={t.tradeId} className="border-t border-edge/60">
+          {tape.map((t, i) => (
+            <tr
+              key={t.tradeId}
+              className={`border-t border-edge/60 ${i === 0 ? 'animate-slide-in' : ''}`}
+            >
               <td
                 className={`px-4 py-1.5 font-semibold ${t.side === 'buy' ? 'text-buy' : 'text-sell'}`}
               >

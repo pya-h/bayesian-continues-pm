@@ -3,6 +3,7 @@
 import { type FormEvent, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.tsx';
+import { SettingsDialog } from '../components/SettingsDialog.tsx';
 import { Button, ErrorNote } from '../components/ui.tsx';
 import { ApiError } from '../lib/api.ts';
 
@@ -14,6 +15,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Already signed in → straight to markets.
   if (user) return <Navigate to="/" replace />;
@@ -34,10 +36,27 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-sm">
+    <div className="relative flex min-h-screen items-center justify-center px-4">
+      {/* ambient accent glow */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-10"
+        style={{
+          background:
+            'radial-gradient(60rem 40rem at 50% -10%, color-mix(in oklab, var(--color-accent) 16%, transparent), transparent 70%)',
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => setSettingsOpen(true)}
+        aria-label="Preferences"
+        className="absolute right-4 top-4 rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-xs text-muted transition-colors hover:text-fg"
+      >
+        ⚙ Theme
+      </button>
+      <div className="w-full max-w-sm animate-fade-up">
         <div className="mb-6 text-center">
-          <div className="text-3xl">◎</div>
+          <div className="text-3xl text-accent">◎</div>
           <h1 className="mt-2 text-xl font-semibold">BMM Prediction Market</h1>
           <p className="text-sm text-muted">
             Trade continuous-outcome contracts against a Bayesian maker.
@@ -98,6 +117,8 @@ export function LoginPage() {
           )}
         </form>
       </div>
+
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

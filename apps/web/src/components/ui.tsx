@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { type ButtonHTMLAttributes, type ReactNode, useEffect, useRef, useState } from 'react';
 import { statusTone } from '../lib/format.ts';
 
 export function Panel({
@@ -70,12 +70,12 @@ export function Button({
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
   const base =
-    'inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45';
+    'inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold transition-[transform,background-color,border-color,filter] duration-150 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-45 disabled:active:scale-100';
   const variants: Record<Variant, string> = {
-    primary: 'bg-accent text-white hover:bg-[#3f74f0]',
-    buy: 'bg-buy text-white hover:bg-[#268a5b]',
-    sell: 'bg-sell text-white hover:bg-[#c0413e]',
-    ghost: 'border border-edge bg-panel-2 text-fg hover:border-muted',
+    primary: 'bg-accent text-[var(--color-on-accent)] hover:brightness-110 active:brightness-95',
+    buy: 'bg-buy text-white hover:brightness-110 active:brightness-95',
+    sell: 'bg-sell text-white hover:brightness-110 active:brightness-95',
+    ghost: 'border border-edge bg-panel-2 text-fg hover:border-muted hover:bg-edge/40',
   };
   return <button className={`${base} ${variants[variant]} ${className}`} {...props} />;
 }
@@ -98,5 +98,60 @@ export function ErrorNote({ children }: { children: ReactNode }) {
 }
 
 export function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse rounded-md bg-panel-2 ${className}`} />;
+  return <div className={`skeleton rounded-md ${className}`} />;
+}
+
+// Wraps a numeric value and briefly flashes green/red when it changes — for live
+// figures like balance and consensus μ. `children` is the already-formatted text
+// `value` is the raw number that drives the flash direction.
+export function FlashNumber({
+  value,
+  children,
+  className = '',
+}: {
+  value: number;
+  children: ReactNode;
+  className?: string;
+}) {
+  const prev = useRef(value);
+  const [flash, setFlash] = useState('');
+  useEffect(() => {
+    if (!Number.isFinite(value) || value === prev.current) return;
+    setFlash(value > prev.current ? 'flash-up' : 'flash-down');
+    prev.current = value;
+    const t = setTimeout(() => setFlash(''), 900);
+    return () => clearTimeout(t);
+  }, [value]);
+  return (
+    <span className={`-mx-1 inline-block rounded px-1 ${flash} ${className}`}>{children}</span>
+  );
+}
+
+export function Toggle({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors ${
+        checked ? 'border-accent bg-accent' : 'border-edge bg-panel-2'
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
+          checked ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  );
 }
