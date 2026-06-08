@@ -5,13 +5,20 @@ import { swagger } from '@elysiajs/swagger';
 import { Elysia } from 'elysia';
 import { authPlugin } from './auth/plugin.ts';
 import { config } from './config.ts';
+import { HttpError } from './lib/errors.ts';
 import { setServer } from './realtime.ts';
 import { adminRoutes } from './routes/admin.ts';
+import { adminMarketRoutes } from './routes/adminMarkets.ts';
 import { authRoutes } from './routes/auth.ts';
+import { marketRoutes } from './routes/markets.ts';
 import { wsRoutes } from './ws.ts';
 
 export const app = new Elysia()
   .onError(({ code, error, set }) => {
+    if (error instanceof HttpError) {
+      set.status = error.status;
+      return { error: error.message };
+    }
     if (code === 'NOT_FOUND') {
       set.status = 404;
       return { error: 'Not found' };
@@ -44,7 +51,9 @@ export const app = new Elysia()
     time: new Date().toISOString(),
   }))
   .use(authRoutes)
+  .use(marketRoutes)
   .use(adminRoutes)
+  .use(adminMarketRoutes)
   .use(wsRoutes);
 
 if (import.meta.main) {

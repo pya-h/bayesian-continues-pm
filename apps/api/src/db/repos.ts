@@ -2,11 +2,12 @@
 // minimal; more are added per feature phase. Services compose these + transactions.
 
 import { addMoney } from '@bmm/shared';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { db } from './client.ts';
-import { users } from './schema.ts';
+import { markets, users } from './schema.ts';
 
 export type UserRow = typeof users.$inferSelect;
+export type MarketRow = typeof markets.$inferSelect;
 
 export const userRepo = {
   async byUsername(username: string): Promise<UserRow | undefined> {
@@ -45,5 +46,16 @@ export const userRepo = {
       .where(eq(users.userId, userId))
       .returning();
     return rows[0];
+  },
+};
+
+export const marketRepo = {
+  async byId(marketId: string): Promise<MarketRow | undefined> {
+    const rows = await db.select().from(markets).where(eq(markets.marketId, marketId)).limit(1);
+    return rows[0];
+  },
+
+  async list(): Promise<MarketRow[]> {
+    return db.select().from(markets).orderBy(desc(markets.createdAt));
   },
 };

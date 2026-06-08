@@ -58,14 +58,14 @@ Legend: `core`=`packages/core` · `shared`=`packages/shared` · `api`=`apps/api`
 
 ---
 
-## Phase 4 — Market lifecycle & admin market mgmt `[api]` `[blocked-by: 3]`
+## Phase 4 — Market lifecycle & admin market mgmt `[api]` `[blocked-by: 3]` DONE
 **Goal:** admin creates and drives markets through states.
-- [ ] `MarketSvc`: create market (validate cfg, defaults from `MODEL.md §14.1`, set `μ₀/σ₀`, seed `cash=R₀`, mint creator LP shares `=R₀`, init pool).
-- [ ] Lifecycle transitions (`TDD.md §7`): open/suspend/resume/resolve(θ*)/cancel/close with guards + state machine; persist + emit `market_status`.
-- [ ] `OracleSvc`: manual θ* entry on resolve; store `oracles` row.
-- [ ] Public reads: `GET /markets`, `/markets/:id` (belief, cfg, pool NAV via `core`).
-- [ ] Per-market serialization queue scaffold (`TDD.md §5.5`) + `markets FOR UPDATE` in txns.
-**Checkpoint:** admin creates a market with R₀, opens it; `GET /markets/:id` shows consensus μ/σ and pool NAV; can suspend/resume.
+- [x] `MarketSvc.createMarket`: resolve `EngineConfig` from (μ₀,σ₀)+overrides (defaults `MODEL.md §14.1`), seed `cash=R₀`, mint creator LP shares `=R₀` + genesis ledger entry — one transaction; non-infinite creators are debited.
+- [x] Lifecycle state machine (`TDD §7`): open/suspend/resume/resolve(θ*)/cancel/close with validated transitions; `FOR UPDATE` on the market row; persist + emit `market_status` WS event + audit row.
+- [x] Oracle: manual θ* recorded into `oracles` on resolve (folded into `transitionMarket`).
+- [x] Public reads: `GET /markets`, `GET /markets/:id` → `marketView` (belief μ/σ, cfg, pool NAV = cash − E[L], share price) via `core`.
+- [x] Per-market serialization queue (`marketQueue.withMarketLock`, `TDD §5.5`) + `markets FOR UPDATE` in lifecycle txns.
+**Checkpoint:** 8-test integration (non-admin 403, create→CREATED seeded R₀, GET shows μ=65000/σ=5000 + NAV=1e6 + sharePrice=1 + cfg override, list, open→suspend→resume, illegal-transition 409, resolve θ*, resolve-no-θ* 400). Full suite **96 pass** (shared 9 + core 69 + api 18); typecheck 4/4; lint clean. (Fixed: api tests now run with `--isolate` so per-file `sql.end()` don't cross-close the shared pool.)
 
 ---
 
