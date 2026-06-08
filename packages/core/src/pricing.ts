@@ -1,9 +1,9 @@
 // Pricing — fair price E_p[f(θ)] for each contract under a Gaussian belief.
 // Closed forms, plus ∂Price/∂μ for the
-// adverse-selection spread term, and an adaptive-Simpson fallback for the general
-// E_p[g(θ)] used by stats / future custom payoffs.
+// adverse-selection spread term, and a fixed composite-Simpson fallback for the
+// general E_p[g(θ)] used by stats / future custom payoffs.
 
-import { GaussianBelief } from './gaussian.ts';
+import type { GaussianBelief } from './gaussian.ts';
 import { Phi, phi } from './numerics.ts';
 import type { BeliefModel, ContractSpec } from './types.ts';
 
@@ -93,60 +93,32 @@ export function dPriceDMu(spec: ContractSpec, belief: BeliefModel): number {
   }
 }
 
-// General expectation E_p[g(θ)] via adaptive Simpson over a ±L·σ window.
-// Deterministic fallback for stats second moments and any future custom payoff.
+// General expectation E_p[g(θ)] via fixed composite Simpson over a ±L·σ window.
+// Deterministic, O(nodes) cost — it CANNOT hang (an earlier adaptive variant could
+// recurse toward 2^depth evaluations on kinked integrands like a call's payoff²).
+// Accurate to ~1e-9 for smooth integrands; for continuous-but-kinked payoffs the
+// error is O(h²). Discontinuous payoffs (binary/spread) have exact closed forms and
+// should not be routed through here.
 export function expectF(
   fn: (theta: number) => number,
   belief: BeliefModel,
-  opts: { L?: number; tol?: number } = {},
+  opts: { L?: number; nodes?: number } = {},
 ): number {
   const g = asGaussian(belief);
   const sigma = g.stddev();
-  const L = opts.L ?? 12;
-  const tol = opts.tol ?? 1e-10;
+  const L = opts.L ?? 10;
+  // even node count for composite Simpson
+  let n = opts.nodes ?? 4000;
+  if (n % 2 === 1) n += 1;
+
+  const a = g.mu - L * sigma;
+  const b = g.mu + L * sigma;
+  const h = (b - a) / n;
   const integrand = (theta: number) => fn(theta) * g.pdf(theta);
-  return adaptiveSimpson(integrand, g.mu - L * sigma, g.mu + L * sigma, tol, 50);
-}
 
-function adaptiveSimpson(
-  f: (x: number) => number,
-  a: number,
-  b: number,
-  tol: number,
-  maxDepth: number,
-): number {
-  const c = (a + b) / 2;
-  const fa = f(a);
-  const fb = f(b);
-  const fc = f(c);
-  const s = ((b - a) / 6) * (fa + 4 * fc + fb);
-  return recurse(f, a, b, fa, fb, fc, s, tol, maxDepth);
-}
-
-function recurse(
-  f: (x: number) => number,
-  a: number,
-  b: number,
-  fa: number,
-  fb: number,
-  fc: number,
-  s: number,
-  tol: number,
-  depth: number,
-): number {
-  const c = (a + b) / 2;
-  const lc = (a + c) / 2;
-  const rc = (c + b) / 2;
-  const flc = f(lc);
-  const frc = f(rc);
-  const sLeft = ((c - a) / 6) * (fa + 4 * flc + fc);
-  const sRight = ((b - c) / 6) * (fc + 4 * frc + fb);
-  const s2 = sLeft + sRight;
-  if (depth <= 0 || Math.abs(s2 - s) <= 15 * tol) {
-    return s2 + (s2 - s) / 15;
+  let sum = integrand(a) + integrand(b);
+  for (let i = 1; i < n; i++) {
+    sum += (i % 2 === 0 ? 2 : 4) * integrand(a + i * h);
   }
-  return (
-    recurse(f, a, c, fa, fc, flc, sLeft, tol / 2, depth - 1) +
-    recurse(f, c, b, fc, fb, frc, sRight, tol / 2, depth - 1)
-  );
+  return (sum * h) / 3;
 }

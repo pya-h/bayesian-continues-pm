@@ -9,7 +9,7 @@
 // Returns a breakdown (not just a scalar) so the UI can explain the quote.
 // The half-spread is always ≥ 0; exec price = fair + spread (buy) / fair − spread (sell).
 
-import { GaussianBelief } from './gaussian.ts';
+import type { GaussianBelief } from './gaussian.ts';
 import { dPriceDMu, price } from './pricing.ts';
 import type { BeliefModel, ContractSpec, EngineConfig } from './types.ts';
 

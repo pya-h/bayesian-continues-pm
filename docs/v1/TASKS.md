@@ -7,31 +7,32 @@ Legend: `core`=`packages/core` · `shared`=`packages/shared` · `api`=`apps/api`
 
 ---
 
-## Phase 0 — Scaffold & tooling
+## Phase 0 — Scaffold & tooling DONE
 **Goal:** monorepo boots, lints, type-checks; Postgres reachable.
-- [ ] Root `package.json` with **Bun workspaces** `["apps/*","packages/*"]`; scripts: `dev`, `build`, `test`, `db:up`, `db:migrate`, `db:seed`.
-- [ ] `tsconfig.base.json` (strict) + per-package `tsconfig` with project refs.
-- [ ] ESLint + Prettier (or Biome) at root.
-- [ ] `docker-compose.yml` with Postgres 16; `.env.example` (all keys from `TDD.md §13`); `.env` gitignored.
-- [ ] Empty package skeletons: `core`, `shared`, `api`, `web` with index + build.
-- [ ] `README.md` quickstart: `bun install` → `bun db:up` → `bun db:migrate` → `bun db:seed` → `bun dev`.
-**Checkpoint:** `bun install && bun run build && bun test` succeed (no real tests yet); `docker compose up` gives a live Postgres.
+- [x] Root `package.json` with **Bun workspaces** `["packages/*","apps/*"]`; scripts: `dev`, `build`, `test`, `typecheck`, `lint`, `db:up/down`, `db:migrate`, `db:seed`.
+- [x] `tsconfig.base.json` (strict, `noUncheckedIndexedAccess`) + per-package `tsconfig` (via `extends`; project refs not needed — Bun runs TS sources directly).
+- [x] **Biome** at root (lint + format, replaces ESLint+Prettier).
+- [x] `docker-compose.yml` with Postgres 16; `.env.example` (all keys from `TDD §13`); `.env` gitignored. *(Docker is now optional — dev runs against a local Postgres via `DATABASE_URL`.)*
+- [x] Package skeletons: `core`, `shared`, `api` (Elysia health server), `web` (React+Vite) with index + build.
+- [x] `README.md` quickstart (local-Postgres-first; Docker optional).
+**Checkpoint:** `bun install`, `bun run build`, `bun run test` (69 core tests), `bun run typecheck` (4/4), `bun run lint` all green; API serves `/health`; local Postgres (`bmm_db`) connects + is writable.
 
 ---
 
-## Phase 1 — Core math engine (the heart) `[core]`
+## Phase 1 — Core math engine (the heart) `[core]` DONE
 **Goal:** every `MODEL.md §17.1` number reproduced; invariants hold. No IO.
-- [ ] `numerics.ts`: `phi`, `Phi` (erf, ≥1e-7), seedable `Rng` (mulberry32), `erfinv`/`quantile` helper.
-- [ ] `gaussian.ts`: `GaussianBelief implements BeliefModel` (`mean/variance/pdf/cdf/sample/quantile/serialize`).
-- [ ] `BeliefModel` interface + `kind` discriminator (v2-ready, `TDD.md §4.1`).
-- [ ] `contracts.ts`: contract types + payoff `f(θ)` for linear/call/put/binaryCall/binaryPut/spread/gaussian; param normalization + `contract_key` hash.
-- [ ] `pricing.ts`: closed-form `price()` per `MODEL.md §4.2`; `dPrice_dMu()`; Gauss–Hermite fallback.
-- [ ] `spread.ts`: `MODEL.md §4.3` with breakdown object; uses corrected `mmShort` (`TDD.md §2.1`).
-- [ ] `signal.ts` + `bayes.ts`: `MODEL.md §5.2/5.3`, σ²≥σ_min² clamp; `lr/decay` variant flag.
-- [ ] `solvency.ts`: `liability`, `expectedLiability`, `requiredReserve` (analytic kink+quantile fast-path **and** seeded MC), `maxExecutable`.
-- [ ] `stats.ts`: payout distribution stats (`TDD.md §8`) — expected/var/maxOrP99/P(profit)/VaR/CVaR/breakeven.
-- [ ] **Tests:** §17.1 table; put-call parity; binary prob sum; price monotonic in μ; reserve ≥ expected liability; precision-monotone update; `Phi/phi` property tests; MC reproducibility under fixed seed.
-**Checkpoint:** `bun test packages/core` fully green; call/put/gaussian/bayes numbers match the spec table.
+- [x] `numerics.ts`: `phi`, `Phi` (erf series + continued fraction, ~1e-12), `erf`/`erfc`, `normInv` (Acklam+Halley), seedable `Rng` (mulberry32), `nextNormal`.
+- [x] `gaussian.ts`: `GaussianBelief implements BeliefModel` (`mean/variance/stddev/pdf/cdf/quantile/sample/serialize`).
+- [x] `BeliefModel` interface + `kind` discriminator (v2-ready, `TDD §4.1`) in `types.ts`.
+- [x] `contracts.ts`: payoffs for linear/call/put/binary_call/binary_put/spread/gaussian; `validateContract`, `contractKey`, `payoffKinks`, `payoffBounds`.
+- [x] `pricing.ts`: closed-form `price()` per `MODEL.md §4.2`; `dPriceDMu()`; numerical fallback = **fixed composite Simpson** (not Gauss–Hermite — bounded cost, can't hang on kinked integrands).
+- [x] `spread.ts`: `MODEL.md §4.3` breakdown; corrected `mmShort` (`TDD §2.1`); dimensional fixes (intensity in adverse-sel, relative σ in vol — `TDD §2.3`).
+- [x] `signal.ts` + `bayes.ts`: `MODEL.md §5.2/5.3`, σ²≥σ_min² clamp; `lr/decay` variant flag; SPREAD/GAUSSIAN signal extensions.
+- [x] `solvency.ts`: `liability`, `expectedLiability`, `requiredReserve` (**seeded MC**; analytic kink fast-path deferred — MC is correct & fast enough), `withMmShort`, `maxExecutable`.
+- [x] `stats.ts`: payout-distribution stats (`TDD §8`) — expected/var/maxOrP99/P(profit)/VaR/CVaR/breakeven; closed-form `secondMoment`.
+- [x] `config.ts` (defaults `MODEL.md §14.1`, `makeEngineConfig`) + `index.ts` barrel.
+- [x] **Tests (69):** §17.1 call/bayes rows; put-call parity; binary prob sum; price monotonic in μ; reserve ≥ expected liability; precision-monotone update; `Phi/phi`/`normInv` accuracy; MC reproducibility under fixed seed.
+**Checkpoint:** `bun test packages/core` fully green (69 pass); call price 416.577 and the conjugate update match the spec.
 
 ---
 

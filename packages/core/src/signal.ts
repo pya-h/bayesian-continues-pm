@@ -3,7 +3,7 @@
 // for SPREAD and GAUSSIAN, which the spec leaves unspecified).
 // Convention: q > 0 is a user BUY, q < 0 is a user SELL.
 
-import { GaussianBelief } from './gaussian.ts';
+import type { GaussianBelief } from './gaussian.ts';
 import type { BeliefModel, ContractSpec, EngineConfig } from './types.ts';
 
 export interface ExtractedSignal {

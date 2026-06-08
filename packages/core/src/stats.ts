@@ -5,7 +5,7 @@
 // core only knows the math of a single position's payout under a belief.
 
 import { payoff, payoffBounds } from './contracts.ts';
-import { GaussianBelief } from './gaussian.ts';
+import type { GaussianBelief } from './gaussian.ts';
 import { Rng } from './numerics.ts';
 import { price, priceGaussianPayoff } from './pricing.ts';
 import { expectF } from './pricing.ts';

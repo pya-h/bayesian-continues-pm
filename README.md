@@ -17,7 +17,8 @@ LPs provide reserve liquidity. No real money, no blockchain.
 ## Prerequisites
 
 - [Bun](https://bun.sh) ≥ 1.3
-- Docker (for the local Postgres), or your own Postgres reachable via `DATABASE_URL`.
+- A PostgreSQL database reachable via `DATABASE_URL` (any local install is fine).
+  Docker is **optional** — see [Database](#database).
 
 ## Quickstart
 
@@ -26,15 +27,31 @@ LPs provide reserve liquidity. No real money, no blockchain.
 bun install
 
 # 2. configure
-cp .env.example .env        # then edit secrets (JWT_SECRET, ADMIN_PASSWORD)
+cp .env.example .env        # then set DATABASE_URL + secrets (JWT_SECRET, ADMIN_PASSWORD)
 
-# 3. database
-bun run db:up               # start Postgres in Docker
-bun run db:migrate          # apply schema      (available from Phase 2)
-bun run db:seed             # seed admin + demo (available from Phase 2)
+# 3. database schema  (available from Phase 2)
+bun run db:migrate          # apply schema
+bun run db:seed             # seed admin + demo users
 
 # 4. run everything (api + web in parallel)
 bun run dev
+```
+
+## Database
+
+The app talks to Postgres via `DATABASE_URL` — point it at **any** Postgres you have:
+
+```
+DATABASE_URL=postgresql://user:pass@localhost:5432/your_db
+```
+
+A Prisma-style `?schema=public` suffix is accepted (the DB layer strips it and sets
+the search_path). If you'd rather spin up a throwaway Postgres in Docker instead of
+using a local one, the compose file is provided:
+
+```bash
+bun run db:up               # start Postgres 16 in Docker (set POSTGRES_PORT if 5432 is taken)
+bun run db:down             # stop it
 ```
 
 - API: http://localhost:3000 (Swagger at `/swagger`, health at `/health`)

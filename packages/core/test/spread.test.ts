@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { makeEngineConfig } from '../src/config.ts';
 import { GaussianBelief } from '../src/gaussian.ts';
-import { computeSpread } from '../src/spread.ts';
 import { price } from '../src/pricing.ts';
+import { computeSpread } from '../src/spread.ts';
 
 const approx = (a: number, b: number, tol: number) => Math.abs(a - b) <= tol;
 

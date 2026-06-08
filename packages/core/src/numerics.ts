@@ -72,22 +72,23 @@ export function normInv(p: number): number {
   if (p <= 0) return Number.NEGATIVE_INFINITY;
   if (p >= 1) return Number.POSITIVE_INFINITY;
 
-  // Coefficients for Acklam's algorithm.
+  // Coefficients for Acklam's algorithm (as-const tuples → defined element types
+  // under noUncheckedIndexedAccess).
   const a = [
     -3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2, 1.38357751867269e2,
     -3.066479806614716e1, 2.506628277459239,
-  ];
+  ] as const;
   const b = [
     -5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2, 6.680131188771972e1,
     -1.328068155288572e1,
-  ];
+  ] as const;
   const cc = [
     -7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838, -2.549732539343734,
     4.374664141464968, 2.938163982698783,
-  ];
+  ] as const;
   const dd = [
     7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996, 3.754408661907416,
-  ];
+  ] as const;
 
   const pLow = 0.02425;
   const pHigh = 1 - pLow;
@@ -123,7 +124,7 @@ export class Rng {
 
   constructor(seed: number) {
     // Force to uint32; avoid 0-only degenerate seed.
-    this.state = (seed >>> 0) || 0x9e3779b9;
+    this.state = seed >>> 0 || 0x9e3779b9;
   }
 
   next(): number {
@@ -135,7 +136,7 @@ export class Rng {
   }
 
   nextOpen(): number {
-    return (this.next() * (1 - 2 ** -32) + 2 ** -33);
+    return this.next() * (1 - 2 ** -32) + 2 ** -33;
   }
 
   // Standard normal sample via inverse-CDF (deterministic given the stream).
