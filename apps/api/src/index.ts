@@ -38,6 +38,7 @@ export const app = new Elysia()
     return { error: (error as Error).message ?? 'Internal error' };
   })
   .onRequest(({ request }) => {
+    if (process.env.NODE_ENV === 'test') return; // keep the test runner's output readable
     const url = new URL(request.url);
     if (url.pathname !== '/health') console.log(`→ ${request.method} ${url.pathname}`);
   })
