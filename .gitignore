@@ -1,0 +1,30 @@
+# deps
+node_modules/
+.bun/
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# env
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+bun-debug.log*
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# postgres data (if mounted locally)
+.pgdata/
+
+# test / coverage
+coverage/
