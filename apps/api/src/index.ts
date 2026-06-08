@@ -13,7 +13,9 @@ import { authRoutes } from './routes/auth.ts';
 import { claimRoutes } from './routes/claims.ts';
 import { lpRoutes } from './routes/lp.ts';
 import { marketRoutes } from './routes/markets.ts';
+import { statsRoutes } from './routes/stats.ts';
 import { tradeRoutes } from './routes/trades.ts';
+import { userRoutes } from './routes/users.ts';
 import { wsRoutes } from './ws.ts';
 
 export const app = new Elysia()
@@ -55,9 +57,11 @@ export const app = new Elysia()
   }))
   .use(authRoutes)
   .use(marketRoutes)
+  .use(statsRoutes)
   .use(tradeRoutes)
   .use(claimRoutes)
   .use(lpRoutes)
+  .use(userRoutes)
   .use(adminRoutes)
   .use(adminMarketRoutes)
   .use(wsRoutes);

@@ -92,7 +92,10 @@ export async function quote(marketId: string, dto: QuoteDTO): Promise<QuoteResul
   const projected = bayesUpdate(belief, sig.signal, sig.weight, cfg);
   const nextBook = withMmShort(book, spec, key, contractKey, mmShort + q);
   const reserveOpts = reserveOptsFor(cfg);
-  const projectedReserve = round8(requiredReserve(nextBook, belief, reserveOpts));
+  // Preview the live reserve mark at the POST-update belief — the same value
+  // executeTrade stores as reserveRequired (the gate itself sizes at the
+  // pre-update belief, but the displayed projection should match the booked mark).
+  const projectedReserve = round8(requiredReserve(nextBook, projected, reserveOpts));
 
   const { fillSize } = solveFill({
     spec,

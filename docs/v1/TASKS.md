@@ -118,14 +118,15 @@ Two complementary layers, both run by `bun test` (api uses `--isolate` — see P
 
 ---
 
-## Phase 8 — Stats services `[api]` `[blocked-by: 5,6,7]`
+## Phase 8 — Stats services `[api]` `[blocked-by: 5,6,7]` DONE (2026-06-08)
 **Goal:** all the "proper statistics" endpoints.
-- [ ] `StatsSvc`: market stats (volume, #trades/#traders, spread income, E[L], reserve util, creator/MM PnL, belief drift, calibration) → `GET /markets/:id/stats`, `GET /admin/markets/:id/overview`.
-- [ ] Portfolio: `GET /users/me/portfolio` (per-market state, position value, PnL, peak profit, drawdown; resolved→final outcome+payout).
-- [ ] Position detail `GET /users/me/positions/:contractId` with payout distribution + per-position stats (`TDD.md §8`).
-- [ ] Belief/price history endpoints for charts.
-- [ ] **Unit tests:** peak-profit / drawdown / PnL aggregation over a synthetic time series (pure helpers); cross-check `core` stats. **Integration:** endpoints return formula-backed numbers on a seeded scenario.
-**Checkpoint:** endpoints return correct, formula-backed numbers (cross-checked against `core` and hand calc on a seeded scenario).
+- [x] `StatsSvc` (`services/statsSvc.ts`): `marketStats` (volume=Σ|totalCost|, #trades/#traders, spread income=Σ spread·|q|, E[L], reserve + util=reserve/cash, MM/pool PnL=NAV+Σwithdrawn−Σdeposited, belief drift=μ−μ₀, calibration=θ*∈80% CI) → public subset `GET /markets/:id/stats` + full `GET /admin/markets/:id/overview` (admin-guarded).
+- [x] Portfolio: `GET /users/me/portfolio` — per-position cost basis, bid-mark exit value (fair−close-spread), unrealized/realized PnL, stored peak profit, drawdown-from-peak; resolved→final {θ*, payout=q·f(θ*), finalPnl, claimed}. Aggregated totals.
+- [x] Position detail `GET /users/me/positions/:contractId` — `core.positionStats` payout distribution (expected/std/maxIsP99/pProfit/var95/cvar95/breakeven) + mark-path peak/maxDrawdown reconstructed over the belief history at current size (`TDD.md §8`).
+- [x] Belief/price history `GET /markets/:id/history` (genesis + belief_updates; optional `?contractKey=` → per-belief fair-price series).
+- [x] **Unit tests** (`statsMath.test.ts`, pure): seriesStats peak/trough/maxDrawdown (drawdown=worst peak-to-trough, not peak-to-last), aggregatePnl, ci80/inCi80 (z₈₀=normInv(0.9)≈1.2816). **Integration** (`stats.test.ts`, seeded CALL trade): /stats counts+drift, /overview MM aggregates + admin-guard 403, /history belief+price series, portfolio bid-mark + final payout (q·(θ*−K)=800), position detail expectedPayout=q·fair hand-check + maxIsP99 + breakeven>K, 404 on unowned position.
+- Pure helpers in `services/statsMath.ts`; mark uses bid (exit) for portfolio value, mid (fair) for impliedPrice. Reads-only (no locks).
+**Checkpoint:** endpoints return correct, formula-backed numbers (cross-checked against `core` and hand calc on a seeded scenario). **Suite now 155 (shared 9 + core 69 + api 77); typecheck 4/4; lint clean.**
 
 ---
 

@@ -4,6 +4,7 @@ import { requireAdmin } from '../auth/plugin.ts';
 import type { UserRow } from '../db/repos.ts';
 import { createMarket, transitionMarket } from '../services/marketSvc.ts';
 import { buildMarketView } from '../services/marketView.ts';
+import { marketStats } from '../services/statsSvc.ts';
 
 export const adminMarketRoutes = new Elysia({ prefix: '/admin/markets' })
   .use(requireAdmin)
@@ -49,4 +50,7 @@ export const adminMarketRoutes = new Elysia({ prefix: '/admin/markets' })
   .post('/:id/close', async ({ params, user }) => {
     const m = await transitionMarket(user as UserRow, params.id, 'close');
     return { market: await buildMarketView(m) };
+  })
+  .get('/:id/overview', async ({ params }) => {
+    return { overview: await marketStats(params.id) };
   });
