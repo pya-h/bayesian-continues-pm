@@ -56,6 +56,13 @@ describe('normInv (probit)', () => {
     expect(close(normInv(0.975), 1.959963984540054, 1e-9)).toBe(true);
     expect(close(normInv(0.99), 2.3263478740408408, 1e-9)).toBe(true);
   });
+  test('extreme tails stay finite (no Halley-step overflow to NaN)', () => {
+    for (const p of [1e-310, 1e-315, 5e-324, 1 - 1e-15]) {
+      expect(Number.isFinite(normInv(p))).toBe(true);
+    }
+    // Sign + monotonicity preserved into the deep tail.
+    expect(normInv(5e-324)).toBeLessThan(normInv(1e-300));
+  });
 });
 
 describe('Rng (seeded)', () => {

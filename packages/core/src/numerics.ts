@@ -111,9 +111,12 @@ export function normInv(p: number): number {
       ((((dd[0] * q + dd[1]) * q + dd[2]) * q + dd[3]) * q + 1);
   }
 
-  // One Halley refinement step.
+  // One Halley refinement step. At ~37σ the exp overflows to Infinity, which
+  // would poison the step to NaN — skip it there and keep the rational estimate
+  // (already accurate to ~1e-9), so extreme-tail quantiles stay finite.
   const e = Phi(x) - p;
   const u = e * SQRT2PI * Math.exp(0.5 * x * x);
+  if (!Number.isFinite(u)) return x;
   x = x - u / (1 + (x * u) / 2);
   return x;
 }
