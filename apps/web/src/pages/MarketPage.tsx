@@ -188,6 +188,8 @@ export function MarketPage() {
               mu={mu}
               sigma={sigma}
               outcomeUnit={m.outcomeUnit}
+              outcomeMin={m.outcomeMin}
+              outcomeMax={m.outcomeMax}
             />
           </Panel>
           <Panel title="Your positions">

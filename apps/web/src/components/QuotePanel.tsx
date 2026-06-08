@@ -4,13 +4,20 @@
 // Buy/Sell button fires the trade and folds the fill back into balance + caches.
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../auth/AuthContext.tsx';
 import { qk } from '../hooks/queries.ts';
 import { ApiError, api } from '../lib/api.ts';
-import { fmt, fmtSigned } from '../lib/format.ts';
+import { fmt, fmtPct, fmtSigned } from '../lib/format.ts';
+import { tradeStats } from '../lib/tradeStats.ts';
 import type { ContractSpec, Fill } from '../lib/types.ts';
-import { Button, ErrorNote } from './ui.tsx';
+import { Button, ErrorNote, FlashNumber } from './ui.tsx';
+
+// Money formatters that survive an unbounded (±∞) best/worst case.
+const fmtInf = (n: number, d?: number) =>
+  n === Number.POSITIVE_INFINITY ? '∞' : n === Number.NEGATIVE_INFINITY ? '−∞' : fmt(n, d);
+const fmtSignedInf = (n: number, d?: number) =>
+  n === Number.POSITIVE_INFINITY ? '+∞' : n === Number.NEGATIVE_INFINITY ? '−∞' : fmtSigned(n, d);
 
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
@@ -30,6 +37,8 @@ export function QuotePanel({
   mu,
   sigma,
   outcomeUnit,
+  outcomeMin = null,
+  outcomeMax = null,
 }: {
   marketId: string;
   spec: ContractSpec;
@@ -37,6 +46,8 @@ export function QuotePanel({
   mu: number;
   sigma: number;
   outcomeUnit: string;
+  outcomeMin?: number | null;
+  outcomeMax?: number | null;
 }) {
   const qc = useQueryClient();
   const { user, setUser } = useAuth();
@@ -82,21 +93,41 @@ export function QuotePanel({
   const isBuy = side === 'buy';
   const totalCost = quote?.totalCost ?? 0;
 
+  // Live "know your trade" analytics for the *debounced* order.
+  const stats = useMemo(
+    () =>
+      quote
+        ? tradeStats({
+            spec: debounced.spec,
+            signedQ: debounced.signedQ,
+            totalCost: quote.totalCost,
+            fair: quote.fair,
+            mu,
+            sigma,
+            outcomeMin,
+            outcomeMax,
+          })
+        : null,
+    [quote, debounced.spec, debounced.signedQ, mu, sigma, outcomeMin, outcomeMax],
+  );
+
   return (
     <div className="flex flex-col gap-3 p-4">
-      {/* side toggle */}
-      <div className="grid grid-cols-2 gap-1.5">
+      {/* side toggle with a sliding indicator */}
+      <div className="relative grid grid-cols-2 overflow-hidden rounded-lg border border-edge bg-panel-2 text-sm font-semibold">
+        <span
+          aria-hidden="true"
+          className={`absolute inset-y-0 left-0 w-1/2 rounded-lg transition-transform duration-200 ${
+            isBuy ? 'translate-x-0 bg-buy' : 'translate-x-full bg-sell'
+          }`}
+        />
         {(['buy', 'sell'] as const).map((s) => (
           <button
             key={s}
             type="button"
             onClick={() => setSide(s)}
-            className={`rounded-lg py-2 text-sm font-semibold capitalize transition-colors ${
-              side === s
-                ? s === 'buy'
-                  ? 'bg-buy text-white'
-                  : 'bg-sell text-white'
-                : 'border border-edge bg-panel-2 text-muted hover:text-fg'
+            className={`relative z-10 py-2 capitalize transition-colors ${
+              side === s ? 'text-white' : 'text-muted hover:text-fg'
             }`}
           >
             {s}
@@ -164,6 +195,62 @@ export function QuotePanel({
         )}
       </div>
 
+      {/* know-your-trade analytics */}
+      {tradable && quote && stats && (
+        <div className="animate-fade-in rounded-lg border border-edge bg-panel-2 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-semibold text-fg">Trade analysis</span>
+            <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">
+              {fmtPct(stats.pProfit)} win chance
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+            <AnalysisCell
+              label={isBuy ? 'Max payout' : 'Premium received'}
+              raw={isBuy ? stats.contractMaxPayout : -totalCost}
+              text={fmtInf(isBuy ? stats.contractMaxPayout : -totalCost)}
+            />
+            <AnalysisCell
+              label="Expected P&L"
+              raw={stats.expectedPnl}
+              text={fmtSignedInf(stats.expectedPnl)}
+              tone={stats.expectedPnl >= 0 ? 'buy' : 'sell'}
+            />
+            <AnalysisCell
+              label="Max profit"
+              raw={stats.maxProfit}
+              text={fmtSignedInf(stats.maxProfit)}
+              tone="buy"
+            />
+            <AnalysisCell
+              label="Max loss"
+              raw={-stats.maxLoss}
+              text={stats.maxLoss > 0 ? `−${fmtInf(stats.maxLoss)}` : fmt(0)}
+              tone="sell"
+            />
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[10px] uppercase tracking-wide text-muted">Breakeven θ</span>
+              <span className="tnum text-sm font-semibold text-fg">
+                {stats.breakevens.length === 0
+                  ? '—'
+                  : stats.breakevens
+                      .slice(0, 2)
+                      .map((b) => fmt(b, 0))
+                      .join(' · ')}
+                {stats.breakevens.length > 0 && (
+                  <span className="ml-1 text-xs font-normal text-muted">{outcomeUnit}</span>
+                )}
+              </span>
+            </div>
+            <AnalysisCell
+              label="Risk : reward"
+              raw={stats.riskReward ?? 0}
+              text={stats.riskReward == null ? '—' : `${fmt(stats.riskReward, 2)}×`}
+            />
+          </div>
+        </div>
+      )}
+
       <label className="flex items-center gap-2 text-xs text-muted">
         <input
           type="checkbox"
@@ -190,6 +277,28 @@ export function QuotePanel({
       )}
 
       {lastFill && <FillReceipt fill={lastFill} />}
+    </div>
+  );
+}
+
+function AnalysisCell({
+  label,
+  raw,
+  text,
+  tone,
+}: {
+  label: string;
+  raw: number;
+  text: string;
+  tone?: 'buy' | 'sell';
+}) {
+  const toneCls = tone === 'buy' ? 'text-buy' : tone === 'sell' ? 'text-sell' : 'text-fg';
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[10px] uppercase tracking-wide text-muted">{label}</span>
+      <FlashNumber value={raw} className={`tnum text-sm font-semibold ${toneCls}`}>
+        {text}
+      </FlashNumber>
     </div>
   );
 }

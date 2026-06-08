@@ -195,9 +195,15 @@ function GroupCard({ group: g, belief }: { group: MarketGroup; belief?: Position
         </div>
       )}
       {open && (
-        <div className="divide-y divide-edge">
-          {g.positions.map((p) => (
-            <PositionRow key={p.contractId} pos={p} belief={belief} hideClaim />
+        <div className="grid grid-cols-1 items-start gap-3 p-3 md:grid-cols-2 xl:grid-cols-3">
+          {g.positions.map((p, i) => (
+            <div
+              key={p.contractId}
+              style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}
+              className="animate-fade-up rounded-lg border border-edge bg-panel-2/30"
+            >
+              <PositionRow pos={p} belief={belief} hideClaim />
+            </div>
           ))}
         </div>
       )}

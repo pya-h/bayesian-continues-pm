@@ -22,6 +22,15 @@ export function Layout() {
 
   return (
     <div className="min-h-full">
+      {/* ambient accent glow behind everything */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 -z-10"
+        style={{
+          background:
+            'radial-gradient(46rem 28rem at 50% -6%, color-mix(in oklab, var(--color-accent) 11%, transparent), transparent 72%)',
+        }}
+      />
       <header className="sticky top-0 z-20 border-b border-edge bg-ink/85 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-4">
           <NavLink to="/" className="mr-3 flex items-center gap-2">
