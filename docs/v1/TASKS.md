@@ -105,14 +105,16 @@ Two complementary layers, both run by `bun test` (api uses `--isolate` — see P
 
 ---
 
-## Phase 7 — Liquidity provision `[api]` `[blocked-by: 5]`
+## Phase 7 — Liquidity provision `[api]` `[blocked-by: 5]` DONE
 **Goal:** LP deposit/withdraw/claim with NAV share accounting (`TDD.md §6`).
-- [ ] `LpSvc`: NAV = `cash − Σ mmShort·price`; share price; deposit (mint pro-rata), withdraw (solvency-gated burn), records to `lp_positions`/`lp_ledger`.
-- [ ] Routes: `GET /markets/:id/lp`, `POST …/lp/deposit|withdraw`; serialized on market queue.
-- [ ] LP settlement: `cash_final = cash − Σ user_payouts`; `POST …/lp/claim` credits `share% · cash_final`; LP PnL.
-- [ ] WS `lp_update`.
-- [ ] **Unit tests:** NAV / share-price / pro-rata mint & burn math (pure helper); `cash_final` split. **Integration:** deposit→trade→resolve→LP claim reflects MM PnL with creator's R₀ included.
-**Checkpoint (integration):** LP deposits → capacity rises → trades occur → resolve → LP claim reflects MM PnL (spread income minus payout losses), creator's R₀ included.
+- [x] `services/lpMath.ts` (PURE): `lpSharePrice` (NAV/S_total, genesis 1), `sharesForDeposit` (ΔS = D·S_total/NAV_before), `cashOutForShares` (ΔS/S_total·NAV), `lpCashFinal` (cash−Σpayouts), `lpClaimAmount` (share%·cash_final).
+- [x] `services/lpSvc.ts`: `getLpView` (pool NAV/share-price/reserve + your shares/%/estValue/claimed). `deposit` (OPEN only, mint pro-rata, debit depositor, `lp_positions` + `lp_ledger`). `withdraw` (OPEN only, **solvency-gated**: since `Reserve` is independent of cash, max cash-out = `cash − 1.2·Reserve` is closed-form → cap to that and **partial-fill** the burn rather than reject; credits depositor). Both serialized on the market queue + `FOR UPDATE` on market & trader rows.
+- [x] Routes: `GET /markets/:id/lp`, `POST …/lp/deposit|withdraw|claim` (`routes/lp.ts`, requireAuth), wired in index.ts.
+- [x] LP settlement: `claim` (SETTLED only) credits `share% · cash_final` where `cash_final = cash − Σ recorded trader payouts`; **idempotent** via `lp_positions.claimed` + trader-row `FOR UPDATE`; `S_total` left untouched so concurrent LPs each get the right fraction; **limited liability** (negative split → credit 0). Returns LP PnL = `credited + totalWithdrawn − totalDeposited`.
+- [x] WS `lp_update` (market topic, on deposit/withdraw) + `lp_claim` (user topic).
+- [~] **CANCELLED → LP refund of deposits** (`TDD §6.4/§7`) — **deferred to Phase 11**. Phase 6 already refunds *traders* on cancel; LP-side cancel refund (non-infinite LPs) is folded into the Phase 11 cancel-refund integration. v1's sole guaranteed LP is the infinite admin creator, so nothing is stranded in practice.
+- [x] **Unit tests (8, no DB):** `lpMath` — share price (genesis + NAV/S), pro-rata mint (price 1 + grown pool), cash-out (pro-rata + zero-shares), `cash_final` split (two LPs exhaust it). **Integration (6, real DB):** deposit mints pro-rata + debits balance + grows pool; free withdraw returns cash/burns shares; gated withdraw → partial at the 1.2× buffer; deposit on non-OPEN → 409; full deposit→trade→resolve→settle→LP-claim reflects MM PnL (credited > deposit, creator R₀ included, two claims exhaust cash_final) + double-claim no-op; claim before settle → 409.
+**Checkpoint (integration):** LP deposits → capacity rises → trades occur → resolve→settle → LP claim reflects MM PnL (spread income minus payout losses), creator's R₀ included. Full suite **139 pass** (shared 9 + core 69 + api 61); typecheck 4/4; lint clean.
 
 ---
 
