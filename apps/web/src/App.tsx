@@ -1,37 +1,25 @@
-import { useEffect, useState } from 'react';
-
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
-
-type Health = {
-  status: string;
-  service: string;
-  versions: Record<string, string>;
-  time: string;
-};
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { RequireAuth } from './auth/RequireAuth.tsx';
+import { Layout } from './components/Layout.tsx';
+import { LoginPage } from './pages/LoginPage.tsx';
+import { MarketPage } from './pages/MarketPage.tsx';
+import { MarketsPage } from './pages/MarketsPage.tsx';
 
 export function App() {
-  const [health, setHealth] = useState<Health | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch(`${API_URL}/health`)
-      .then((r) => r.json())
-      .then(setHealth)
-      .catch((e) => setError(String(e)));
-  }, []);
-
   return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', padding: '2rem', maxWidth: 640 }}>
-      <h1>BMM — Continuous Prediction Market</h1>
-      <p style={{ color: '#666' }}>Phase 0 scaffold. Backend connectivity check:</p>
-      {error && <pre style={{ color: 'crimson' }}>API unreachable: {error}</pre>}
-      {health ? (
-        <pre style={{ background: '#f4f4f5', padding: '1rem', borderRadius: 8 }}>
-          {JSON.stringify(health, null, 2)}
-        </pre>
-      ) : (
-        !error && <p>Contacting API…</p>
-      )}
-    </main>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        element={
+          <RequireAuth>
+            <Layout />
+          </RequireAuth>
+        }
+      >
+        <Route path="/" element={<MarketsPage />} />
+        <Route path="/markets/:id" element={<MarketPage />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

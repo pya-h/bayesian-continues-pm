@@ -130,17 +130,20 @@ Two complementary layers, both run by `bun test` (api uses `--isolate` — see P
 
 ---
 
-## Phase 9 — Frontend: auth, markets, trade centerpiece `[web]` `[blocked-by: 5]`
+## Phase 9 — Frontend: auth, markets, trade centerpiece `[web]` `[blocked-by: 5]` DONE (2026-06-08)
 **Goal:** interactive trading UI.
-- [ ] Vite+React+TS+Tailwind; TanStack Query; WS hook merging live ticks; auth (token storage, guarded routes).
-- [ ] Markets list page (status, consensus μ, σ band, your-position badge).
-- [ ] Market/Trade page:
-  - [ ] **BeliefPDF** Gaussian chart (mean line + CI band), live via WS.
-  - [ ] **Contract composer**: pick type; drag strike/center/width/bounds on chart; payoff overlay + shaded winning region.
-  - [ ] **Quote panel**: live fair/spread breakdown/exec price/total cost, slippage (maxPrice), Buy/Sell, projected belief+reserve.
-  - [ ] Price-vs-strike mini-chart; belief history (μ±σ over time); recent-trades tape.
-  - [ ] Position stats panel for holdings in this market.
-**Checkpoint:** log in, open a market, compose a contract on the chart, see live quote, execute a trade, watch belief/PDF/price update live.
+- [x] Vite+React+TS+**Tailwind v4** (`@tailwindcss/vite`); TanStack Query; WS hook (`useMarketSocket`) merging live ticks into the query cache; auth (`AuthContext`, localStorage token, `/auth/me` re-hydrate, `RequireAuth` guard + guarded `Layout` routes).
+- [x] Markets list page (status badge, consensus μ + σ band, NAV, your-position badge from portfolio).
+- [x] Market/Trade page (`MarketPage`):
+  - [x] **BeliefPDF** Gaussian chart (`BeliefChart`, custom SVG): filled PDF + mean line + ±1σ band, live via WS belief ticks.
+  - [x] **Contract composer** (`ContractComposer` + chart handles): pick type; **drag** strike/center/width/bounds on the chart (pointer-capture, two-way bound to the numeric inputs); payoff overlay + shaded winning region (`viz.winningRegions`).
+  - [x] **Quote panel** (`QuotePanel`): debounced live fair/spread-breakdown/exec price/total cost, slippage guard (`maxPrice` ±2%), Buy/Sell, projected belief+reserve, fill receipt; re-quotes on live belief ticks.
+  - [x] Price-vs-strike mini-chart (`PriceCurveChart`, client-side `core.price` sweep); belief history (`BeliefHistoryChart`, μ±σ over time); recent-trades tape (`TradesTape`, WS-fed).
+  - [x] Position stats panel for holdings in this market (`PositionPanel`): bid-mark value, unrealized/realized PnL, expandable `core.positionStats` payout distribution, + Claim when SETTLED.
+- [x] **Faithfulness:** added `@bmm/core` as a web dep so the on-chart payoff overlay / price curve are byte-identical to the server's engine. Chart geometry isolated in pure `lib/viz.ts`.
+- [x] **Tests (25, pure, no DOM):** `test/viz.test.ts` — `gaussianPdf` (peak/symmetry/∫≈1), `payoffCurve` equals `core.payoff` for all 7 types + kink injection, `winningRegions` per type, `probInRegions` = 1−Φ, `niceDomain` clamp/widen, `niceTicks`/`scale`. **Live wire smoke:** admin create→open→topup→quote→trade (belief moved)→history all green on `http://localhost:4100`.
+**Checkpoint:** log in, open a market, compose a contract on the chart, see live quote, execute a trade, watch belief/PDF/price update live. Web typecheck + lint clean; `vite build` succeeds (99 kB gzip); full suite **181 pass** (shared 9 + core 70 + api 77 + web 25). A funded **[DEMO]** OPEN market + topped-up alice/bob are seeded in `bmm_db` for immediate clicking.
+**Run:** `bun run dev` (web on :5173, api on :4000 — but **host port 4000 is occupied here**, so start the api with a free `PORT` and point the web client at it via `VITE_API_URL`/`VITE_WS_URL`, e.g. `PORT=4100 bun run --filter '@bmm/api' dev` + `VITE_API_URL=http://localhost:4100 VITE_WS_URL=ws://localhost:4100/ws bun run --filter '@bmm/web' dev`).
 
 ---
 
