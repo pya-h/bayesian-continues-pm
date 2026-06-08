@@ -155,7 +155,6 @@ export function lifecycleActions(status: string): { action: string; label: strin
       return [
         { action: 'suspend', label: 'Suspend' },
         { action: 'resolve', label: 'Resolve…' },
-        { action: 'close', label: 'Close' },
         { action: 'cancel', label: 'Cancel' },
       ];
     case 'SUSPENDED':
@@ -166,6 +165,8 @@ export function lifecycleActions(status: string): { action: string; label: strin
       ];
     case 'RESOLVED':
       return [{ action: 'settle', label: 'Settle' }];
+    case 'SETTLED':
+      return [{ action: 'close', label: 'Close' }];
     default:
       return [];
   }

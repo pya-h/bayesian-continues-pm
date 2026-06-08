@@ -80,7 +80,8 @@ function GroupCard({ group: g }: { group: MarketGroup }) {
   const claim = useMutation({
     mutationFn: () => api.claim(g.marketId).then((r) => r.claim),
     onSuccess: (c) => {
-      if (user && c.credited) setUser({ ...user, balance: user.balance + c.credited });
+      if (user && c.credited && !user.isInfinite)
+        setUser({ ...user, balance: user.balance + c.credited });
       qc.invalidateQueries({ queryKey: qk.portfolio });
     },
   });

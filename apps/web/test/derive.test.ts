@@ -231,19 +231,23 @@ describe('lifecycleActions', () => {
   test('CREATED can open or cancel', () => {
     expect(lifecycleActions('CREATED').map((a) => a.action)).toEqual(['open', 'cancel']);
   });
-  test('OPEN can suspend/resolve/close/cancel', () => {
-    expect(lifecycleActions('OPEN').map((a) => a.action)).toEqual([
-      'suspend',
+  test('OPEN can suspend/resolve/cancel (no close — server allows close only from SETTLED)', () => {
+    expect(lifecycleActions('OPEN').map((a) => a.action)).toEqual(['suspend', 'resolve', 'cancel']);
+  });
+  test('SUSPENDED can resume/resolve/cancel', () => {
+    expect(lifecycleActions('SUSPENDED').map((a) => a.action)).toEqual([
+      'resume',
       'resolve',
-      'close',
       'cancel',
     ]);
   });
   test('RESOLVED can only settle', () => {
     expect(lifecycleActions('RESOLVED').map((a) => a.action)).toEqual(['settle']);
   });
+  test('SETTLED can only close', () => {
+    expect(lifecycleActions('SETTLED').map((a) => a.action)).toEqual(['close']);
+  });
   test('terminal states have no actions', () => {
-    expect(lifecycleActions('SETTLED')).toEqual([]);
     expect(lifecycleActions('CANCELLED')).toEqual([]);
     expect(lifecycleActions('CLOSED')).toEqual([]);
   });
