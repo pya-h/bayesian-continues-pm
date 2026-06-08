@@ -2,7 +2,13 @@
 // unit-tested) so the portfolio roll-ups, LP preview math, and the create-market
 // request assembly are verifiable without a DOM.
 
-import type { CreateMarketInput, LpPool, MarketCfgInput, PortfolioPosition } from './types.ts';
+import type {
+  CreateMarketInput,
+  LpPool,
+  MarketCfgInput,
+  MarketView,
+  PortfolioPosition,
+} from './types.ts';
 
 export interface MarketGroup {
   marketId: string;
@@ -142,6 +148,65 @@ export function buildCreateMarketBody(draft: CreateMarketDraft): CreateMarketInp
   const cfg = cleanCfg(draft.cfg);
   if (cfg) body.cfg = cfg;
   return body;
+}
+
+// markets browser (filter + sort) ---
+
+export type MarketSort = 'activity' | 'nav' | 'uncertainty' | 'consensus' | 'title';
+export const MARKET_SORTS: { id: MarketSort; label: string }[] = [
+  { id: 'activity', label: 'Newest' },
+  { id: 'nav', label: 'Pool size' },
+  { id: 'uncertainty', label: 'Most uncertain' },
+  { id: 'consensus', label: 'Consensus' },
+  { id: 'title', label: 'A–Z' },
+];
+
+export const MARKET_STATUS_FILTERS = [
+  'ALL',
+  'OPEN',
+  'CREATED',
+  'SUSPENDED',
+  'RESOLVED',
+  'SETTLED',
+] as const;
+export type MarketStatusFilter = (typeof MARKET_STATUS_FILTERS)[number];
+
+// Filter a market list by a free-text query (title / description / unit) and a
+// status bucket, then sort. Pure + stable: ties fall back to title so the grid
+// doesn't reshuffle across refetches.
+export function filterSortMarkets(
+  markets: MarketView[],
+  opts: { query?: string; status?: MarketStatusFilter; sort?: MarketSort },
+): MarketView[] {
+  const q = (opts.query ?? '').trim().toLowerCase();
+  const status = opts.status ?? 'ALL';
+  const sort = opts.sort ?? 'activity';
+
+  const filtered = markets.filter((m) => {
+    if (status !== 'ALL' && m.status !== status) return false;
+    if (!q) return true;
+    return (
+      m.title.toLowerCase().includes(q) ||
+      (m.description ?? '').toLowerCase().includes(q) ||
+      m.outcomeUnit.toLowerCase().includes(q)
+    );
+  });
+
+  const byTitle = (a: MarketView, b: MarketView) => a.title.localeCompare(b.title);
+  const cmp: Record<MarketSort, (a: MarketView, b: MarketView) => number> = {
+    activity: (a, b) => b.createdAt.localeCompare(a.createdAt) || byTitle(a, b),
+    nav: (a, b) => b.pool.nav - a.pool.nav || byTitle(a, b),
+    uncertainty: (a, b) => b.belief.sigma - a.belief.sigma || byTitle(a, b),
+    consensus: (a, b) => b.belief.mu - a.belief.mu || byTitle(a, b),
+    title: byTitle,
+  };
+  return [...filtered].sort(cmp[sort]);
+}
+
+export function statusCounts(markets: MarketView[]): Record<string, number> {
+  const counts: Record<string, number> = { ALL: markets.length };
+  for (const m of markets) counts[m.status] = (counts[m.status] ?? 0) + 1;
+  return counts;
 }
 
 export function lifecycleActions(status: string): { action: string; label: string }[] {

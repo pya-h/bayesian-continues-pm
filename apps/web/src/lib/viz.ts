@@ -129,3 +129,37 @@ export function toPath(pts: Pt[], sx: (x: number) => number, sy: (y: number) => 
     .map((p, i) => `${i === 0 ? 'M' : 'L'}${sx(p.x).toFixed(2)} ${sy(p.y).toFixed(2)}`)
     .join(' ');
 }
+
+// Settlement P&L of a position as a function of the outcome θ
+// pnl(θ) = quantity · payoff(spec, θ) − costBasis.
+// This is exactly what the holder realises if the market resolves at θ, so the
+// curve *is* the trade's payoff diagram. Kinks are injected (like payoffCurve) so
+// corners stay crisp.
+export function pnlCurve(
+  spec: ContractSpec,
+  quantity: number,
+  costBasis: number,
+  domain: Domain,
+  n = 140,
+): Pt[] {
+  return payoffCurve(spec, domain, n).map((p) => ({
+    x: p.x,
+    y: quantity * p.y - costBasis,
+  }));
+}
+
+// Zero-crossings (breakevens) of a polyline, found by linear interpolation across
+// each sign change. Used to mark where a position flips profit ⇄ loss.
+export function zeroCrossings(pts: Pt[]): number[] {
+  const out: number[] = [];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    if (!a || !b) continue;
+    if ((a.y <= 0 && b.y > 0) || (a.y >= 0 && b.y < 0)) {
+      const t = a.y / (a.y - b.y); // a.y + t·(b.y−a.y) = 0
+      out.push(a.x + t * (b.x - a.x));
+    }
+  }
+  return out;
+}

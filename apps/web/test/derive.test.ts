@@ -2,14 +2,16 @@ import { describe, expect, test } from 'bun:test';
 import {
   buildCreateMarketBody,
   cleanCfg,
+  filterSortMarkets,
   groupPositionsByMarket,
   groupTotalPnl,
   lifecycleActions,
   lpDepositPreview,
   lpWithdrawPreview,
+  statusCounts,
 } from '../src/lib/derive.ts';
 import type { CreateMarketDraft } from '../src/lib/derive.ts';
-import type { LpPool, PortfolioPosition } from '../src/lib/types.ts';
+import type { LpPool, MarketView, PortfolioPosition } from '../src/lib/types.ts';
 
 const close = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) <= tol;
 
@@ -250,5 +252,82 @@ describe('lifecycleActions', () => {
   test('terminal states have no actions', () => {
     expect(lifecycleActions('CANCELLED')).toEqual([]);
     expect(lifecycleActions('CLOSED')).toEqual([]);
+  });
+});
+
+// A minimal MarketView factory — only fields the browser filter/sort reads.
+function mkt(over: Partial<MarketView> & { marketId: string }): MarketView {
+  return {
+    title: over.marketId,
+    description: null,
+    outcomeUnit: 'USD',
+    outcomeMin: null,
+    outcomeMax: null,
+    status: 'OPEN',
+    creatorId: 'admin',
+    belief: { kind: 'gaussian', mu: 100, sigma: 10, sigma2: 100 },
+    cfg: {},
+    cash: 0,
+    reserveRequired: 0,
+    pool: { nav: 1000, sharesTotal: 0, sharePrice: 1 },
+    thetaStar: null,
+    opensAt: null,
+    closesAt: null,
+    resolvesAt: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    ...over,
+  } as MarketView;
+}
+
+describe('filterSortMarkets', () => {
+  const markets: MarketView[] = [
+    mkt({ marketId: 'a', title: 'BTC close', status: 'OPEN', createdAt: '2026-03-01T00:00:00Z' }),
+    mkt({
+      marketId: 'b',
+      title: 'ETH gas',
+      description: 'average gas price',
+      status: 'SETTLED',
+      createdAt: '2026-02-01T00:00:00Z',
+      pool: { nav: 5000, sharesTotal: 0, sharePrice: 1 },
+      belief: { kind: 'gaussian', mu: 30, sigma: 40, sigma2: 1600 },
+    }),
+    mkt({ marketId: 'c', title: 'June temp', status: 'OPEN', createdAt: '2026-01-15T00:00:00Z' }),
+  ];
+
+  test('text query matches title / description / unit', () => {
+    expect(filterSortMarkets(markets, { query: 'gas' }).map((m) => m.marketId)).toEqual(['b']);
+    expect(filterSortMarkets(markets, { query: 'temp' }).map((m) => m.marketId)).toEqual(['c']);
+  });
+  test('status filter narrows to the bucket', () => {
+    expect(filterSortMarkets(markets, { status: 'SETTLED' }).map((m) => m.marketId)).toEqual(['b']);
+    expect(filterSortMarkets(markets, { status: 'OPEN' }).length).toBe(2);
+    expect(filterSortMarkets(markets, { status: 'ALL' }).length).toBe(3);
+  });
+  test('sort by newest, pool size, and uncertainty', () => {
+    expect(filterSortMarkets(markets, { sort: 'activity' }).map((m) => m.marketId)).toEqual([
+      'a',
+      'b',
+      'c',
+    ]);
+    expect(filterSortMarkets(markets, { sort: 'nav' })[0]?.marketId).toBe('b');
+    expect(filterSortMarkets(markets, { sort: 'uncertainty' })[0]?.marketId).toBe('b');
+  });
+  test('does not mutate the input array', () => {
+    const before = markets.map((m) => m.marketId);
+    filterSortMarkets(markets, { sort: 'title' });
+    expect(markets.map((m) => m.marketId)).toEqual(before);
+  });
+});
+
+describe('statusCounts', () => {
+  test('counts ALL plus per-status buckets', () => {
+    const c = statusCounts([
+      mkt({ marketId: 'a', status: 'OPEN' }),
+      mkt({ marketId: 'b', status: 'OPEN' }),
+      mkt({ marketId: 'c', status: 'SETTLED' }),
+    ]);
+    expect(c.ALL).toBe(3);
+    expect(c.OPEN).toBe(2);
+    expect(c.SETTLED).toBe(1);
   });
 });

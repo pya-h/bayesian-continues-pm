@@ -7,9 +7,11 @@ import {
   niceTicks,
   payoffCurve,
   pdfCurve,
+  pnlCurve,
   probInRegions,
   scale,
   winningRegions,
+  zeroCrossings,
 } from '../src/lib/viz.ts';
 
 const close = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) <= tol;
@@ -145,5 +147,40 @@ describe('niceTicks & scale', () => {
     expect(close(s(0), 100)).toBe(true);
     expect(close(s(10), 200)).toBe(true);
     expect(close(s(5), 150)).toBe(true);
+  });
+});
+
+describe('pnlCurve', () => {
+  test('pnl(θ) = q·payoff − costBasis, exactly on the kinks', () => {
+    const spec: ContractSpec = { type: 'CALL', strike: 100 };
+    const q = 10;
+    const cost = 30; // total premium paid
+    const pts = pnlCurve(spec, q, cost, [80, 130], 100);
+    for (const p of pts) {
+      expect(close(p.y, q * payoff(spec, p.x) - cost, 1e-9)).toBe(true);
+    }
+    // Below the strike the call expires worthless → flat at −costBasis.
+    const belowStrike = pts.filter((p) => p.x < 99);
+    for (const p of belowStrike) expect(close(p.y, -cost)).toBe(true);
+  });
+});
+
+describe('zeroCrossings', () => {
+  test('finds the breakeven of a long call by interpolation', () => {
+    // pnl crosses zero where 10·max(θ−100,0) = 30 → θ = 103.
+    const spec: ContractSpec = { type: 'CALL', strike: 100 };
+    const pts = pnlCurve(spec, 10, 30, [90, 130], 400);
+    const zeros = zeroCrossings(pts);
+    expect(zeros.length).toBe(1);
+    expect(close(zeros[0] ?? 0, 103, 0.1)).toBe(true);
+  });
+  test('a curve that never changes sign has no crossings', () => {
+    expect(
+      zeroCrossings([
+        { x: 0, y: 1 },
+        { x: 1, y: 2 },
+        { x: 2, y: 3 },
+      ]).length,
+    ).toBe(0);
   });
 });

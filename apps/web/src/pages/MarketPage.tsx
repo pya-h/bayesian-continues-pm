@@ -9,6 +9,7 @@ import { useAuth } from '../auth/AuthContext.tsx';
 import { BeliefChart } from '../components/BeliefChart.tsx';
 import { BeliefHistoryChart } from '../components/BeliefHistoryChart.tsx';
 import { ContractComposer, defaultSpec } from '../components/ContractComposer.tsx';
+import { MiniBelief } from '../components/MiniBelief.tsx';
 import { PositionPanel } from '../components/PositionPanel.tsx';
 import { PriceCurveChart } from '../components/PriceCurveChart.tsx';
 import { QuotePanel } from '../components/QuotePanel.tsx';
@@ -58,45 +59,77 @@ export function MarketPage() {
   const m = market.data;
   const tradable = m.status === 'OPEN';
 
+  const Z80 = 1.2815515594; // normInv(0.9) → ±z·σ is the 80% central interval
+  const ci80Lo = mu - Z80 * sigma;
+  const ci80Hi = mu + Z80 * sigma;
+
   return (
     <div className="flex flex-col gap-4">
-      {/* header */}
-      <div>
-        <Link to="/" className="text-sm text-muted hover:text-fg">
-          ← Markets
-        </Link>
-        <div className="mt-1 flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold">{m.title}</h1>
-          <StatusBadge status={m.status} />
-          <span className="flex items-center gap-1.5 text-xs text-muted">
-            <span className={`h-2 w-2 rounded-full ${connected ? 'bg-buy' : 'bg-muted'}`} />
-            {connected ? 'live' : 'offline'}
-          </span>
+      <Link to="/" className="text-sm text-muted hover:text-fg">
+        ← Markets
+      </Link>
+
+      {/* hero: identity + live belief */}
+      <div className="flex flex-col gap-4 rounded-2xl border border-edge bg-panel p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-xl font-semibold">{m.title}</h1>
+            <StatusBadge status={m.status} />
+            <span className="flex items-center gap-1.5 text-xs text-muted">
+              <span
+                className={`h-2 w-2 rounded-full ${connected ? 'animate-pulse bg-buy' : 'bg-muted'}`}
+              />
+              {connected ? 'live' : 'offline'}
+            </span>
+          </div>
+          {m.description && <p className="max-w-2xl text-sm text-muted">{m.description}</p>}
+          <div className="mt-1 flex flex-wrap items-end gap-x-6 gap-y-2">
+            <div>
+              <div className="text-xs text-muted">
+                {m.thetaStar != null ? 'Resolved θ*' : 'Consensus μ'}
+              </div>
+              <div className="text-3xl font-semibold tracking-tight text-accent">
+                <FlashNumber value={m.thetaStar ?? mu}>
+                  {fmt(m.thetaStar ?? mu, 0)}
+                  <span className="ml-1 text-base font-normal text-muted">{m.outcomeUnit}</span>
+                </FlashNumber>
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted">Uncertainty σ</div>
+              <div className="tnum text-lg font-semibold">
+                <FlashNumber value={sigma}>±{fmt(sigma, 0)}</FlashNumber>
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted">80% interval</div>
+              <div className="tnum text-sm font-medium text-fg">
+                [{fmt(ci80Lo, 0)}, {fmt(ci80Hi, 0)}]
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col items-stretch gap-3 sm:w-72">
+          <div className="h-16 overflow-hidden rounded-xl bg-panel-2/60">
+            <MiniBelief
+              mu={mu}
+              sigma={sigma}
+              outcomeMin={m.outcomeMin}
+              outcomeMax={m.outcomeMax}
+              thetaStar={m.thetaStar}
+            />
+          </div>
           <Link
             to={`/markets/${id}/lp`}
-            className="ml-auto rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-xs text-muted hover:text-fg"
+            className="self-end rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-xs text-muted transition-colors hover:text-fg"
           >
             Manage liquidity →
           </Link>
         </div>
-        {m.description && <p className="mt-1 max-w-3xl text-sm text-muted">{m.description}</p>}
       </div>
 
-      {/* stat strip */}
+      {/* financial stat strip */}
       <div className="grid grid-cols-2 gap-4 rounded-xl border border-edge bg-panel p-4 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat
-          label="Consensus μ"
-          value={
-            <FlashNumber value={mu}>
-              {fmt(mu, 0)} {m.outcomeUnit}
-            </FlashNumber>
-          }
-          tone="accent"
-        />
-        <Stat
-          label="Uncertainty σ"
-          value={<FlashNumber value={sigma}>{fmt(sigma, 0)}</FlashNumber>}
-        />
         <Stat label="Pool NAV" value={fmtCompact(m.pool.nav)} />
         <Stat label="Cash" value={fmtCompact(m.cash)} />
         <Stat
@@ -104,11 +137,9 @@ export function MarketPage() {
           value={fmtCompact(m.reserveRequired)}
           sub={`util ${fmtPct(m.cash > 0 ? m.reserveRequired / m.cash : 0)}`}
         />
-        <Stat
-          label="Volume"
-          value={fmtCompact(stats.data?.volume ?? 0)}
-          sub={`${stats.data?.trades ?? 0} trades`}
-        />
+        <Stat label="Volume" value={fmtCompact(stats.data?.volume ?? 0)} />
+        <Stat label="Trades" value={fmt(stats.data?.trades ?? 0, 0)} />
+        <Stat label="Traders" value={fmt(stats.data?.traders ?? 0, 0)} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -160,7 +191,16 @@ export function MarketPage() {
             />
           </Panel>
           <Panel title="Your positions">
-            <PositionPanel marketId={id} />
+            <PositionPanel
+              marketId={id}
+              belief={{
+                mu,
+                sigma,
+                outcomeUnit: m.outcomeUnit,
+                outcomeMin: m.outcomeMin,
+                outcomeMax: m.outcomeMax,
+              }}
+            />
           </Panel>
           <Panel title="Recent trades">
             <TradesTape tape={tape} />

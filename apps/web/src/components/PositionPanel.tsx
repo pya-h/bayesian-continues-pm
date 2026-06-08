@@ -10,9 +10,24 @@ import { qk, usePortfolio } from '../hooks/queries.ts';
 import { ApiError, api } from '../lib/api.ts';
 import { fmt, fmtPct, fmtSigned, specLabel } from '../lib/format.ts';
 import type { PortfolioPosition } from '../lib/types.ts';
+import { PositionPnlChart } from './PositionPnlChart.tsx';
 import { Button, Spinner } from './ui.tsx';
 
-export function PositionPanel({ marketId }: { marketId: string }) {
+export interface PositionBelief {
+  mu: number;
+  sigma: number;
+  outcomeUnit: string;
+  outcomeMin: number | null;
+  outcomeMax: number | null;
+}
+
+export function PositionPanel({
+  marketId,
+  belief,
+}: {
+  marketId: string;
+  belief?: PositionBelief;
+}) {
   const portfolio = usePortfolio();
   const here = (portfolio.data?.positions ?? []).filter((p) => p.marketId === marketId);
 
@@ -28,7 +43,7 @@ export function PositionPanel({ marketId }: { marketId: string }) {
   return (
     <div className="divide-y divide-edge">
       {here.map((p) => (
-        <PositionRow key={p.contractId} pos={p} />
+        <PositionRow key={p.contractId} pos={p} belief={belief} />
       ))}
     </div>
   );
@@ -37,7 +52,8 @@ export function PositionPanel({ marketId }: { marketId: string }) {
 export function PositionRow({
   pos,
   hideClaim = false,
-}: { pos: PortfolioPosition; hideClaim?: boolean }) {
+  belief,
+}: { pos: PortfolioPosition; hideClaim?: boolean; belief?: PositionBelief }) {
   const [open, setOpen] = useState(false);
   const qc = useQueryClient();
   const { user, setUser } = useAuth();
@@ -77,6 +93,30 @@ export function PositionRow({
           <div className="text-xs text-muted">value {fmt(pos.positionValue)}</div>
         </div>
       </button>
+
+      {belief && (
+        <div className="mt-3 rounded-lg border border-edge bg-panel-2/60 p-2">
+          <div className="mb-1 flex items-center justify-between px-1 text-[10px] uppercase tracking-wide text-muted">
+            <span>Payoff vs outcome</span>
+            <span className="flex items-center gap-2">
+              <Legend color="var(--color-buy)" label="profit" />
+              <Legend color="var(--color-sell)" label="loss" />
+            </span>
+          </div>
+          <PositionPnlChart
+            spec={pos.spec}
+            quantity={pos.quantity}
+            costBasis={pos.costBasis}
+            mu={belief.mu}
+            sigma={belief.sigma}
+            outcomeUnit={belief.outcomeUnit}
+            outcomeMin={belief.outcomeMin}
+            outcomeMax={belief.outcomeMax}
+            thetaStar={pos.final?.thetaStar ?? null}
+            finalPnl={pos.final?.finalPnl ?? null}
+          />
+        </div>
+      )}
 
       {pos.final && (
         <div className="mt-2 flex items-center justify-between rounded-lg border border-edge bg-panel-2 px-3 py-2 text-xs tnum">
@@ -147,5 +187,14 @@ function Cell({ label, value }: { label: string; value: string }) {
       <span className="text-muted">{label}</span>
       <span className="font-medium text-fg">{value}</span>
     </div>
+  );
+}
+
+function Legend({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1">
+      <span className="h-2 w-2 rounded-sm" style={{ background: color }} />
+      {label}
+    </span>
   );
 }
