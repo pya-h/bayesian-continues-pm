@@ -8,6 +8,7 @@ import { userRepo } from '../db/repos.ts';
 import { users } from '../db/schema.ts';
 import { writeAudit } from '../lib/audit.ts';
 import { publicUser } from '../lib/user.ts';
+import { adminTopup } from '../services/fundingSvc.ts';
 
 export const adminRoutes = new Elysia({ prefix: '/admin' })
   .use(requireAdmin)
@@ -37,12 +38,17 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       set.status = 404;
       return { error: 'User not found' };
     }
-    const updated = await userRepo.credit(params.id, parsed.data.amount);
+    const admin = user?.userId ? await userRepo.byId(user.userId) : undefined;
+    if (!admin) {
+      set.status = 401;
+      return { error: 'Admin not found' };
+    }
+    const { user: updated } = await adminTopup(admin, target, parsed.data.amount);
     await writeAudit({
-      actorId: user?.userId ?? null,
+      actorId: admin.userId,
       action: 'topup',
       targetId: target.userId,
       payload: { amount: parsed.data.amount, infinite: target.isInfinite },
     });
-    return { user: publicUser(updated ?? target) };
+    return { user: publicUser(updated) };
   });

@@ -1,7 +1,6 @@
 // Thin repositories — small, typed query helpers over Drizzle. Kept intentionally
 // minimal; more are added per feature phase. Services compose these + transactions.
 
-import { addMoney } from '@bmm/shared';
 import { desc, eq } from 'drizzle-orm';
 import { db } from './client.ts';
 import { markets, users } from './schema.ts';
@@ -34,18 +33,6 @@ export const userRepo = {
       })
       .returning();
     return rows[0] as UserRow;
-  },
-
-  async credit(userId: string, amount: number): Promise<UserRow | undefined> {
-    const u = await userRepo.byId(userId);
-    if (!u) return undefined;
-    if (u.isInfinite) return u;
-    const rows = await db
-      .update(users)
-      .set({ balance: addMoney(u.balance, amount), updatedAt: new Date() })
-      .where(eq(users.userId, userId))
-      .returning();
-    return rows[0];
   },
 };
 

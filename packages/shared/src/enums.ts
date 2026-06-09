@@ -39,6 +39,24 @@ export const LpLedgerKind = {
 } as const;
 export type LpLedgerKind = (typeof LpLedgerKind)[keyof typeof LpLedgerKind];
 
+// Transaction-ledger kinds — one per kind of cash movement recorded in the
+// `transactions` table. `amount` is always signed from the row owner's wallet
+// perspective (+ into the wallet, − out). Admin funding records two rows
+// `admin_credit` on the funded user and `admin_grant` on the admin who paid.
+export const TransactionKind = {
+  TRADE_BUY: 'trade_buy',
+  TRADE_SELL: 'trade_sell',
+  MARKET_CREATE: 'market_create',
+  LP_DEPOSIT: 'lp_deposit',
+  LP_WITHDRAW: 'lp_withdraw',
+  LP_CLAIM: 'lp_claim',
+  CLAIM: 'claim',
+  REFUND: 'refund',
+  ADMIN_CREDIT: 'admin_credit',
+  ADMIN_GRANT: 'admin_grant',
+} as const;
+export type TransactionKind = (typeof TransactionKind)[keyof typeof TransactionKind];
+
 // User tiers — v1 informational only (no leverage yet).
 export const UserTier = {
   NEW: 'new',

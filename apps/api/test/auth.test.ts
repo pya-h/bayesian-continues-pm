@@ -4,10 +4,10 @@
 // Requires DATABASE_URL + ADMIN_PASSWORD (loaded via the test script's --env-file).
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 import { config } from '../src/config.ts';
 import { db, sql } from '../src/db/client.ts';
-import { users } from '../src/db/schema.ts';
+import { transactions, users } from '../src/db/schema.ts';
 import { app } from '../src/index.ts';
 
 const uname = `itest_${Date.now()}`;
@@ -27,11 +27,21 @@ function req(method: string, path: string, opts: { token?: string; body?: unknow
 
 const hasEnv = !!process.env.DATABASE_URL && !!process.env.ADMIN_PASSWORD;
 
+async function purgeUser(): Promise<void> {
+  const rows = await db.select({ id: users.userId }).from(users).where(eq(users.username, uname));
+  for (const { id } of rows) {
+    await db
+      .delete(transactions)
+      .where(or(eq(transactions.userId, id), eq(transactions.counterpartyId, id)));
+    await db.delete(users).where(eq(users.userId, id));
+  }
+}
+
 beforeAll(async () => {
-  if (hasEnv) await db.delete(users).where(eq(users.username, uname));
+  if (hasEnv) await purgeUser();
 });
 afterAll(async () => {
-  if (hasEnv) await db.delete(users).where(eq(users.username, uname));
+  if (hasEnv) await purgeUser();
   await sql.end();
 });
 

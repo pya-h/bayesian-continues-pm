@@ -100,6 +100,31 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 
 ---
 
+## Phase V2-10 — Transaction ledger & history `[shared, api, web]` (Workstream I) `[blocked-by: none]`
+**Goal:** a single source-of-truth ledger that records every cash movement, surfaced to each user as a "Transactions" tab with filtering, sorting, and lifetime stats. Additive — no change to how cash actually moves; we just record it.
+
+**Design:** a `transactions` table written **atomically inside the same `db.transaction()`** as each balance/cash mutation (the existing post-commit `audit_events` is incomplete and can't be the source). User-centric: each row belongs to a `userId` (whose history it is) with a signed `amount` (+ into wallet, − out), `balanceAfter` (null for infinite/admin accounts), `marketId`, `counterpartyId`, `refType`/`refId`, and `metadata` jsonb. Admin funding writes **two** rows (`admin_credit` on the target, `admin_grant` on the admin) so it shows in both histories. Kinds: `trade_buy, trade_sell, market_create, lp_deposit, lp_withdraw, lp_claim, claim, refund, admin_credit, admin_grant`.
+
+- **TX-1 — Backend ledger `[shared, api]`:** DONE (2026-06-09)
+  - [x] `shared`: `TransactionKind` enum (10 kinds). (`TransactionView` DTO deferred to TX-2 with the read endpoint.)
+  - [x] `schema.ts`: `transactions` table (indexed `(user_id, created_at)`, `market_id`); migration `0002_eager_echo.sql` applied; added to `schema` export.
+  - [x] `services/ledgerSvc.ts`: `recordTx(exec, entry)` / `recordTxs` — insert inside the caller's transaction (executor = `Tx` or `db`).
+  - [x] Wired into every cash path: `tradeSvc.executeTrade` (trade_buy/sell), `marketSvc.createMarket` (market_create) + cancel `settleSvc.refundPositions` (refund), `lpSvc.deposit/withdraw/claim`, `settleSvc.claimPayout` (claim), admin top-up via new `services/fundingSvc.ts` (admin_credit + admin_grant; replaced dead `repos.credit`).
+  - [x] **Tests:** `test/ledger.test.ts` — 6 integration cases (topup two-row, market_create, trade_buy, lp_deposit, claim, cancel refund); updated every suite's + `demo` cleanup to delete `transactions` first (FKs are RESTRICT). Suite: api 89, all packages green (shared 9 + core 117 + web 71 + api 89); typecheck 4/4; lint clean.
+  - **Checkpoint:** ledger rows written atomically per cash path; new integration tests pass.
+- **TX-2 — Read API + stats `[shared, api]`:**
+  - [ ] `GET /users/me/transactions` → acting user's history (newest first) + `summary` (funded, claimed, tradeVolume, lpDeposited, lpWithdrawn, net).
+  - [ ] `shared`: response DTO; pure summarize helper.
+  - [ ] **Tests:** integration — list scoped to caller, ordering, summary totals; pure summarize unit tests.
+- **TX-3 — Frontend Transactions tab `[web]`:**
+  - [ ] Route `/transactions` (under `RequireAuth`) + nav link after Portfolio.
+  - [ ] `TransactionsPage` mirroring `PortfolioPage`: stats header (`Stat` cards), filterable/sortable list, type chips, persistent view state (`usePersistentState` `transactions.*`).
+  - [ ] `lib/txView.ts` (pure: sort keys, filters, `summarizeTransactions`); `lib/types.ts` `Transaction`; `lib/api.ts` + `hooks/queries.ts` endpoint/hook; formatting via `fmtSigned`/`timeAgo`/`statusTone`.
+  - [ ] **Tests:** web unit — `txView` sort/filter/summarize.
+  - **Checkpoint:** a user opens Transactions, sees every action with stats; admin sees their grants and the target user sees the credit.
+
+---
+
 ## Phase V2-9 — Hardening & polish `[all]` `[blocked-by: all]`
 - [ ] Full V2 integration suite across workstreams; migration test (V1 data → V2 unchanged behavior).
 - [ ] Extended Monte-Carlo sim covering leverage/liquidation cascades and multi-modal calibration.

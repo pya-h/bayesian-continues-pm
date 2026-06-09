@@ -7,7 +7,7 @@
 
 import { type EngineConfig, makeEngineConfig } from '@bmm/core';
 import type { CreateMarketDTO, MarketStatus } from '@bmm/shared';
-import { subMoney } from '@bmm/shared';
+import { TransactionKind, round8, subMoney } from '@bmm/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.ts';
 import { type MarketRow, type UserRow, marketRepo } from '../db/repos.ts';
@@ -15,6 +15,7 @@ import { lpLedger, lpPositions, markets, oracles, users } from '../db/schema.ts'
 import { writeAudit } from '../lib/audit.ts';
 import { HttpError } from '../lib/errors.ts';
 import { publish, topics } from '../realtime.ts';
+import { recordTx } from './ledgerSvc.ts';
 import { withMarketLock } from './marketQueue.ts';
 import { recordClaims, refundPositions } from './settleSvc.ts';
 
@@ -91,6 +92,20 @@ export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Prom
       sharesDelta: reserve,
       navBefore: 0,
       sharePrice: 1,
+    });
+
+    // Ledger: creating a market puts up the initial reserve from the creator's
+    // wallet (−reserve). This same cash is their genesis LP stake, so we record
+    // it once as market_create rather than double-counting an lp_deposit too.
+    await recordTx(tx, {
+      userId: creator.userId,
+      kind: TransactionKind.MARKET_CREATE,
+      amount: round8(-reserve),
+      balanceAfter: creator.isInfinite ? null : round8(creator.balance - reserve),
+      marketId: m.marketId,
+      refType: 'market',
+      refId: m.marketId,
+      metadata: { title: dto.title, reserve },
     });
 
     return m;

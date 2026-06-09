@@ -5,7 +5,14 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { config } from '../src/config.ts';
 import { db, sql } from '../src/db/client.ts';
-import { auditEvents, lpLedger, lpPositions, markets, oracles } from '../src/db/schema.ts';
+import {
+  auditEvents,
+  lpLedger,
+  lpPositions,
+  markets,
+  oracles,
+  transactions,
+} from '../src/db/schema.ts';
 import { app } from '../src/index.ts';
 
 function req(method: string, path: string, opts: { token?: string; body?: unknown } = {}) {
@@ -30,6 +37,7 @@ async function login(username: string, password: string): Promise<string> {
 
 afterAll(async () => {
   if (hasEnv && marketId) {
+    await db.delete(transactions).where(eq(transactions.marketId, marketId));
     await db.delete(oracles).where(eq(oracles.marketId, marketId));
     await db.delete(lpLedger).where(eq(lpLedger.marketId, marketId));
     await db.delete(lpPositions).where(eq(lpPositions.marketId, marketId));

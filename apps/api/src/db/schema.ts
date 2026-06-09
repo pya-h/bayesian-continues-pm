@@ -4,7 +4,14 @@
 // use double precision. Status/type/role columns are varchar tagged with the
 // shared string-union types (no pg enums → painless migrations).
 
-import type { ContractType, LpLedgerKind, MarketStatus, UserRole, UserTier } from '@bmm/shared';
+import type {
+  ContractType,
+  LpLedgerKind,
+  MarketStatus,
+  TransactionKind,
+  UserRole,
+  UserTier,
+} from '@bmm/shared';
 import {
   boolean,
   customType,
@@ -289,6 +296,38 @@ export const auditEvents = pgTable(
   }),
 );
 
+// transactions ----------------------------
+
+// Single source of truth for every cash movement, written atomically inside the
+// same db transaction as the balance/cash mutation it records. User-centric
+// each row belongs to `userId` (whose history it is). `amount` is signed from
+// that wallet's perspective (+ inflow, − outflow); `balanceAfter` is the user's
+// balance right after the move (null for infinite/admin accounts). `marketId`
+// `counterpartyId`, and `refType`/`refId` link the row back to its cause; admin
+// funding writes two rows (admin_credit on the target, admin_grant on the admin).
+export const transactions = pgTable(
+  'transactions',
+  {
+    txId: uuid('tx_id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.userId),
+    kind: varchar('kind', { length: 24 }).$type<TransactionKind>().notNull(),
+    amount: money('amount').notNull(),
+    balanceAfter: money('balance_after'),
+    marketId: uuid('market_id').references(() => markets.marketId),
+    counterpartyId: uuid('counterparty_id').references(() => users.userId),
+    refType: varchar('ref_type', { length: 16 }),
+    refId: uuid('ref_id'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    createdAt: createdAt(),
+  },
+  (t) => ({
+    idxUserTime: index('idx_tx_user_time').on(t.userId, t.createdAt),
+    idxMarket: index('idx_tx_market').on(t.marketId),
+  }),
+);
+
 export const schema = {
   users,
   markets,
@@ -301,4 +340,5 @@ export const schema = {
   oracles,
   claims,
   auditEvents,
+  transactions,
 };

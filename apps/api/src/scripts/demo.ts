@@ -23,6 +23,7 @@ import {
   oracles,
   positions,
   trades,
+  transactions,
 } from '../db/schema.ts';
 
 const API = process.env.API_URL ?? 'http://localhost:4100';
@@ -174,6 +175,7 @@ async function main(): Promise<void> {
   } finally {
     // Clean up the demo market (children first — FKs are RESTRICT).
     if (marketId) {
+      await db.delete(transactions).where(eq(transactions.marketId, marketId));
       await db.delete(claims).where(eq(claims.marketId, marketId));
       await db.delete(trades).where(eq(trades.marketId, marketId));
       await db.delete(positions).where(eq(positions.marketId, marketId));

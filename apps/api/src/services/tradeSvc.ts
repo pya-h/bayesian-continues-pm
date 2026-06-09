@@ -25,7 +25,7 @@ import {
   withMmShort,
 } from '@bmm/core';
 import type { QuoteDTO, TradeDTO } from '@bmm/shared';
-import { round8 } from '@bmm/shared';
+import { TransactionKind, round8 } from '@bmm/shared';
 import { and, eq } from 'drizzle-orm';
 import { config } from '../config.ts';
 import { db } from '../db/client.ts';
@@ -35,6 +35,7 @@ import { writeAudit } from '../lib/audit.ts';
 import { paramsFromSpec, specFromRow } from '../lib/contract.ts';
 import { HttpError } from '../lib/errors.ts';
 import { publish, topics } from '../realtime.ts';
+import { recordTx } from './ledgerSvc.ts';
 import { withMarketLock } from './marketQueue.ts';
 import { type Side, applyFill, execPriceFor, solveFill } from './tradeMath.ts';
 
@@ -388,6 +389,25 @@ export async function executeTrade(
           .set({ balance: newBalance, updatedAt: new Date() })
           .where(eq(users.userId, u.userId));
       }
+
+      // Ledger: the trade's effect on the trader's wallet is −totalCost (a buy
+      // debits the premium, a sell credits it). marketId + tradeId tie it back.
+      await recordTx(tx, {
+        userId: u.userId,
+        kind: side === 'buy' ? TransactionKind.TRADE_BUY : TransactionKind.TRADE_SELL,
+        amount: round8(-totalCost),
+        balanceAfter: newBalance,
+        marketId,
+        refType: 'trade',
+        refId: tradeId,
+        metadata: {
+          side,
+          quantity: filledQ,
+          execPrice: round8(execPrice),
+          contractKey: key,
+          contractType: spec.type,
+        },
+      });
 
       return {
         tradeId,

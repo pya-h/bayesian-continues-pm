@@ -17,6 +17,7 @@ import {
   oracles,
   positions,
   trades,
+  transactions,
   users,
 } from '../src/db/schema.ts';
 import { app } from '../src/index.ts';
@@ -78,6 +79,7 @@ interface LpView {
 afterAll(async () => {
   if (hasEnv && marketIds.length) {
     for (const id of marketIds) {
+      await db.delete(transactions).where(eq(transactions.marketId, id));
       await db.delete(claims).where(eq(claims.marketId, id));
       await db.delete(trades).where(eq(trades.marketId, id));
       await db.delete(positions).where(eq(positions.marketId, id));

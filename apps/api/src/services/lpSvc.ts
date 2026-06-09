@@ -18,7 +18,7 @@ import {
   expectedLiability,
   requiredReserve,
 } from '@bmm/core';
-import { addMoney, round8, subMoney } from '@bmm/shared';
+import { TransactionKind, addMoney, round8, subMoney } from '@bmm/shared';
 import { and, eq } from 'drizzle-orm';
 import { config } from '../config.ts';
 import { db } from '../db/client.ts';
@@ -27,6 +27,7 @@ import { claims, contracts, lpLedger, lpPositions, markets, users } from '../db/
 import { specFromRow } from '../lib/contract.ts';
 import { HttpError } from '../lib/errors.ts';
 import { publish, topics } from '../realtime.ts';
+import { recordTx } from './ledgerSvc.ts';
 import {
   cashOutForShares,
   lpCashFinal,
@@ -190,22 +191,39 @@ export async function deposit(
         });
       }
 
-      await tx.insert(lpLedger).values({
-        marketId,
-        userId: u.userId,
-        kind: 'deposit',
-        amount,
-        sharesDelta: sharesMinted,
-        navBefore,
-        sharePrice: lpSharePrice(navBefore, m.lpSharesTotal),
-      });
+      const depIns = await tx
+        .insert(lpLedger)
+        .values({
+          marketId,
+          userId: u.userId,
+          kind: 'deposit',
+          amount,
+          sharesDelta: sharesMinted,
+          navBefore,
+          sharePrice: lpSharePrice(navBefore, m.lpSharesTotal),
+        })
+        .returning({ entryId: lpLedger.entryId });
 
+      let balanceAfter: number | null = null;
       if (!u.isInfinite) {
+        balanceAfter = round8(subMoney(u.balance, amount));
         await tx
           .update(users)
-          .set({ balance: subMoney(u.balance, amount), updatedAt: new Date() })
+          .set({ balance: balanceAfter, updatedAt: new Date() })
           .where(eq(users.userId, u.userId));
       }
+
+      // Ledger: depositing into the pool moves cash out of the LP's wallet.
+      await recordTx(tx, {
+        userId: u.userId,
+        kind: TransactionKind.LP_DEPOSIT,
+        amount: round8(-amount),
+        balanceAfter,
+        marketId,
+        refType: 'lp_ledger',
+        refId: depIns[0]?.entryId ?? null,
+        metadata: { sharesMinted },
+      });
 
       return { minted: sharesMinted, navBefore };
     }),
@@ -309,22 +327,39 @@ export async function withdraw(
         })
         .where(eq(lpPositions.lpId, lp.lpId));
 
-      await tx.insert(lpLedger).values({
-        marketId,
-        userId: u.userId,
-        kind: 'withdraw',
-        amount: cashOut,
-        sharesDelta: round8(-burned),
-        navBefore: nav,
-        sharePrice: lpSharePrice(nav, m.lpSharesTotal),
-      });
+      const wIns = await tx
+        .insert(lpLedger)
+        .values({
+          marketId,
+          userId: u.userId,
+          kind: 'withdraw',
+          amount: cashOut,
+          sharesDelta: round8(-burned),
+          navBefore: nav,
+          sharePrice: lpSharePrice(nav, m.lpSharesTotal),
+        })
+        .returning({ entryId: lpLedger.entryId });
 
+      let balanceAfter: number | null = null;
       if (!u.isInfinite) {
+        balanceAfter = round8(addMoney(u.balance, cashOut));
         await tx
           .update(users)
-          .set({ balance: addMoney(u.balance, cashOut), updatedAt: new Date() })
+          .set({ balance: balanceAfter, updatedAt: new Date() })
           .where(eq(users.userId, u.userId));
       }
+
+      // Ledger: withdrawing from the pool moves cash into the LP's wallet.
+      await recordTx(tx, {
+        userId: u.userId,
+        kind: TransactionKind.LP_WITHDRAW,
+        amount: round8(cashOut),
+        balanceAfter,
+        marketId,
+        refType: 'lp_ledger',
+        refId: wIns[0]?.entryId ?? null,
+        metadata: { sharesBurned: round8(burned), partial },
+      });
 
       return { cashOut, burned, partial };
     }),
@@ -400,22 +435,40 @@ export async function claim(actor: UserRow, marketId: string): Promise<LpClaimRe
         .set({ claimed: true, updatedAt: new Date() })
         .where(eq(lpPositions.lpId, lp.lpId));
 
-      await tx.insert(lpLedger).values({
-        marketId,
-        userId: u.userId,
-        kind: 'claim',
-        amount: credited,
-        sharesDelta: 0,
-        navBefore: cashFinal,
-        sharePrice: lpSharePrice(cashFinal, m.lpSharesTotal),
-      });
+      const cIns = await tx
+        .insert(lpLedger)
+        .values({
+          marketId,
+          userId: u.userId,
+          kind: 'claim',
+          amount: credited,
+          sharesDelta: 0,
+          navBefore: cashFinal,
+          sharePrice: lpSharePrice(cashFinal, m.lpSharesTotal),
+        })
+        .returning({ entryId: lpLedger.entryId });
 
+      let balanceAfter: number | null = null;
       if (!u.isInfinite) {
+        balanceAfter = round8(addMoney(u.balance, credited));
         await tx
           .update(users)
-          .set({ balance: addMoney(u.balance, credited), updatedAt: new Date() })
+          .set({ balance: balanceAfter, updatedAt: new Date() })
           .where(eq(users.userId, u.userId));
       }
+
+      // Ledger: LP settlement payout into the LP's wallet (+credited; may be 0
+      // under limited liability). pnl folds in prior deposits/withdrawals.
+      await recordTx(tx, {
+        userId: u.userId,
+        kind: TransactionKind.LP_CLAIM,
+        amount: round8(credited),
+        balanceAfter,
+        marketId,
+        refType: 'lp_ledger',
+        refId: cIns[0]?.entryId ?? null,
+        metadata: { pnl },
+      });
 
       return { credited, pnl, alreadyClaimed: false, cashFinal };
     },

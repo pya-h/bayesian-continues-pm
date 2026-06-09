@@ -11,7 +11,7 @@
 // it credits the trader's recorded payouts to their balance exactly once
 // serialized on the trader row (`FOR UPDATE`) so a double-submit can't double-pay.
 
-import { round8 } from '@bmm/shared';
+import { TransactionKind, round8 } from '@bmm/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../db/client.ts';
 import type { UserRow } from '../db/repos.ts';
@@ -19,6 +19,7 @@ import { claims, contracts, markets, positions, users } from '../db/schema.ts';
 import { specFromRow } from '../lib/contract.ts';
 import { HttpError } from '../lib/errors.ts';
 import { publish, topics } from '../realtime.ts';
+import { recordTx } from './ledgerSvc.ts';
 import { positionPayout, positionRefund } from './settleMath.ts';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -83,10 +84,22 @@ export async function refundPositions(tx: Tx, marketId: string): Promise<number>
   }
 
   for (const [userId, amount] of byUser) {
-    await tx
+    const upd = await tx
       .update(users)
       .set({ balance: sql`${users.balance} + ${amount}::numeric`, updatedAt: new Date() })
-      .where(eq(users.userId, userId));
+      .where(eq(users.userId, userId))
+      .returning({ balance: users.balance });
+    // Ledger: cancellation refunds the trader's locked cost basis (+amount).
+    await recordTx(tx, {
+      userId,
+      kind: TransactionKind.REFUND,
+      amount: round8(amount),
+      balanceAfter: upd[0]?.balance ?? null,
+      marketId,
+      refType: 'market',
+      refId: marketId,
+      metadata: { reason: 'market_cancelled' },
+    });
   }
   return round8(total);
 }
@@ -152,6 +165,18 @@ export async function claimPayout(actor: UserRow, marketId: string): Promise<Cla
         .returning({ balance: users.balance });
       balance = upd[0]?.balance ?? null;
     }
+
+    // Ledger: settlement payout credited to the trader (+credited).
+    await recordTx(tx, {
+      userId: u.userId,
+      kind: TransactionKind.CLAIM,
+      amount: credited,
+      balanceAfter: balance,
+      marketId,
+      refType: 'market',
+      refId: marketId,
+      metadata: { claims: pending.length },
+    });
 
     return { marketId, credited, payout: payoutTotal, alreadyClaimed: false, balance };
   });

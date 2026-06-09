@@ -9,7 +9,7 @@
 // basis and shrinks MM cash.
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, or } from 'drizzle-orm';
 import { config } from '../src/config.ts';
 import { db, sql } from '../src/db/client.ts';
 import {
@@ -23,6 +23,7 @@ import {
   oracles,
   positions,
   trades,
+  transactions,
   users,
 } from '../src/db/schema.ts';
 import { app } from '../src/index.ts';
@@ -59,6 +60,7 @@ async function createOpenMarket(token: string, body: Record<string, unknown>): P
 afterAll(async () => {
   if (hasEnv) {
     for (const id of marketIds) {
+      await db.delete(transactions).where(eq(transactions.marketId, id));
       await db.delete(claims).where(eq(claims.marketId, id));
       await db.delete(trades).where(eq(trades.marketId, id));
       await db.delete(positions).where(eq(positions.marketId, id));
@@ -73,6 +75,9 @@ afterAll(async () => {
     // Remove the throwaway pauper user (FKs are RESTRICT → children first).
     const rows = await db.select({ id: users.userId }).from(users).where(eq(users.username, POOR));
     for (const { id } of rows) {
+      await db
+        .delete(transactions)
+        .where(or(eq(transactions.userId, id), eq(transactions.counterpartyId, id)));
       await db.delete(claims).where(eq(claims.userId, id));
       await db.delete(positions).where(eq(positions.userId, id));
       await db.delete(auditEvents).where(eq(auditEvents.actorId, id));
@@ -96,6 +101,9 @@ describe.if(hasEnv)('Phase 11 hardening (integration)', () => {
     // Ensure a clean pauper (balance 0) — drop any leftover, then register fresh.
     const stale = await db.select({ id: users.userId }).from(users).where(eq(users.username, POOR));
     for (const { id } of stale) {
+      await db
+        .delete(transactions)
+        .where(or(eq(transactions.userId, id), eq(transactions.counterpartyId, id)));
       await db.delete(positions).where(eq(positions.userId, id));
       await db.delete(auditEvents).where(eq(auditEvents.actorId, id));
       await db.delete(users).where(eq(users.userId, id));
