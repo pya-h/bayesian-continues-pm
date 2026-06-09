@@ -6,10 +6,10 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../auth/AuthContext.tsx';
-import { qk } from '../hooks/queries.ts';
+import { qk, usePortfolio } from '../hooks/queries.ts';
 import { ApiError, api } from '../lib/api.ts';
 import { fmt, fmtPct, fmtSigned } from '../lib/format.ts';
-import { tradeStats } from '../lib/tradeStats.ts';
+import { sellCloseStats, tradeStats } from '../lib/tradeStats.ts';
 import type { ContractSpec, Fill } from '../lib/types.ts';
 import { Button, ErrorNote, FlashNumber } from './ui.tsx';
 
@@ -18,6 +18,9 @@ const fmtInf = (n: number, d?: number) =>
   n === Number.POSITIVE_INFINITY ? '∞' : n === Number.NEGATIVE_INFINITY ? '−∞' : fmt(n, d);
 const fmtSignedInf = (n: number, d?: number) =>
   n === Number.POSITIVE_INFINITY ? '+∞' : n === Number.NEGATIVE_INFINITY ? '−∞' : fmtSigned(n, d);
+// Percent with an explicit sign — for returns.
+const fmtSignedPct = (frac: number) =>
+  `${frac < 0 ? '−' : '+'}${(Math.abs(frac) * 100).toFixed(1)}%`;
 
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
@@ -29,6 +32,17 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 const SLIPPAGE = 0.02; // 2% default protection band on the exec price
+
+function sameContract(a: ContractSpec, b: ContractSpec): boolean {
+  const ar = a as Record<string, unknown>;
+  const br = b as Record<string, unknown>;
+  if (ar.type !== br.type) return false;
+  const num = (x: unknown) => Math.round(typeof x === 'number' ? x : 0);
+  for (const k of ['strike', 'lower', 'upper', 'center', 'width']) {
+    if (num(ar[k]) !== num(br[k])) return false;
+  }
+  return true;
+}
 
 export function QuotePanel({
   marketId,
@@ -51,6 +65,7 @@ export function QuotePanel({
 }) {
   const qc = useQueryClient();
   const { user, setUser } = useAuth();
+  const portfolio = usePortfolio();
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [qty, setQty] = useState(1);
   const [slippageOn, setSlippageOn] = useState(true);
@@ -110,6 +125,27 @@ export function QuotePanel({
         : null,
     [quote, debounced.spec, debounced.signedQ, mu, sigma, outcomeMin, outcomeMax],
   );
+
+  // If this sell closes a contract the user already holds, the result is no
+  // longer probabilistic — it realizes profit against what they paid. Match the
+  // composed contract to a held long and show that instead of max-profit/loss.
+  const held = useMemo(() => {
+    const here = (portfolio.data?.positions ?? []).filter(
+      (p) => p.marketId === marketId && sameContract(p.spec, debounced.spec) && p.quantity > 0,
+    );
+    return here[0] ?? null;
+  }, [portfolio.data, marketId, debounced.spec]);
+
+  const closing = debounced.signedQ < 0 && held != null;
+  const closeStats =
+    closing && quote && held
+      ? sellCloseStats({
+          proceeds: -quote.totalCost,
+          qty: Math.abs(debounced.signedQ),
+          heldQty: held.quantity,
+          avgEntryPrice: held.avgEntryPrice,
+        })
+      : null;
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -198,56 +234,96 @@ export function QuotePanel({
       {/* know-your-trade analytics */}
       {tradable && quote && stats && (
         <div className="animate-fade-in rounded-lg border border-edge bg-panel-2 p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-semibold text-fg">Trade analysis</span>
-            <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">
-              {fmtPct(stats.pProfit)} win chance
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
-            <AnalysisCell
-              label={isBuy ? 'Max payout' : 'Premium received'}
-              raw={isBuy ? stats.contractMaxPayout : -totalCost}
-              text={fmtInf(isBuy ? stats.contractMaxPayout : -totalCost)}
-            />
-            <AnalysisCell
-              label="Expected P&L"
-              raw={stats.expectedPnl}
-              text={fmtSignedInf(stats.expectedPnl)}
-              tone={stats.expectedPnl >= 0 ? 'buy' : 'sell'}
-            />
-            <AnalysisCell
-              label="Max profit"
-              raw={stats.maxProfit}
-              text={fmtSignedInf(stats.maxProfit)}
-              tone="buy"
-            />
-            <AnalysisCell
-              label="Max loss"
-              raw={-stats.maxLoss}
-              text={stats.maxLoss > 0 ? `−${fmtInf(stats.maxLoss)}` : fmt(0)}
-              tone="sell"
-            />
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[10px] uppercase tracking-wide text-muted">Breakeven θ</span>
-              <span className="tnum text-sm font-semibold text-fg">
-                {stats.breakevens.length === 0
-                  ? '—'
-                  : stats.breakevens
-                      .slice(0, 2)
-                      .map((b) => fmt(b, 0))
-                      .join(' · ')}
-                {stats.breakevens.length > 0 && (
-                  <span className="ml-1 text-xs font-normal text-muted">{outcomeUnit}</span>
-                )}
-              </span>
-            </div>
-            <AnalysisCell
-              label="Risk : reward"
-              raw={stats.riskReward ?? 0}
-              text={stats.riskReward == null ? '—' : `${fmt(stats.riskReward, 2)}×`}
-            />
-          </div>
+          {closing && closeStats ? (
+            <>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold text-fg">Closing your position</span>
+                <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">
+                  selling {fmt(closeStats.qClosed, 0)} of {fmt(held?.quantity ?? 0, 0)} held
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+                <AnalysisCell
+                  label="Payout"
+                  raw={closeStats.proceeds}
+                  text={fmt(closeStats.proceeds)}
+                  tone="buy"
+                />
+                <AnalysisCell
+                  label="Profit"
+                  raw={closeStats.realizedProfit}
+                  text={fmtSigned(closeStats.realizedProfit)}
+                  tone={closeStats.realizedProfit >= 0 ? 'buy' : 'sell'}
+                />
+                <AnalysisCell
+                  label="Cost basis"
+                  raw={closeStats.costBasis}
+                  text={fmt(closeStats.costBasis)}
+                />
+                <AnalysisCell
+                  label="Return"
+                  raw={closeStats.returnPct ?? 0}
+                  text={closeStats.returnPct == null ? '—' : fmtSignedPct(closeStats.returnPct)}
+                  tone={(closeStats.returnPct ?? 0) >= 0 ? 'buy' : 'sell'}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold text-fg">Trade analysis</span>
+                <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">
+                  {fmtPct(stats.pProfit)} win chance
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+                <AnalysisCell
+                  label={isBuy ? 'Max payout' : 'Premium received'}
+                  raw={isBuy ? stats.contractMaxPayout : -totalCost}
+                  text={fmtInf(isBuy ? stats.contractMaxPayout : -totalCost)}
+                />
+                <AnalysisCell
+                  label="Expected P&L"
+                  raw={stats.expectedPnl}
+                  text={fmtSignedInf(stats.expectedPnl)}
+                  tone={stats.expectedPnl >= 0 ? 'buy' : 'sell'}
+                />
+                <AnalysisCell
+                  label="Max profit"
+                  raw={stats.maxProfit}
+                  text={fmtSignedInf(stats.maxProfit)}
+                  tone="buy"
+                />
+                <AnalysisCell
+                  label="Max loss"
+                  raw={-stats.maxLoss}
+                  text={stats.maxLoss > 0 ? `−${fmtInf(stats.maxLoss)}` : fmt(0)}
+                  tone="sell"
+                />
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] uppercase tracking-wide text-muted">
+                    Breakeven θ
+                  </span>
+                  <span className="tnum text-sm font-semibold text-fg">
+                    {stats.breakevens.length === 0
+                      ? '—'
+                      : stats.breakevens
+                          .slice(0, 2)
+                          .map((b) => fmt(b, 0))
+                          .join(' · ')}
+                    {stats.breakevens.length > 0 && (
+                      <span className="ml-1 text-xs font-normal text-muted">{outcomeUnit}</span>
+                    )}
+                  </span>
+                </div>
+                <AnalysisCell
+                  label="Risk : reward"
+                  raw={stats.riskReward ?? 0}
+                  text={stats.riskReward == null ? '—' : `${fmt(stats.riskReward, 2)}×`}
+                />
+              </div>
+            </>
+          )}
         </div>
       )}
 

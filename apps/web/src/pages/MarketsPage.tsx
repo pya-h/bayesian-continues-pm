@@ -60,12 +60,17 @@ export function MarketsPage() {
   return (
     <div className="flex flex-col gap-5">
       {/* heading + search + sort */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-baseline gap-2">
-          <h1 className="text-lg font-semibold">Markets</h1>
-          <span className="text-sm text-muted">{all.length} live</span>
+      <div className="hero-glow relative flex flex-col gap-3 overflow-hidden rounded-2xl border border-edge bg-panel p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative flex flex-col gap-1">
+          <div className="flex items-baseline gap-2">
+            <h1 className="text-gradient text-2xl font-semibold tracking-tight">Markets</h1>
+            <span className="text-sm text-muted">{all.length} live</span>
+          </div>
+          <p className="text-sm text-muted">
+            Trade the crowd’s forecast — pick a market to dive in.
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="relative flex items-center gap-2">
           <div className="relative">
             <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 text-muted">
               ⌕

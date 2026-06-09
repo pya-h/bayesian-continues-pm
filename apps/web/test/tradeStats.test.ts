@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { payoffRange, tradeStats } from '../src/lib/tradeStats.ts';
+import { payoffRange, sellCloseStats, tradeStats } from '../src/lib/tradeStats.ts';
 import type { ContractSpec } from '../src/lib/types.ts';
 
 const close = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) <= tol;
@@ -69,6 +69,38 @@ describe('tradeStats — long call has unbounded upside but capped loss', () => 
   });
   test('breakeven solves 10·(θ−100) = 30 → θ = 103', () => {
     expect(close(s.breakevens[0] ?? 0, 103, 0.2)).toBe(true);
+  });
+});
+
+describe('sellCloseStats — closing a long', () => {
+  test('selling the whole holding at a gain', () => {
+    // bought 10 @ 0.4 (cost 4), sell all 10 for proceeds 7 → profit 3, +75%.
+    const c = sellCloseStats({ proceeds: 7, qty: 10, heldQty: 10, avgEntryPrice: 0.4 });
+    expect(c.qClosed).toBe(10);
+    expect(close(c.costBasis, 4)).toBe(true);
+    expect(close(c.realizedProfit, 3)).toBe(true);
+    expect(close(c.returnPct ?? 0, 0.75)).toBe(true);
+  });
+  test('partial close only counts the closed portion of proceeds and cost', () => {
+    // hold 10 @ 0.5, sell 4 for total proceeds 2.4 → closes 4, cost 2, profit 0.4.
+    const c = sellCloseStats({ proceeds: 2.4, qty: 4, heldQty: 10, avgEntryPrice: 0.5 });
+    expect(c.qClosed).toBe(4);
+    expect(close(c.costBasis, 2)).toBe(true);
+    expect(close(c.realizedProfit, 0.4)).toBe(true);
+  });
+  test('selling more than held only closes the holding', () => {
+    // hold 4 @ 0.5, sell 10 for proceeds 6 → closes 4, proceeds for closed = 6·4/10 = 2.4.
+    const c = sellCloseStats({ proceeds: 6, qty: 10, heldQty: 4, avgEntryPrice: 0.5 });
+    expect(c.qClosed).toBe(4);
+    expect(close(c.proceeds, 2.4)).toBe(true);
+    expect(close(c.costBasis, 2)).toBe(true);
+    expect(close(c.realizedProfit, 0.4)).toBe(true);
+  });
+  test('no holding → nothing closes, returnPct null', () => {
+    const c = sellCloseStats({ proceeds: 5, qty: 10, heldQty: 0, avgEntryPrice: 0 });
+    expect(c.qClosed).toBe(0);
+    expect(c.realizedProfit).toBe(0);
+    expect(c.returnPct).toBeNull();
   });
 });
 

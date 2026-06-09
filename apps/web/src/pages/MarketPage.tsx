@@ -70,8 +70,8 @@ export function MarketPage() {
       </Link>
 
       {/* hero: identity + live belief */}
-      <div className="flex flex-col gap-4 rounded-2xl border border-edge bg-panel p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-2">
+      <div className="hero-glow relative flex flex-col gap-4 overflow-hidden rounded-2xl border border-edge bg-panel p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-xl font-semibold">{m.title}</h1>
             <StatusBadge status={m.status} />
@@ -109,7 +109,7 @@ export function MarketPage() {
             </div>
           </div>
         </div>
-        <div className="flex flex-col items-stretch gap-3 sm:w-72">
+        <div className="relative flex flex-col items-stretch gap-3 sm:w-72">
           <div className="h-16 overflow-hidden rounded-xl bg-panel-2/60">
             <MiniBelief
               mu={mu}

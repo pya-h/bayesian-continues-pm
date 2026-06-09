@@ -9,6 +9,35 @@ import { payoff, payoffBounds } from '@bmm/core';
 import type { ContractSpec } from './types.ts';
 import { type Interval, probInRegions } from './viz.ts';
 
+// Realized result of a *closing sell* — selling contracts the user already holds.
+// Unlike the probabilistic max-profit/max-loss framing, a close is deterministic
+// you receive `proceeds` now and lock in profit against what you originally paid.
+export interface CloseStats {
+  qClosed: number;
+  proceeds: number;
+  costBasis: number;
+  realizedProfit: number;
+  returnPct: number | null;
+}
+
+// Profit/loss locked in by selling `qty` of a holding of `heldQty` bought at
+// `avgEntryPrice`, for total `proceeds` received. Only the portion that closes an
+// existing long counts; any excess (opening a short) is ignored here.
+export function sellCloseStats(args: {
+  proceeds: number;
+  qty: number;
+  heldQty: number;
+  avgEntryPrice: number;
+}): CloseStats {
+  const { proceeds, qty, heldQty, avgEntryPrice } = args;
+  const qClosed = Math.max(0, Math.min(qty, heldQty));
+  const proceedsClosed = qty > 0 ? proceeds * (qClosed / qty) : 0;
+  const costBasis = avgEntryPrice * qClosed;
+  const realizedProfit = proceedsClosed - costBasis;
+  const returnPct = costBasis > 1e-9 ? realizedProfit / costBasis : null;
+  return { qClosed, proceeds: proceedsClosed, costBasis, realizedProfit, returnPct };
+}
+
 export interface TradeStats {
   quantity: number;
   // Most the contracts could ever pay a holder: q · max per-unit payoff (∞ if unbounded).

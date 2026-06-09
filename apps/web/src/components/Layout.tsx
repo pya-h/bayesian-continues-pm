@@ -13,7 +13,9 @@ export function Layout() {
 
   const navCls = ({ isActive }: { isActive: boolean }) =>
     `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-      isActive ? 'bg-panel-2 text-fg shadow-sm ring-1 ring-edge' : 'text-muted hover:text-fg'
+      isActive
+        ? 'bg-accent-soft text-accent shadow-sm ring-1 ring-accent/30'
+        : 'text-muted hover:text-fg'
     }`;
 
   // The route's first path segment keys the content so it re-mounts (and the
@@ -25,7 +27,7 @@ export function Layout() {
       {/* ambient accent glow behind everything */}
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed inset-0 -z-10"
+        className="pointer-events-none fixed inset-0 -z-10 animate-drift"
         style={{
           background:
             'radial-gradient(46rem 28rem at 50% -6%, color-mix(in oklab, var(--color-accent) 11%, transparent), transparent 72%)',
@@ -35,7 +37,7 @@ export function Layout() {
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-4">
           <NavLink to="/" className="mr-3 flex items-center gap-2">
             <span className="text-lg text-accent">◎</span>
-            <span className="font-semibold tracking-tight">BMM</span>
+            <span className="text-gradient font-semibold tracking-tight">BMM</span>
             <span className="hidden text-xs text-muted sm:inline">prediction market</span>
           </NavLink>
           <nav className="flex items-center gap-1">
@@ -44,6 +46,9 @@ export function Layout() {
             </NavLink>
             <NavLink to="/portfolio" className={navCls}>
               Portfolio
+            </NavLink>
+            <NavLink to="/guide" className={navCls}>
+              Guide
             </NavLink>
             {user?.role === 'admin' && (
               <NavLink to="/admin" className={navCls}>

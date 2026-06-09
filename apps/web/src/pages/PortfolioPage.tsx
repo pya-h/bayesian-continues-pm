@@ -50,7 +50,7 @@ export function PortfolioPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-semibold">Portfolio</h1>
+        <h1 className="text-gradient text-2xl font-semibold tracking-tight">Portfolio</h1>
         <span className="text-sm text-muted">
           {groups.length} market{groups.length === 1 ? '' : 's'}
         </span>

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { RequireAdmin, RequireAuth } from './auth/RequireAuth.tsx';
 import { Layout } from './components/Layout.tsx';
 import { AdminPage } from './pages/AdminPage.tsx';
+import { GuidePage } from './pages/GuidePage.tsx';
 import { LoginPage } from './pages/LoginPage.tsx';
 import { LpPage } from './pages/LpPage.tsx';
 import { MarketPage } from './pages/MarketPage.tsx';
@@ -23,6 +24,7 @@ export function App() {
         <Route path="/markets/:id" element={<MarketPage />} />
         <Route path="/markets/:id/lp" element={<LpPage />} />
         <Route path="/portfolio" element={<PortfolioPage />} />
+        <Route path="/guide" element={<GuidePage />} />
         <Route
           path="/admin"
           element={
