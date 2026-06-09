@@ -28,7 +28,13 @@ import { qk, useMarkets, usePortfolio } from '../hooks/queries.ts';
 import { ApiError, api } from '../lib/api.ts';
 import { type MarketGroup, groupPositionsByMarket, groupTotalPnl } from '../lib/derive.ts';
 import { fmt, fmtSigned } from '../lib/format.ts';
-import { type PositionSortKey, isClosedPosition, sortPositions } from '../lib/positionView.ts';
+import {
+  POSITION_SORTS,
+  type PositionSortKey,
+  isClosedPosition,
+  sortPositions,
+} from '../lib/positionView.ts';
+import { asBool, oneOf, usePersistentState } from '../lib/usePersistentState.ts';
 
 type PnlFilter = 'all' | 'profit' | 'loss';
 // Canonical status order; only buckets actually present become chips.
@@ -38,11 +44,28 @@ export function PortfolioPage() {
   const portfolio = usePortfolio();
   const markets = useMarkets();
 
-  const [sort, setSort] = useState<PositionSortKey>('recent');
-  const [inline, setInline] = useState(true);
-  const [showClosed, setShowClosed] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [pnlFilter, setPnlFilter] = useState<PnlFilter>('all');
+  // View choices persist across reloads.
+  const [sort, setSort] = usePersistentState<PositionSortKey>(
+    'portfolio.sort',
+    'recent',
+    oneOf(
+      POSITION_SORTS.map((s) => s.key),
+      'recent',
+    ),
+  );
+  const [inline, setInline] = usePersistentState('portfolio.inline', true, asBool(true));
+  const [showClosed, setShowClosed] = usePersistentState(
+    'portfolio.showClosed',
+    false,
+    asBool(false),
+  );
+  const [statusFilter, setStatusFilter] = usePersistentState<string>('portfolio.status', 'ALL');
+  const [pnlFilter, setPnlFilter] = usePersistentState<PnlFilter>(
+    'portfolio.pnl',
+    'all',
+    oneOf(['all', 'profit', 'loss'], 'all'),
+  );
+  // Modal selection is ephemeral — never persisted.
   const [modalId, setModalId] = useState<string | null>(null);
 
   // marketId → live belief context, so each position can draw its payoff curve.
@@ -235,6 +258,7 @@ export function PortfolioPage() {
       {modalGroup && (
         <PositionsModal
           group={modalGroup}
+          belief={beliefs.get(modalGroup.marketId)}
           sort={sort}
           showClosed={showClosed}
           onClose={() => setModalId(null)}
@@ -452,16 +476,18 @@ function MarketTile({
   );
 }
 
-// Modal listing one market's positions, with a jump to its trading page. Cards
-// are compact (no payoff chart — that lives on the full market page); each row
-// still expands into its deeper stats.
+// Modal listing one market's positions — the same chart cards as the expanded
+// inline mode, just rendered a touch smaller inside the dialog's narrower grid.
+// Each row still expands into its deeper stats; a jump links to the trade page.
 function PositionsModal({
   group: g,
+  belief,
   sort,
   showClosed,
   onClose,
 }: {
   group: MarketGroup;
+  belief?: PositionBelief;
   sort: PositionSortKey;
   showClosed: boolean;
   onClose: () => void;
@@ -490,9 +516,13 @@ function PositionsModal({
         <GroupSummary group={g} />
       </div>
       <div className="grid grid-cols-1 items-start gap-3 p-3 md:grid-cols-2">
-        {positions.map((p) => (
-          <div key={p.contractId} className="rounded-lg border border-edge bg-panel-2/30">
-            <PositionRow pos={p} hideClaim />
+        {positions.map((p, i) => (
+          <div
+            key={p.contractId}
+            style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}
+            className="animate-fade-up rounded-lg border border-edge bg-panel-2/30"
+          >
+            <PositionRow pos={p} belief={belief} hideClaim />
           </div>
         ))}
       </div>

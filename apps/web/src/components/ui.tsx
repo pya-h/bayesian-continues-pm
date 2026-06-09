@@ -1,4 +1,5 @@
 import { type ButtonHTMLAttributes, type ReactNode, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { statusTone } from '../lib/format.ts';
 
 export function Panel({
@@ -128,8 +129,9 @@ export function FlashNumber({
 }
 
 // A lightweight centered modal with a dimmed, click-to-close backdrop and Escape
-// support. No portal — rendered inline with a high z-index, which is plenty for
-// this app's flat layout.
+// support. Rendered through a portal to <body> so the fixed overlay covers the
+// whole viewport — rendering it inline would trap it inside any transformed
+// ancestor (our pages/panels animate with `transform`), dimming only that box.
 export function Modal({
   onClose,
   title,
@@ -148,7 +150,7 @@ export function Modal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 backdrop-blur-sm animate-fade-in">
       {/* full-screen click-to-close backdrop (a real button, behind the dialog) */}
       <button
@@ -179,7 +181,8 @@ export function Modal({
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

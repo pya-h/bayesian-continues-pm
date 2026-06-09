@@ -16,6 +16,7 @@ import {
   sortPositions,
 } from '../lib/positionView.ts';
 import type { PortfolioPosition } from '../lib/types.ts';
+import { asBool, oneOf, usePersistentState } from '../lib/usePersistentState.ts';
 import { PositionPnlChart } from './PositionPnlChart.tsx';
 import { Button, Spinner, Toggle } from './ui.tsx';
 
@@ -64,8 +65,21 @@ export function PositionPanel({
   grid?: boolean;
 }) {
   const portfolio = usePortfolio();
-  const [sort, setSort] = useState<PositionSortKey>('recent');
-  const [showClosed, setShowClosed] = useState(false);
+  // Shared across markets and persisted, so the trader's preferred ordering /
+  // closed-visibility sticks between markets and reloads.
+  const [sort, setSort] = usePersistentState<PositionSortKey>(
+    'positions.sort',
+    'recent',
+    oneOf(
+      POSITION_SORTS.map((s) => s.key),
+      'recent',
+    ),
+  );
+  const [showClosed, setShowClosed] = usePersistentState(
+    'positions.showClosed',
+    false,
+    asBool(false),
+  );
 
   const all = useMemo(
     () => (portfolio.data?.positions ?? []).filter((p) => p.marketId === marketId),
