@@ -9,9 +9,15 @@ import { useAuth } from '../auth/AuthContext.tsx';
 import { qk, usePortfolio } from '../hooks/queries.ts';
 import { ApiError, api } from '../lib/api.ts';
 import { fmt, fmtPct, fmtSigned, specLabel } from '../lib/format.ts';
+import {
+  POSITION_SORTS,
+  type PositionSortKey,
+  isClosedPosition,
+  sortPositions,
+} from '../lib/positionView.ts';
 import type { PortfolioPosition } from '../lib/types.ts';
 import { PositionPnlChart } from './PositionPnlChart.tsx';
-import { Button, Spinner } from './ui.tsx';
+import { Button, Spinner, Toggle } from './ui.tsx';
 
 export interface PositionBelief {
   mu: number;
@@ -21,41 +27,55 @@ export interface PositionBelief {
   outcomeMax: number | null;
 }
 
-type SortKey = 'recent' | 'oldest' | 'pnl' | 'value' | 'size';
-
-const SORTS: {
-  key: SortKey;
-  label: string;
-  cmp: (a: PortfolioPosition, b: PortfolioPosition) => number;
-}[] = [
-  {
-    key: 'recent',
-    label: 'Recently traded',
-    cmp: (a, b) => b.lastTradedAt.localeCompare(a.lastTradedAt),
-  },
-  { key: 'oldest', label: 'Oldest first', cmp: (a, b) => a.openedAt.localeCompare(b.openedAt) },
-  { key: 'pnl', label: 'Unrealized P&L', cmp: (a, b) => b.unrealizedPnl - a.unrealizedPnl },
-  { key: 'value', label: 'Position value', cmp: (a, b) => b.positionValue - a.positionValue },
-  { key: 'size', label: 'Size', cmp: (a, b) => Math.abs(b.quantity) - Math.abs(a.quantity) },
-];
+export function PositionSortSelect({
+  value,
+  onChange,
+}: {
+  value: PositionSortKey;
+  onChange: (k: PositionSortKey) => void;
+}) {
+  return (
+    <label className="flex items-center gap-1.5 text-[11px] text-muted">
+      <span>Sort</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as PositionSortKey)}
+        className="rounded-md border border-edge bg-panel-2 px-1.5 py-1 text-[11px] text-fg outline-none focus:border-accent"
+      >
+        {POSITION_SORTS.map((s) => (
+          <option key={s.key} value={s.key}>
+            {s.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 export function PositionPanel({
   marketId,
   belief,
   onSell,
+  grid = false,
 }: {
   marketId: string;
   belief?: PositionBelief;
   onSell?: (pos: PortfolioPosition) => void;
+  grid?: boolean;
 }) {
   const portfolio = usePortfolio();
-  const [sort, setSort] = useState<SortKey>('recent');
+  const [sort, setSort] = useState<PositionSortKey>('recent');
+  const [showClosed, setShowClosed] = useState(false);
 
+  const all = useMemo(
+    () => (portfolio.data?.positions ?? []).filter((p) => p.marketId === marketId),
+    [portfolio.data, marketId],
+  );
+  const closedCount = useMemo(() => all.filter(isClosedPosition).length, [all]);
   const here = useMemo(() => {
-    const rows = (portfolio.data?.positions ?? []).filter((p) => p.marketId === marketId);
-    const cmp = SORTS.find((s) => s.key === sort)?.cmp;
-    return cmp ? [...rows].sort(cmp) : rows;
-  }, [portfolio.data, marketId, sort]);
+    const rows = showClosed ? all : all.filter((p) => !isClosedPosition(p));
+    return sortPositions(rows, sort);
+  }, [all, showClosed, sort]);
 
   if (portfolio.isLoading)
     return (
@@ -63,35 +83,50 @@ export function PositionPanel({
         <Spinner label="Loading positions…" />
       </div>
     );
-  if (here.length === 0)
+  if (all.length === 0)
     return <p className="p-4 text-sm text-muted">No positions in this market yet.</p>;
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-2 border-b border-edge px-4 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-edge px-4 py-2">
         <span className="text-[11px] text-muted">
           {here.length} position{here.length === 1 ? '' : 's'}
+          {!showClosed && closedCount > 0 && ` · ${closedCount} closed hidden`}
         </span>
-        <label className="flex items-center gap-1.5 text-[11px] text-muted">
-          <span>Sort</span>
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-            className="rounded-md border border-edge bg-panel-2 px-1.5 py-1 text-[11px] text-fg outline-none focus:border-accent"
-          >
-            {SORTS.map((s) => (
-              <option key={s.key} value={s.key}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="flex items-center gap-3">
+          {closedCount > 0 && (
+            <span className="flex items-center gap-1.5 text-[11px] text-muted">
+              <span>Closed</span>
+              <Toggle checked={showClosed} onChange={setShowClosed} label="Show closed positions" />
+            </span>
+          )}
+          <PositionSortSelect value={sort} onChange={setSort} />
+        </div>
       </div>
-      <div className="divide-y divide-edge">
-        {here.map((p) => (
-          <PositionRow key={p.contractId} pos={p} belief={belief} onSell={onSell} />
-        ))}
-      </div>
+      {here.length === 0 ? (
+        <p className="p-4 text-sm text-muted">
+          No active positions — toggle <span className="font-medium text-fg">Closed</span> to see
+          the rest.
+        </p>
+      ) : grid ? (
+        <div className="grid grid-cols-1 items-start gap-3 p-3 md:grid-cols-2 xl:grid-cols-3">
+          {here.map((p, i) => (
+            <div
+              key={p.contractId}
+              style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}
+              className="animate-fade-up rounded-lg border border-edge bg-panel-2/30"
+            >
+              <PositionRow pos={p} belief={belief} onSell={onSell} />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="divide-y divide-edge">
+          {here.map((p) => (
+            <PositionRow key={p.contractId} pos={p} belief={belief} onSell={onSell} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -128,18 +163,29 @@ export function PositionRow({
   const settled = pos.marketStatus === 'SETTLED';
   const pnlTone = pos.unrealizedPnl >= 0 ? 'text-buy' : 'text-sell';
   // A position is sellable when the market is live and the caller wired up a sell
-  // handler. Clicking the row then jumps the trade panel to Sell, pre-filled.
+  // handler. Clicking anywhere on the card (header, basis line, or the payoff
+  // chart) then jumps the trade panel to Sell, pre-filled.
   const sellable = !!onSell && pos.marketStatus === 'OPEN' && pos.quantity > 0;
+  const onRowClick = () => (sellable ? onSell?.(pos) : setOpen((o) => !o));
 
   return (
-    <div className="group px-4 py-3 text-sm">
+    // biome-ignore lint/a11y/useSemanticElements: card wraps its own chevron/claim buttons, so a real <button> would nest interactive controls; keyboard handler + tabIndex below keep it accessible.
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onRowClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onRowClick();
+        }
+      }}
+      title={sellable ? 'Sell this position' : undefined}
+      aria-label={sellable ? `Sell ${specLabel(pos.spec)}` : 'Toggle position details'}
+      className="group cursor-pointer px-4 py-3 text-sm outline-none focus-visible:ring-1 focus-visible:ring-accent"
+    >
       <div className="flex w-full items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => (sellable ? onSell?.(pos) : setOpen((o) => !o))}
-          title={sellable ? 'Sell this position' : undefined}
-          className={`flex-1 text-left ${sellable ? 'cursor-pointer' : ''}`}
-        >
+        <div className="flex-1 text-left">
           <div className="flex items-center gap-1.5 font-semibold">
             {specLabel(pos.spec)}
             {sellable && (
@@ -151,7 +197,7 @@ export function PositionRow({
           <div className="tnum text-xs text-muted">
             {fmt(pos.quantity, 2)} @ {fmt(pos.avgEntryPrice)} · basis {fmt(pos.costBasis)}
           </div>
-        </button>
+        </div>
         <div className="flex items-center gap-1.5">
           <div className="text-right tnum">
             <div className={`font-semibold ${pnlTone}`}>{fmtSigned(pos.unrealizedPnl)}</div>
@@ -159,7 +205,10 @@ export function PositionRow({
           </div>
           <button
             type="button"
-            onClick={() => setOpen((o) => !o)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((o) => !o);
+            }}
             aria-label={open ? 'Hide stats' : 'Show stats'}
             aria-expanded={open}
             className="rounded-md p-1 text-muted transition-colors hover:bg-panel-2 hover:text-fg"
@@ -206,7 +255,10 @@ export function PositionRow({
               variant="primary"
               className="px-2.5 py-1 text-xs"
               disabled={claim.isPending}
-              onClick={() => claim.mutate()}
+              onClick={(e) => {
+                e.stopPropagation();
+                claim.mutate();
+              }}
             >
               {claim.isPending ? '…' : 'Claim'}
             </Button>
@@ -221,7 +273,11 @@ export function PositionRow({
       )}
 
       {open && (
-        <div className="mt-3 rounded-lg border border-edge bg-panel-2 p-3 text-xs tnum">
+        // biome-ignore lint/a11y/useKeyWithClickEvents: not a control — only stops the parent row's sell from firing while reading the stats detail.
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="mt-3 rounded-lg border border-edge bg-panel-2 p-3 text-xs tnum"
+        >
           {detail.isLoading ? (
             <Spinner label="Loading stats…" />
           ) : detail.data ? (

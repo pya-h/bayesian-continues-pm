@@ -127,6 +127,62 @@ export function FlashNumber({
   );
 }
 
+// A lightweight centered modal with a dimmed, click-to-close backdrop and Escape
+// support. No portal — rendered inline with a high z-index, which is plenty for
+// this app's flat layout.
+export function Modal({
+  onClose,
+  title,
+  right,
+  children,
+}: {
+  onClose: () => void;
+  title?: ReactNode;
+  right?: ReactNode;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 backdrop-blur-sm animate-fade-in">
+      {/* full-screen click-to-close backdrop (a real button, behind the dialog) */}
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="fixed inset-0 -z-10 cursor-default"
+      />
+      {/* biome-ignore lint/a11y/useSemanticElements: a portal-free overlay; native <dialog> brings focus-trap/top-layer behavior we don't want here. */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative my-12 flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-edge bg-panel shadow-2xl animate-fade-up"
+      >
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-edge px-5 py-3">
+          <h2 className="text-sm font-semibold text-fg">{title}</h2>
+          <div className="flex items-center gap-2">
+            {right}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="rounded-md p-1 text-muted transition-colors hover:bg-panel-2 hover:text-fg"
+            >
+              ✕
+            </button>
+          </div>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export function Toggle({
   checked,
   onChange,

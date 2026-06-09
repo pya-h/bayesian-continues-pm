@@ -204,24 +204,30 @@ export function MarketPage() {
               />
             </Panel>
           </div>
-          <Panel title="Your positions">
-            <PositionPanel
-              marketId={id}
-              onSell={handleSell}
-              belief={{
-                mu,
-                sigma,
-                outcomeUnit: m.outcomeUnit,
-                outcomeMin: m.outcomeMin,
-                outcomeMax: m.outcomeMax,
-              }}
-            />
-          </Panel>
           <Panel title="Recent trades">
             <TradesTape tape={tape} />
           </Panel>
         </div>
       </div>
+
+      {/* full-width positions ledger — clicking a holding jumps to Sell above */}
+      <Panel
+        title="Your positions"
+        right={<span className="text-xs text-muted">click a holding to sell ↑</span>}
+      >
+        <PositionPanel
+          marketId={id}
+          onSell={handleSell}
+          grid
+          belief={{
+            mu,
+            sigma,
+            outcomeUnit: m.outcomeUnit,
+            outcomeMin: m.outcomeMin,
+            outcomeMax: m.outcomeMax,
+          }}
+        />
+      </Panel>
     </div>
   );
 }
