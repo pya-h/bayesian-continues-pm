@@ -112,16 +112,33 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
   - [x] Wired into every cash path: `tradeSvc.executeTrade` (trade_buy/sell), `marketSvc.createMarket` (market_create) + cancel `settleSvc.refundPositions` (refund), `lpSvc.deposit/withdraw/claim`, `settleSvc.claimPayout` (claim), admin top-up via new `services/fundingSvc.ts` (admin_credit + admin_grant; replaced dead `repos.credit`).
   - [x] **Tests:** `test/ledger.test.ts` — 6 integration cases (topup two-row, market_create, trade_buy, lp_deposit, claim, cancel refund); updated every suite's + `demo` cleanup to delete `transactions` first (FKs are RESTRICT). Suite: api 89, all packages green (shared 9 + core 117 + web 71 + api 89); typecheck 4/4; lint clean.
   - **Checkpoint:** ledger rows written atomically per cash path; new integration tests pass.
-- **TX-2 — Read API + stats `[shared, api]`:**
-  - [ ] `GET /users/me/transactions` → acting user's history (newest first) + `summary` (funded, claimed, tradeVolume, lpDeposited, lpWithdrawn, net).
-  - [ ] `shared`: response DTO; pure summarize helper.
-  - [ ] **Tests:** integration — list scoped to caller, ordering, summary totals; pure summarize unit tests.
-- **TX-3 — Frontend Transactions tab `[web]`:**
-  - [ ] Route `/transactions` (under `RequireAuth`) + nav link after Portfolio.
-  - [ ] `TransactionsPage` mirroring `PortfolioPage`: stats header (`Stat` cards), filterable/sortable list, type chips, persistent view state (`usePersistentState` `transactions.*`).
-  - [ ] `lib/txView.ts` (pure: sort keys, filters, `summarizeTransactions`); `lib/types.ts` `Transaction`; `lib/api.ts` + `hooks/queries.ts` endpoint/hook; formatting via `fmtSigned`/`timeAgo`/`statusTone`.
-  - [ ] **Tests:** web unit — `txView` sort/filter/summarize.
-  - **Checkpoint:** a user opens Transactions, sees every action with stats; admin sees their grants and the target user sees the credit.
+- **TX-2 — Read API + stats `[api]`:** DONE (2026-06-09)
+  - [x] `GET /users/me/transactions` (`routes/users.ts`) → caller's history newest-first (joined market title + counterparty username) + `summary` (count, funded, claimed, tradeBuy, tradeSell, lpDeposited, lpWithdrawn, refunded, net).
+  - [x] `services/ledgerView.ts`: `getUserTransactions` + pure `summarizeTransactions` (response shapes `TransactionView`/`TransactionSummary` defined here, mirrored in web at TX-3 per repo convention).
+  - [x] **Tests:** `test/ledgerView.test.ts` (pure summarize, 3) + integration GET case in `ledger.test.ts` (scoping, newest-first ordering, summary ≥ this-suite totals, counterparty/title joins). Purged 72 orphaned `(test)` markets from the dev DB. Suite api 93, all packages green; typecheck 4/4; lint clean.
+- **TX-3 — Frontend Transactions tab `[web]`:** DONE (2026-06-09)
+  - [x] Route `/transactions` (under `RequireAuth`) + nav link after Portfolio.
+  - [x] `TransactionsPage` mirroring `PortfolioPage`: stats header (Entered platform / Claimed / Trade volume / Net), category chips + free-text search + sort select, ledger table (kind badge, market link or funding counterparty, signed amount, balanceAfter (∞ for admin), relative time), persistent `transactions.category`/`transactions.sort`.
+  - [x] `lib/txView.ts` (pure: sort keys, category buckets, labels, filter/sort); `lib/types.ts` `Transaction`/`TransactionSummary`/`UserTransactions`; `lib/api.ts` `transactions()` + `hooks/queries.ts` `useTransactions`; formatting via `fmt`/`fmtSigned`/`timeAgo`.
+  - [x] **Tests:** `test/txView.test.ts` (8) — category/label maps, filter (category + text + compose), sort (recent/oldest/amount, no-mutate). web 79 pass; build 123 kB gzip.
+  - **Checkpoint:** a user opens Transactions and sees every action with lifetime stats; admin's grants and the funded user's credit each appear in their own history.
+
+**V2-10 status:** TX-1/TX-2/TX-3 all — transaction history feature complete end-to-end. (V2-11 admin market history NOT started — awaiting user go-ahead.)
+
+---
+
+## Phase V2-11 — Admin market history & panel restructure `[api, web]` (Workstream I) `[blocked-by: none]`
+**Goal:** an **admin-only** per-market cash-flow history (the market pool's "bank statement") plus a reorganized admin panel split into focused tabs. No new write-path: the market ledger is **reconstructed by aggregation** from data we already store — every trade's premium flow (`trades.totalCost` in/out of `markets.cash`), the genesis reserve / LP deposits-withdrawals-claims (`lp_ledger`, including the creator's initial liquidity), trader settlement payouts (`claims`), and cancel refunds. Use whichever of trades vs positions is more efficient and accurate for each figure (trades for flow events, positions for net exposure). User-facing transaction history (V2-10) stays user-side only; this is the complementary admin view.
+
+- **MH-1 — Market ledger read service `[api]`:**
+  - [ ] `services/marketLedgerSvc.ts` (read-only): assemble a time-ordered market cash-flow ledger for one market from `trades` + `lp_ledger` (genesis + deposits/withdraws/claims) + `claims` + cancel refunds, each as `{ at, kind, delta (signed on the pool), cashAfter?, userId, ref }`; plus rollups (premium income, LP in/out, payouts, net pool change, current cash/reserve/NAV).
+  - [ ] `GET /admin/markets/:id/ledger` (admin-only) → events + rollups.
+  - [ ] **Tests:** integration — a known trade/LP/settle sequence reconstructs to the expected pool deltas; rollups reconcile to `markets.cash`.
+- **MH-2 — Admin panel restructure `[web]`:**
+  - [ ] Split `/admin` into tabbed sub-views (nested routes or in-page tabs): **Markets** (overview + per-market ledger drill-in), **Users** (list + top-up + the user's tx history), **Create market**, **System** (alerts/overview). Keep `RequireAdmin`.
+  - [ ] Market ledger view: filterable/sortable event table + rollup stat cards, reusing `Stat`/`Panel`/formatting + `usePersistentState`.
+  - [ ] **Tests:** web unit for any pure ledger-view derivation (filter/sort/rollup).
+  - **Checkpoint:** an admin opens a market and sees its full cash-flow statement reconciling to current pool cash; the admin panel is organized into clear tabs.
 
 ---
 

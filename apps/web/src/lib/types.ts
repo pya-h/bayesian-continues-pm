@@ -2,7 +2,13 @@
 // (marketView.ts, tradeSvc.ts, lpSvc.ts, statsSvc.ts). Dates arrive over JSON as
 // ISO strings, so anything typed `Date` in the service is `string` here.
 
-import type { ContractSpecDTO, MarketStatus, UserRole, UserTier } from '@bmm/shared';
+import type {
+  ContractSpecDTO,
+  MarketStatus,
+  TransactionKind,
+  UserRole,
+  UserTier,
+} from '@bmm/shared';
 
 export type ContractSpec = ContractSpecDTO;
 
@@ -274,6 +280,41 @@ export interface CreateMarketInput {
   initialSigma: number;
   initialReserve: number;
   cfg?: MarketCfgInput;
+}
+
+// One row of the transaction ledger. `amount` is
+// signed from the wallet's view (+ inflow, − outflow); `balanceAfter` is null for
+// infinite/admin accounts. Dates are ISO strings.
+export interface Transaction {
+  txId: string;
+  kind: TransactionKind;
+  amount: number;
+  balanceAfter: number | null;
+  marketId: string | null;
+  marketTitle: string | null;
+  counterpartyId: string | null;
+  counterparty: string | null;
+  refType: string | null;
+  refId: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface TransactionSummary {
+  count: number;
+  funded: number;
+  claimed: number;
+  tradeBuy: number;
+  tradeSell: number;
+  lpDeposited: number;
+  lpWithdrawn: number;
+  refunded: number;
+  net: number;
+}
+
+export interface UserTransactions {
+  transactions: Transaction[];
+  summary: TransactionSummary;
 }
 
 export interface SystemAlert {

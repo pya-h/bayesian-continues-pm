@@ -19,6 +19,7 @@ import type {
   PositionDetail,
   PublicUser,
   Quote,
+  UserTransactions,
 } from './types.ts';
 
 export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
@@ -111,6 +112,7 @@ export const api = {
   portfolio: () => request<{ portfolio: Portfolio }>('/users/me/portfolio'),
   positionDetail: (contractId: string) =>
     request<{ position: PositionDetail }>(`/users/me/positions/${contractId}`),
+  transactions: () => request<UserTransactions>('/users/me/transactions'),
 
   // liquidity provision ---
   lp: (id: string) => request<{ lp: LpView }>(`/markets/${id}/lp`),

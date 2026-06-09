@@ -8,6 +8,7 @@ import { LpPage } from './pages/LpPage.tsx';
 import { MarketPage } from './pages/MarketPage.tsx';
 import { MarketsPage } from './pages/MarketsPage.tsx';
 import { PortfolioPage } from './pages/PortfolioPage.tsx';
+import { TransactionsPage } from './pages/TransactionsPage.tsx';
 
 export function App() {
   return (
@@ -24,6 +25,7 @@ export function App() {
         <Route path="/markets/:id" element={<MarketPage />} />
         <Route path="/markets/:id/lp" element={<LpPage />} />
         <Route path="/portfolio" element={<PortfolioPage />} />
+        <Route path="/transactions" element={<TransactionsPage />} />
         <Route path="/guide" element={<GuidePage />} />
         <Route
           path="/admin"

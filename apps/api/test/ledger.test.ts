@@ -218,4 +218,40 @@ describe.if(hasEnv)('transaction ledger (integration)', () => {
     expect(tx.amount).toBeGreaterThan(0); // cost basis returned
     expect(tx.amount).toBeCloseTo(fill.totalCost, 4); // full cost basis for a single buy
   });
+
+  test('GET /users/me/transactions returns the scoped history newest-first + summary', async () => {
+    const res = await req('GET', '/users/me/transactions', { token: aliceToken });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      transactions: {
+        kind: string;
+        amount: number;
+        marketTitle: string | null;
+        counterparty: string | null;
+        createdAt: string;
+      }[];
+      summary: { funded: number; claimed: number; tradeBuy: number; count: number };
+    };
+
+    // All the actions above are present (topup, 3 buys, lp deposit, claim, refund).
+    expect(body.transactions.length).toBeGreaterThanOrEqual(6);
+    expect(body.summary.count).toBe(body.transactions.length);
+
+    // Newest-first: createdAt is non-increasing.
+    for (let i = 1; i < body.transactions.length; i++) {
+      expect(body.transactions[i - 1].createdAt >= body.transactions[i].createdAt).toBe(true);
+    }
+
+    // Summary includes at least this suite's topup (1234) and claim (600). Uses
+    // ≥ because alice is a shared seeded user whose history spans the suite.
+    expect(body.summary.funded).toBeGreaterThanOrEqual(1234 - 1e-6);
+    expect(body.summary.claimed).toBeGreaterThanOrEqual(600 - 1e-6);
+    expect(body.summary.tradeBuy).toBeGreaterThan(0);
+
+    // The admin_credit row names the admin as counterparty; trade rows carry a title.
+    const credit = body.transactions.find((t) => t.kind === TransactionKind.ADMIN_CREDIT);
+    expect(credit?.counterparty).toBe(config.admin.username);
+    const buy = body.transactions.find((t) => t.kind === TransactionKind.TRADE_BUY);
+    expect(buy?.marketTitle).toContain('(test)');
+  });
 });

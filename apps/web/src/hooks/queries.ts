@@ -9,6 +9,7 @@ export const qk = {
   stats: (id: string) => ['stats', id] as const,
   history: (id: string, key?: string) => ['history', id, key ?? null] as const,
   portfolio: ['portfolio'] as const,
+  transactions: ['transactions'] as const,
   position: (contractId: string) => ['position', contractId] as const,
   lp: (id: string) => ['lp', id] as const,
   adminUsers: ['admin', 'users'] as const,
@@ -47,6 +48,13 @@ export function usePortfolio() {
   return useQuery({
     queryKey: qk.portfolio,
     queryFn: () => api.portfolio().then((r) => r.portfolio),
+  });
+}
+
+export function useTransactions() {
+  return useQuery({
+    queryKey: qk.transactions,
+    queryFn: () => api.transactions(),
   });
 }
 
