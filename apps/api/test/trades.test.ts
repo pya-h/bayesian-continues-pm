@@ -183,6 +183,81 @@ describe.if(hasEnv)('trade engine (integration)', () => {
     expect(typeof fill.position.realizedPnl).toBe('number');
   });
 
+  test('cannot sell MORE than you hold → 400', async () => {
+    const id = await createOpenMarket(adminToken, {
+      title: 'Oversell mkt (test)',
+      outcomeUnit: 'USD',
+      initialMu: 100,
+      initialSigma: 10,
+      initialReserve: 10000,
+    });
+    await req('POST', `/markets/${id}/trade`, {
+      token: aliceToken,
+      body: { spec: { type: 'CALL', strike: 100 }, q: 5 },
+    });
+    // Hold 5; try to sell 8.
+    const res = await req('POST', `/markets/${id}/trade`, {
+      token: aliceToken,
+      body: { spec: { type: 'CALL', strike: 100 }, q: -8 },
+    });
+    expect(res.status).toBe(400);
+    const { error } = (await res.json()) as { error: string };
+    expect(error).toMatch(/Cannot sell/i);
+  });
+
+  test('selling the whole holding zeroes the position; avg entry resets', async () => {
+    const id = await createOpenMarket(adminToken, {
+      title: 'Full-close mkt (test)',
+      outcomeUnit: 'USD',
+      initialMu: 100,
+      initialSigma: 10,
+      initialReserve: 10000,
+    });
+    await req('POST', `/markets/${id}/trade`, {
+      token: aliceToken,
+      body: { spec: { type: 'CALL', strike: 100 }, q: 12 },
+    });
+    const res = await req('POST', `/markets/${id}/trade`, {
+      token: aliceToken,
+      body: { spec: { type: 'CALL', strike: 100 }, q: -12 },
+    });
+    expect(res.status).toBe(200);
+    const { fill } = (await res.json()) as {
+      fill: { position: { quantity: number; avgEntryPrice: number; realizedPnl: number } };
+    };
+    expect(fill.position.quantity).toBeCloseTo(0, 6);
+    expect(fill.position.avgEntryPrice).toBe(0); // reset on a full close
+    expect(typeof fill.position.realizedPnl).toBe('number');
+  });
+
+  test('selling credits the trader and reduces MM cash', async () => {
+    const id = await createOpenMarket(adminToken, {
+      title: 'Sell-cash mkt (test)',
+      outcomeUnit: 'USD',
+      initialMu: 100,
+      initialSigma: 10,
+      initialReserve: 10000,
+    });
+    await req('POST', `/markets/${id}/trade`, {
+      token: aliceToken,
+      body: { spec: { type: 'CALL', strike: 100 }, q: 20 },
+    });
+    const mid = await req('GET', `/markets/${id}`);
+    const cashMid = ((await mid.json()) as { market: { cash: number } }).market.cash;
+
+    const res = await req('POST', `/markets/${id}/trade`, {
+      token: aliceToken,
+      body: { spec: { type: 'CALL', strike: 100 }, q: -8 },
+    });
+    expect(res.status).toBe(200);
+    const { fill } = (await res.json()) as {
+      fill: { side: string; totalCost: number; cash: number };
+    };
+    expect(fill.side).toBe('sell');
+    expect(fill.totalCost).toBeLessThan(0); // signed: a sell credits the trader
+    expect(fill.cash).toBeLessThan(cashMid); // MM pays out the buy-back
+  });
+
   test('cannot sell a contract you do not hold → 400', async () => {
     const id = await createOpenMarket(adminToken, {
       title: 'No-hold mkt (test)',

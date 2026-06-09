@@ -3,6 +3,7 @@
 // total cost, slippage guard, and the projected post-trade belief + reserve. The
 // Buy/Sell button fires the trade and folds the fill back into balance + caches.
 
+import { contractKey } from '@bmm/core';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../auth/AuthContext.tsx';
@@ -33,15 +34,17 @@ function useDebounced<T>(value: T, ms: number): T {
 
 const SLIPPAGE = 0.02; // 2% default protection band on the exec price
 
+// Two specs are the *same sellable contract* iff they share the engine's
+// canonical identity — the exact key the API matches a sell against. Using the
+// real contractKey (not a coarse rounding) keeps the close UI in lockstep with
+// what the server will actually accept, so we never show "closing" for a spec
+// the API would reject as un-held.
 function sameContract(a: ContractSpec, b: ContractSpec): boolean {
-  const ar = a as Record<string, unknown>;
-  const br = b as Record<string, unknown>;
-  if (ar.type !== br.type) return false;
-  const num = (x: unknown) => Math.round(typeof x === 'number' ? x : 0);
-  for (const k of ['strike', 'lower', 'upper', 'center', 'width']) {
-    if (num(ar[k]) !== num(br[k])) return false;
+  try {
+    return contractKey(a) === contractKey(b);
+  } catch {
+    return false;
   }
-  return true;
 }
 
 export function QuotePanel({
@@ -136,9 +139,8 @@ export function QuotePanel({
     return here[0] ?? null;
   }, [portfolio.data, marketId, debounced.spec]);
 
-  const closing = debounced.signedQ < 0 && held != null;
   const closeStats =
-    closing && quote && held
+    !isBuy && quote && held
       ? sellCloseStats({
           proceeds: -quote.totalCost,
           qty: Math.abs(debounced.signedQ),
@@ -146,6 +148,8 @@ export function QuotePanel({
           avgEntryPrice: held.avgEntryPrice,
         })
       : null;
+  // v1 is long-only: a sell can only *close* a contract you already hold.
+  const sellWithoutHolding = !isBuy && held == null;
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -234,7 +238,7 @@ export function QuotePanel({
       {/* know-your-trade analytics */}
       {tradable && quote && stats && (
         <div className="animate-fade-in rounded-lg border border-edge bg-panel-2 p-3">
-          {closing && closeStats ? (
+          {closeStats ? (
             <>
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-xs font-semibold text-fg">Closing your position</span>
@@ -268,6 +272,16 @@ export function QuotePanel({
                 />
               </div>
             </>
+          ) : sellWithoutHolding ? (
+            <div className="flex flex-col items-center gap-1.5 px-2 py-3 text-center">
+              <span className="text-lg">📭</span>
+              <span className="text-xs font-semibold text-fg">Nothing to close here</span>
+              <span className="text-xs text-muted">
+                Selling closes a contract you already hold. You don’t own this exact contract — pick
+                one from <span className="font-medium text-fg">Your positions</span>, or switch to{' '}
+                <span className="font-medium text-buy">Buy</span>.
+              </span>
+            </div>
           ) : (
             <>
               <div className="mb-2 flex items-center justify-between">
@@ -338,12 +352,14 @@ export function QuotePanel({
 
       <Button
         variant={isBuy ? 'buy' : 'sell'}
-        disabled={!tradable || qty <= 0 || trade.isPending}
+        disabled={!tradable || qty <= 0 || trade.isPending || sellWithoutHolding}
         onClick={() => trade.mutate()}
       >
         {trade.isPending
           ? 'Submitting…'
-          : `${isBuy ? 'Buy' : 'Sell'} ${fmt(qty, 2)} contract${qty === 1 ? '' : 's'}`}
+          : sellWithoutHolding
+            ? 'Nothing to sell'
+            : `${isBuy ? 'Buy' : 'Sell'} ${fmt(qty, 2)} contract${qty === 1 ? '' : 's'}`}
       </Button>
 
       {trade.isError && (

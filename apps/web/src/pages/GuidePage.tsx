@@ -4,6 +4,8 @@
 
 import { type ReactNode, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { BeliefArt, PayoffArt, PnlArt } from '../components/GuideArt.tsx';
+import type { ContractSpec } from '../lib/types.ts';
 
 type TabId = 'concepts' | 'trading' | 'portfolio' | 'liquidity' | 'faq';
 
@@ -132,6 +134,57 @@ function Callout({ children }: { children: ReactNode }) {
   );
 }
 
+function Figure({
+  children,
+  caption,
+  className = '',
+}: { children: ReactNode; caption?: string; className?: string }) {
+  return (
+    <figure className={`overflow-hidden rounded-xl border border-edge bg-panel-2/40 ${className}`}>
+      <div className="px-3 pt-3">{children}</div>
+      {caption && (
+        <figcaption className="px-3 pb-2.5 pt-1.5 text-center text-[11px] text-muted">
+          {caption}
+        </figcaption>
+      )}
+    </figure>
+  );
+}
+
+const CONTRACTS: { name: string; kind: ContractSpec['type']; desc: string }[] = [
+  { name: 'Call', kind: 'CALL', desc: 'Pays more the further θ ends up above a strike.' },
+  { name: 'Put', kind: 'PUT', desc: 'Pays more the further θ ends up below a strike.' },
+  {
+    name: 'Binary ≥ / ≤',
+    kind: 'BINARY_CALL',
+    desc: 'Pays a flat 1 above/below a strike, else 0.',
+  },
+  { name: 'Spread', kind: 'SPREAD', desc: 'Pays 1 if θ lands inside a range you choose.' },
+  { name: 'Bell', kind: 'GAUSSIAN', desc: 'Pays the most when θ lands near a centre you pick.' },
+  { name: 'Linear', kind: 'LINEAR', desc: 'Pays θ itself — a straight bet on the number.' },
+];
+
+function ContractGallery() {
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {CONTRACTS.map((c) => (
+        <div
+          key={c.name}
+          className="lift flex items-center gap-3 rounded-xl border border-edge bg-panel-2/40 p-3 transition-colors hover:border-accent/50"
+        >
+          <div className="h-14 w-20 shrink-0 rounded-lg bg-panel/60 p-1">
+            <PayoffArt kind={c.kind} />
+          </div>
+          <div className="flex min-w-0 flex-col">
+            <span className="text-sm font-semibold text-fg">{c.name}</span>
+            <span className="text-xs leading-snug text-muted">{c.desc}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Concepts() {
   return (
     <div className="flex flex-col gap-4">
@@ -144,27 +197,32 @@ function Concepts() {
       </Card>
 
       <Card title="The two numbers that drive a market" icon="✶">
-        <Term name="Consensus μ">
-          The market’s current best guess for the outcome. The big number on each market.
-        </Term>
-        <Term name="Uncertainty σ">
-          How unsure the market is. Smaller σ = a tight, confident estimate; larger σ = wide open.
-          The shaded bell on the chart shows how likely each outcome is.
-        </Term>
-        <Term name="Outcome θ">
-          The real value, revealed when the market resolves. All payouts are settled against it.
-        </Term>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
+          <div className="flex flex-col gap-3">
+            <Term name="Consensus μ">
+              The market’s current best guess for the outcome. The big number on each market — the
+              peak of the bell.
+            </Term>
+            <Term name="Uncertainty σ">
+              How unsure the market is. Smaller σ = a tight, confident estimate; larger σ = wide
+              open. It’s the width of the bell.
+            </Term>
+            <Term name="Outcome θ">
+              The real value, revealed when the market resolves. All payouts settle against it.
+            </Term>
+          </div>
+          <Figure caption="Belief: peak = μ, width = σ" className="sm:w-52">
+            <BeliefArt />
+          </Figure>
+        </div>
       </Card>
 
       <Card title="Contracts — the bets you can make" icon="⇄">
-        <p>A contract decides how your payout depends on the final outcome θ:</p>
-        <Term name="Call / Put">Pays more the further θ ends up above / below a strike.</Term>
-        <Term name="Binary ≥ / ≤">
-          Pays a flat 1 if θ lands above / below a strike, otherwise 0.
-        </Term>
-        <Term name="Spread">Pays 1 if θ lands inside a range you choose, else 0.</Term>
-        <Term name="Bell">Pays the most when θ lands near a center value you pick.</Term>
-        <Term name="Linear">Pays θ itself — a straight bet on the number going up.</Term>
+        <p>
+          A contract decides how your payout depends on the final outcome θ. Each shape below is the
+          payoff you’d collect across outcomes:
+        </p>
+        <ContractGallery />
       </Card>
 
       <Card title="Fair price & spread" icon="$">
@@ -188,9 +246,9 @@ function Trading() {
           and set the strike.
         </Step>
         <Step n={2} title="Pick a side and size">
-          <strong className="text-buy">Buy</strong> if you think it’s underpriced,{' '}
-          <strong className="text-sell">Sell</strong> to take the other side or close a holding.
-          Enter how many contracts.
+          <strong className="text-buy">Buy</strong> if you think it’s underpriced;{' '}
+          <strong className="text-sell">Sell</strong> to close a contract you already hold. Enter
+          how many contracts.
         </Step>
         <Step n={3} title="Read the quote">
           See the exec price and exactly what you’ll pay or receive, including the spread breakdown.
@@ -201,7 +259,27 @@ function Trading() {
         </Step>
       </Card>
 
+      <Card title="What can I sell?" icon="↺">
+        <p>
+          Selling here means{' '}
+          <strong className="text-fg">closing a position you already hold</strong>, not opening a
+          short. You can only sell a contract you own, and only that <em>exact</em> contract — same
+          type and same strike/range/centre.
+        </p>
+        <Term name="You can">Sell back any contract you hold, in whole or in part.</Term>
+        <Term name="You can’t">
+          Sell a contract you don’t own — even one whose shape overlaps another position. A Bell you
+          don’t hold can’t be sold against a Call or Spread you do; each contract is its own line
+          and settles on its own.
+        </Term>
+        <Callout>
+          Want the opposite view with a different shape? <strong>Buy</strong> that contract instead
+          — your positions then settle independently rather than cancelling out.
+        </Callout>
+      </Card>
+
       <Card title="Reading the Trade analysis" icon="◷">
+        <p className="text-xs uppercase tracking-wide text-muted">When buying</p>
         <Term name="Max payout">The most the contracts could ever pay you.</Term>
         <Term name="Max profit / loss">Best- and worst-case net result of the order.</Term>
         <Term name="Expected P&L">
@@ -210,9 +288,9 @@ function Trading() {
         <Term name="Win chance">The market-implied probability the order ends in profit.</Term>
         <Term name="Breakeven θ">The outcome at which you neither gain nor lose.</Term>
         <Callout>
-          When you <strong>sell contracts you already hold</strong>, this flips to{' '}
-          <strong>Payout</strong> and <strong>Profit</strong> — measured against what you originally
-          paid, since the result is now locked in.
+          When you <strong>sell contracts you already hold</strong>, the result is locked in, so
+          this shows <strong>Payout</strong> (cash you receive) and <strong>Profit</strong> (versus
+          what you originally paid) instead of best/worst cases.
         </Callout>
       </Card>
 
@@ -243,11 +321,17 @@ function Portfolio() {
       </Card>
 
       <Card title="The payoff chart" icon="📈">
-        <p>
-          Each position draws a small curve of your profit/loss across every possible outcome θ.
-          Green is profit, red is loss, and the marker shows where the market currently expects θ to
-          land — so you can see at a glance whether the consensus is on your side.
-        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
+          <p>
+            Each position draws a small curve of your profit/loss across every possible outcome θ.
+            Green is profit, red is loss, the dashed line is breakeven, and a marker shows where the
+            market currently expects θ to land — so you can see at a glance whether the consensus is
+            on your side.
+          </p>
+          <Figure caption="P&L vs outcome — green gains, red losses" className="sm:w-52">
+            <PnlArt />
+          </Figure>
+        </div>
       </Card>
 
       <Card title="Claiming payouts" icon="🎉">
@@ -315,9 +399,15 @@ function Faq() {
           The spread, plus your own size: bigger orders move the price, so they fill a little away
           from the mid.
         </Faqitem>
+        <Faqitem q="Can I sell something I don’t own?">
+          No. Selling closes a contract you already hold — you can’t open a short or sell a shape
+          you don’t own, even if it overlaps another position. To take the other side, buy a
+          different contract instead.
+        </Faqitem>
         <Faqitem q="Can I lose more than I put in?">
-          Buying — no, your loss is capped at what you paid. Selling short or providing liquidity —
-          yes, losses can exceed the premium you received.
+          As a trader, no — your loss is capped at what you paid, and selling only ever returns
+          cash. As a liquidity provider, yes: the pool takes the other side of every trade, so its
+          losses can exceed the spread it earned.
         </Faqitem>
         <Faqitem q="What happens if a market is suspended?">
           Trading pauses (often a safety circuit-breaker). Your positions are untouched and you can

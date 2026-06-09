@@ -69,9 +69,39 @@ describe('extractSignal (MODEL.md §5.2)', () => {
     expect(buy.weight > 0).toBe(true);
   });
 
-  test('buying a PUT signals below the strike', () => {
+  test('buying a PUT signals below the strike; selling a PUT signals above', () => {
+    // Buying a PUT is bearish (below strike); SELLING a PUT is the opposite —
+    // a bullish view that price stays above the strike. The sign must flip with
+    // the side, mirroring CALL. (Regression guard: an easy mistake is to leave
+    // the sell signal below the strike, learning μ in the wrong direction.)
     const buy = extractSignal({ type: 'PUT', strike: 95 }, 50, belief, cfg);
+    const sell = extractSignal({ type: 'PUT', strike: 95 }, -50, belief, cfg);
     expect(buy.signal < 95).toBe(true);
+    expect(sell.signal > 95).toBe(true);
+  });
+
+  test('BINARY_PUT sell signals above the strike (bullish), like PUT', () => {
+    const sell = extractSignal({ type: 'BINARY_PUT', strike: 95 }, -50, belief, cfg);
+    expect(sell.signal > 95).toBe(true);
+  });
+
+  test('selling a GAUSSIAN(center) pushes the signal away from the center', () => {
+    // center 120 sits above μ=100, so a sell pushes μ further down, away from it.
+    const sell = extractSignal({ type: 'GAUSSIAN', center: 120, width: 5 }, -50, belief, cfg);
+    expect(sell.signal < 100).toBe(true);
+  });
+
+  test('selling a SPREAD pushes the signal away from the midpoint', () => {
+    // midpoint 120 is above μ=100 → sell pushes the signal below μ.
+    const sell = extractSignal({ type: 'SPREAD', lower: 110, upper: 130 }, -50, belief, cfg);
+    expect(sell.signal < 100).toBe(true);
+  });
+
+  test('a big PUT buy lowers μ; a big PUT sell raises it', () => {
+    const buy = extractSignal({ type: 'PUT', strike: 95 }, 300, belief, cfg);
+    const sell = extractSignal({ type: 'PUT', strike: 95 }, -300, belief, cfg);
+    expect(bayesUpdate(belief, buy.signal, buy.weight, cfg).mu).toBeLessThan(belief.mu);
+    expect(bayesUpdate(belief, sell.signal, sell.weight, cfg).mu).toBeGreaterThan(belief.mu);
   });
 
   test('buying LINEAR signals above μ; selling below', () => {
