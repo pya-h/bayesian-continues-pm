@@ -2,6 +2,7 @@ import { createMarketSchema } from '@bmm/shared';
 import { Elysia } from 'elysia';
 import { requireAdmin } from '../auth/plugin.ts';
 import type { UserRow } from '../db/repos.ts';
+import { getMarketLedger } from '../services/marketLedgerSvc.ts';
 import { createMarket, transitionMarket } from '../services/marketSvc.ts';
 import { buildMarketView } from '../services/marketView.ts';
 import { marketStats } from '../services/statsSvc.ts';
@@ -53,4 +54,7 @@ export const adminMarketRoutes = new Elysia({ prefix: '/admin/markets' })
   })
   .get('/:id/overview', async ({ params }) => {
     return { overview: await marketStats(params.id) };
+  })
+  .get('/:id/ledger', async ({ params }) => {
+    return { ledger: await getMarketLedger(params.id) };
   });

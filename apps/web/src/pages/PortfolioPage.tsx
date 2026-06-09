@@ -16,6 +16,7 @@ import {
 } from '../components/PositionPanel.tsx';
 import {
   Button,
+  CountUp,
   ErrorNote,
   Modal,
   Panel,
@@ -142,20 +143,23 @@ export function PortfolioPage() {
       {totals && (
         <div className="overflow-hidden rounded-xl border border-edge bg-panel">
           <div className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-4">
-            <Stat label="Market value" value={fmt(totals.marketValue)} />
+            <Stat
+              label="Market value"
+              value={<CountUp value={totals.marketValue} format={(n) => fmt(n)} />}
+            />
             <Stat
               label="Unrealized PnL"
-              value={fmtSigned(totals.unrealized)}
+              value={<CountUp value={totals.unrealized} format={(n) => fmtSigned(n)} />}
               tone={totals.unrealized >= 0 ? 'buy' : 'sell'}
             />
             <Stat
               label="Realized PnL"
-              value={fmtSigned(totals.realized)}
+              value={<CountUp value={totals.realized} format={(n) => fmtSigned(n)} />}
               tone={totals.realized >= 0 ? 'buy' : 'sell'}
             />
             <Stat
               label="Total PnL"
-              value={fmtSigned(totals.total)}
+              value={<CountUp value={totals.total} format={(n) => fmtSigned(n)} />}
               tone={totals.total >= 0 ? 'buy' : 'sell'}
             />
           </div>

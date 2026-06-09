@@ -13,6 +13,7 @@ import type {
   LpView,
   LpWithdrawResult,
   MarketHistory,
+  MarketLedger,
   MarketStats,
   MarketView,
   Portfolio,
@@ -133,7 +134,11 @@ export const api = {
     }),
   adminOverview: (id: string) =>
     request<{ overview: AdminMarketOverview }>(`/admin/markets/${id}/overview`),
+  adminMarketLedger: (id: string) =>
+    request<{ ledger: MarketLedger }>(`/admin/markets/${id}/ledger`),
   adminUsers: () => request<{ users: AdminUser[] }>('/admin/users'),
   adminTopup: (userId: string, amount: number) =>
     request<{ user: PublicUser }>(`/admin/users/${userId}/topup`, { body: { amount } }),
+  adminUserTransactions: (userId: string) =>
+    request<UserTransactions>(`/admin/users/${userId}/transactions`),
 };

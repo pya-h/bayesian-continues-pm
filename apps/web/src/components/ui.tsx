@@ -1,6 +1,59 @@
 import { type ButtonHTMLAttributes, type ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { statusTone } from '../lib/format.ts';
+import { usePrefs } from '../prefs/PrefsContext.tsx';
+
+// Animates a number toward `value`, easing out over ~600ms, and renders it
+// through `format`. On mount it counts up from zero, and on change it tweens
+// from the previous value — a premium touch for headline stats. Honours the
+// motion preference: with animations off it just shows the final formatted value
+// (no rAF, no flash), so it stays accessible and cheap.
+export function CountUp({
+  value,
+  format,
+  className = '',
+  durationMs = 600,
+}: {
+  value: number;
+  format: (n: number) => string;
+  className?: string;
+  durationMs?: number;
+}) {
+  const { prefs } = usePrefs();
+  const animate = prefs.animations && Number.isFinite(value);
+  const [display, setDisplay] = useState(() => (animate ? 0 : value));
+  const fromRef = useRef(animate ? 0 : value);
+
+  useEffect(() => {
+    if (!animate) {
+      fromRef.current = value;
+      setDisplay(value);
+      return;
+    }
+    const from = fromRef.current;
+    if (from === value) {
+      setDisplay(value);
+      return;
+    }
+    let raf = 0;
+    let startTs: number | null = null;
+    const step = (ts: number) => {
+      if (startTs === null) startTs = ts;
+      const p = Math.min(1, (ts - startTs) / durationMs);
+      const eased = 1 - (1 - p) ** 3; // easeOutCubic
+      setDisplay(from + (value - from) * eased);
+      if (p < 1) raf = requestAnimationFrame(step);
+      else fromRef.current = value;
+    };
+    raf = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(raf);
+      fromRef.current = value; // resume from the target if interrupted mid-tween
+    };
+  }, [value, animate, durationMs]);
+
+  return <span className={className}>{format(display)}</span>;
+}
 
 export function Panel({
   children,

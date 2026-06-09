@@ -9,6 +9,7 @@ import { users } from '../db/schema.ts';
 import { writeAudit } from '../lib/audit.ts';
 import { publicUser } from '../lib/user.ts';
 import { adminTopup } from '../services/fundingSvc.ts';
+import { getUserTransactions } from '../services/ledgerView.ts';
 
 export const adminRoutes = new Elysia({ prefix: '/admin' })
   .use(requireAdmin)
@@ -51,4 +52,14 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       payload: { amount: parsed.data.amount, infinite: target.isInfinite },
     });
     return { user: publicUser(updated) };
+  })
+  // A specific user's full transaction history (admin-only mirror of
+  // `/users/me/transactions`) — surfaced in the admin Users tab.
+  .get('/users/:id/transactions', async ({ params, set }) => {
+    const target = await userRepo.byId(params.id);
+    if (!target) {
+      set.status = 404;
+      return { error: 'User not found' };
+    }
+    return await getUserTransactions(target.userId);
   });

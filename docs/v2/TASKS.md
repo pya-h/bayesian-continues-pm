@@ -130,15 +130,17 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 ## Phase V2-11 — Admin market history & panel restructure `[api, web]` (Workstream I) `[blocked-by: none]`
 **Goal:** an **admin-only** per-market cash-flow history (the market pool's "bank statement") plus a reorganized admin panel split into focused tabs. No new write-path: the market ledger is **reconstructed by aggregation** from data we already store — every trade's premium flow (`trades.totalCost` in/out of `markets.cash`), the genesis reserve / LP deposits-withdrawals-claims (`lp_ledger`, including the creator's initial liquidity), trader settlement payouts (`claims`), and cancel refunds. Use whichever of trades vs positions is more efficient and accurate for each figure (trades for flow events, positions for net exposure). User-facing transaction history (V2-10) stays user-side only; this is the complementary admin view.
 
-- **MH-1 — Market ledger read service `[api]`:**
-  - [ ] `services/marketLedgerSvc.ts` (read-only): assemble a time-ordered market cash-flow ledger for one market from `trades` + `lp_ledger` (genesis + deposits/withdraws/claims) + `claims` + cancel refunds, each as `{ at, kind, delta (signed on the pool), cashAfter?, userId, ref }`; plus rollups (premium income, LP in/out, payouts, net pool change, current cash/reserve/NAV).
-  - [ ] `GET /admin/markets/:id/ledger` (admin-only) → events + rollups.
-  - [ ] **Tests:** integration — a known trade/LP/settle sequence reconstructs to the expected pool deltas; rollups reconcile to `markets.cash`.
-- **MH-2 — Admin panel restructure `[web]`:**
-  - [ ] Split `/admin` into tabbed sub-views (nested routes or in-page tabs): **Markets** (overview + per-market ledger drill-in), **Users** (list + top-up + the user's tx history), **Create market**, **System** (alerts/overview). Keep `RequireAdmin`.
-  - [ ] Market ledger view: filterable/sortable event table + rollup stat cards, reusing `Stat`/`Panel`/formatting + `usePersistentState`.
-  - [ ] **Tests:** web unit for any pure ledger-view derivation (filter/sort/rollup).
+- **MH-1 — Market ledger read service `[api]`:** DONE (2026-06-09)
+  - [x] `services/marketLedgerSvc.ts` (read-only): assembles a time-ordered market cash-flow ledger from `lp_ledger` (genesis via `navBefore=0` + deposits/withdraws/claims) + `trades` (signed `totalCost`) + cancel refunds (the per-trader `transactions` refund rows) + `claims` (trader payouts), each as `{ at, kind, delta (signed on the pool), affectsCash, cashAfter, userId, username, ref, note }`; plus rollups (genesisReserve, premiumIn/Out, lpDeposits/Withdrawals, refunds, traderPayouts, lpClaimsPaid, netPoolChange, currentCash, reserveRequired, nav, cashFinal, `reconciles`). Settlement distributions (trader/LP payouts) carry `affectsCash:false` since by design they don't mutate `markets.cash` (residual computed logically); the cash-affecting deltas sum exactly to `markets.cash`.
+  - [x] `GET /admin/markets/:id/ledger` (admin-only) → `{ ledger: { events, rollup } }`.
+  - [x] **Tests:** `test/marketLedger.test.ts` — genesis+trades+LP reconstruct & reconcile to `markets.cash`; settlement records payouts without moving cash; cancel refunds reduce the pool & still reconcile; admin-only (403)/404. (api 99 green.)
+- **MH-2 — Admin panel restructure `[web]`:** DONE (2026-06-09)
+  - [x] Split `/admin` into in-page tabs (persistent `admin.tab`): **Markets** (lifecycle list → per-market Overview / **Cash-flow ledger** sub-tabs), **Users** (list + top-up + each user's tx history via new admin-only `GET /admin/users/:id/transactions`), **Create market**, **System** (alerts + system overview). `RequireAdmin` unchanged.
+  - [x] `components/MarketLedgerView.tsx`: rollup `Stat` cards + reconcile badge + filterable/sortable event table; `lib/marketLedgerView.ts` (pure category/label/filter/sort) persisted via `usePersistentState`.
+  - [x] **Tests:** `test/marketLedgerView.test.ts` (8) — category/label maps, filter (category + text + compose), sort (recent/oldest/amount, no-mutate). web 87 green; build 126 kB gzip.
   - **Checkpoint:** an admin opens a market and sees its full cash-flow statement reconciling to current pool cash; the admin panel is organized into clear tabs.
+
+**V2-11 status:** MH-1/MH-2 both — admin market-history ledger + tabbed admin panel complete end-to-end.
 
 ---
 

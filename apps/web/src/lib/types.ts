@@ -317,6 +317,59 @@ export interface UserTransactions {
   summary: TransactionSummary;
 }
 
+// admin market ledger (marketLedgerSvc.ts) ---
+
+export type MarketLedgerKind =
+  | 'genesis'
+  | 'lp_deposit'
+  | 'lp_withdraw'
+  | 'lp_claim'
+  | 'trade_buy'
+  | 'trade_sell'
+  | 'refund'
+  | 'trader_payout';
+
+export interface MarketLedgerEvent {
+  at: string;
+  kind: MarketLedgerKind;
+  delta: number;
+  affectsCash: boolean;
+  cashAfter: number | null;
+  userId: string | null;
+  username: string | null;
+  ref: { type: string; id: string } | null;
+  note?: string;
+}
+
+export interface MarketLedgerRollup {
+  genesisReserve: number;
+  lpDeposits: number;
+  lpWithdrawals: number;
+  premiumIn: number;
+  premiumOut: number;
+  refunds: number;
+  traderPayouts: number;
+  lpClaimsPaid: number;
+  netPoolChange: number;
+  currentCash: number;
+  reserveRequired: number;
+  nav: number;
+  cashFinal: number;
+  reconciles: boolean;
+  tradeCount: number;
+  lpEventCount: number;
+  eventCount: number;
+}
+
+export interface MarketLedger {
+  marketId: string;
+  title: string;
+  status: MarketStatus;
+  createdAt: string;
+  events: MarketLedgerEvent[];
+  rollup: MarketLedgerRollup;
+}
+
 export interface SystemAlert {
   type: 'system:alert';
   marketId: string;

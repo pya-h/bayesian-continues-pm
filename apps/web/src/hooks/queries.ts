@@ -14,6 +14,8 @@ export const qk = {
   lp: (id: string) => ['lp', id] as const,
   adminUsers: ['admin', 'users'] as const,
   adminOverview: (id: string) => ['admin', 'overview', id] as const,
+  adminLedger: (id: string) => ['admin', 'ledger', id] as const,
+  adminUserTx: (id: string) => ['admin', 'userTx', id] as const,
 };
 
 export function useMarkets() {
@@ -77,6 +79,22 @@ export function useAdminOverview(id: string, enabled = true) {
   return useQuery({
     queryKey: qk.adminOverview(id),
     queryFn: () => api.adminOverview(id).then((r) => r.overview),
+    enabled,
+  });
+}
+
+export function useAdminMarketLedger(id: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.adminLedger(id),
+    queryFn: () => api.adminMarketLedger(id).then((r) => r.ledger),
+    enabled,
+  });
+}
+
+export function useAdminUserTransactions(id: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.adminUserTx(id),
+    queryFn: () => api.adminUserTransactions(id),
     enabled,
   });
 }

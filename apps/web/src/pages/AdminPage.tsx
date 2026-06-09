@@ -1,28 +1,83 @@
-// Admin panel: create a market (full config + R₀), manage your markets'
-// lifecycle, inspect per-market overview (creator/MM PnL, exposure, reserve
-// util), and list + top-up users. Routed behind RequireAdmin.
+// Admin panel, organised tab by tab (TASKS / MH-2)
+// • Markets — your markets' lifecycle, per-market overview, and the admin-only
+// cash-flow ledger drill-in (the market pool's bank statement)
+// • Users — list + top-up + each user's full transaction history
+// • Create — the full market creation form (config + R₀)
+// • System — circuit-breaker alerts and a system overview.
+// Routed behind RequireAdmin. The active tab persists across reloads.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.tsx';
 import { AlertsBanner } from '../components/AlertsBanner.tsx';
+import { MarketLedgerView } from '../components/MarketLedgerView.tsx';
 import { Button, ErrorNote, Panel, Spinner, Stat, StatusBadge } from '../components/ui.tsx';
-import { qk, useAdminOverview, useAdminUsers, useMarkets } from '../hooks/queries.ts';
+import {
+  qk,
+  useAdminOverview,
+  useAdminUserTransactions,
+  useAdminUsers,
+  useMarkets,
+} from '../hooks/queries.ts';
 import { ApiError, api } from '../lib/api.ts';
 import { type CreateMarketDraft, buildCreateMarketBody, lifecycleActions } from '../lib/derive.ts';
-import { fmt, fmtCompact, fmtPct, fmtSigned } from '../lib/format.ts';
-import type { MarketView } from '../lib/types.ts';
+import { fmt, fmtCompact, fmtPct, fmtSigned, timeAgo } from '../lib/format.ts';
+import { txLabel } from '../lib/txView.ts';
+import type { AdminUser, MarketView } from '../lib/types.ts';
+import { oneOf, usePersistentState } from '../lib/usePersistentState.ts';
+
+type AdminTab = 'markets' | 'users' | 'create' | 'system';
+const TABS: { key: AdminTab; label: string }[] = [
+  { key: 'markets', label: 'Markets' },
+  { key: 'users', label: 'Users' },
+  { key: 'create', label: 'Create market' },
+  { key: 'system', label: 'System' },
+];
 
 export function AdminPage() {
   const { user } = useAuth();
+  const [tab, setTab] = usePersistentState<AdminTab>(
+    'admin.tab',
+    'markets',
+    oneOf(
+      TABS.map((t) => t.key),
+      'markets',
+    ),
+  );
+
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="text-lg font-semibold">Admin</h1>
-      <AlertsBanner />
-      <CreateMarketForm />
-      <MyMarkets creatorId={user?.userId ?? ''} />
-      <UsersSection />
+    <div className="flex flex-col gap-5">
+      {/* hero header + tab bar */}
+      <div className="hero-glow relative flex flex-col gap-3 overflow-hidden rounded-2xl border border-edge bg-panel p-5">
+        <div className="relative flex items-baseline gap-2">
+          <h1 className="text-gradient text-2xl font-semibold tracking-tight">Admin</h1>
+          <span className="text-sm text-muted">control room</span>
+        </div>
+        <nav className="relative flex flex-wrap gap-1">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                tab === t.key
+                  ? 'bg-accent-soft text-accent shadow-sm ring-1 ring-accent/30'
+                  : 'text-muted hover:text-fg'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      <div key={tab} className="animate-fade-up">
+        {tab === 'markets' && <MyMarkets creatorId={user?.userId ?? ''} />}
+        {tab === 'users' && <UsersSection />}
+        {tab === 'create' && <CreateMarketForm />}
+        {tab === 'system' && <SystemSection />}
+      </div>
     </div>
   );
 }
@@ -165,7 +220,7 @@ const CFG_FIELDS: { key: string; label: string; hint: string }[] = [
   { key: 'lr', label: 'lr (belief)', hint: '0.01' },
 ];
 
-// my markets ---
+// markets tab ---
 
 function MyMarkets({ creatorId }: { creatorId: string }) {
   const markets = useMarkets();
@@ -194,6 +249,7 @@ function MyMarkets({ creatorId }: { creatorId: string }) {
 function MarketRow({ market: m }: { market: MarketView }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<'overview' | 'ledger'>('overview');
   const [resolving, setResolving] = useState(false);
   const [theta, setTheta] = useState('');
 
@@ -204,6 +260,7 @@ function MarketRow({ market: m }: { market: MarketView }) {
       qc.invalidateQueries({ queryKey: qk.markets });
       qc.invalidateQueries({ queryKey: qk.market(m.marketId) });
       qc.invalidateQueries({ queryKey: qk.adminOverview(m.marketId) });
+      qc.invalidateQueries({ queryKey: qk.adminLedger(m.marketId) });
       setResolving(false);
       setTheta('');
     },
@@ -284,8 +341,46 @@ function MarketRow({ market: m }: { market: MarketView }) {
         </p>
       )}
 
-      {open && <Overview marketId={m.marketId} />}
+      {open && (
+        <div className="mt-3">
+          <div className="flex items-center gap-1">
+            <SubTab active={view === 'overview'} onClick={() => setView('overview')}>
+              Overview
+            </SubTab>
+            <SubTab active={view === 'ledger'} onClick={() => setView('ledger')}>
+              Cash-flow ledger
+            </SubTab>
+          </div>
+          {view === 'overview' ? (
+            <Overview marketId={m.marketId} />
+          ) : (
+            <MarketLedgerView marketId={m.marketId} />
+          )}
+        </div>
+      )}
     </div>
+  );
+}
+
+function SubTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+        active ? 'bg-accent-soft text-accent' : 'text-muted hover:text-fg'
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -329,7 +424,7 @@ function Overview({ marketId }: { marketId: string }) {
   );
 }
 
-// users ---
+// users tab ---
 
 function UsersSection() {
   const users = useAdminUsers();
@@ -354,13 +449,15 @@ function UsersSection() {
   );
 }
 
-function UserRow({ user: u }: { user: import('../lib/types.ts').AdminUser }) {
+function UserRow({ user: u }: { user: AdminUser }) {
   const qc = useQueryClient();
   const [amount, setAmount] = useState('');
+  const [open, setOpen] = useState(false);
   const topup = useMutation({
     mutationFn: (amt: number) => api.adminTopup(u.userId, amt).then((r) => r.user),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.adminUsers });
+      qc.invalidateQueries({ queryKey: qk.adminUserTx(u.userId) });
       setAmount('');
     },
   });
@@ -368,41 +465,146 @@ function UserRow({ user: u }: { user: import('../lib/types.ts').AdminUser }) {
   const valid = amount !== '' && Number.isFinite(n) && n > 0;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
-      <div>
-        <span className="font-semibold">{u.username}</span>
-        <span className="ml-2 rounded bg-panel-2 px-1.5 py-0.5 text-xs text-muted">{u.role}</span>
-        <span className="ml-2 text-xs text-muted">{u.tier}</span>
-        <div className="tnum text-xs text-muted">
-          {u.isInfinite ? '∞ balance' : `$${fmt(u.balance)}`}
-        </div>
+    <div className="px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button type="button" onClick={() => setOpen((o) => !o)} className="text-left">
+          <span className="mr-1.5 text-muted">{open ? '▾' : '▸'}</span>
+          <span className="font-semibold">{u.username}</span>
+          <span className="ml-2 rounded bg-panel-2 px-1.5 py-0.5 text-xs text-muted">{u.role}</span>
+          <span className="ml-2 text-xs text-muted">{u.tier}</span>
+          <div className="tnum pl-5 text-xs text-muted">
+            {u.isInfinite ? '∞ balance' : `$${fmt(u.balance)}`}
+          </div>
+        </button>
+        {!u.isInfinite && (
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0}
+              value={amount}
+              placeholder="Top-up"
+              onChange={(e) => setAmount(e.target.value)}
+              className="tnum w-28 rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-sm outline-none focus:border-accent"
+            />
+            <Button
+              variant="ghost"
+              className="px-3 py-1.5 text-xs"
+              disabled={!valid || topup.isPending}
+              onClick={() => topup.mutate(n)}
+            >
+              {topup.isPending ? '…' : 'Top up'}
+            </Button>
+            {topup.isError && (
+              <span className="text-xs text-sell">
+                {topup.error instanceof ApiError ? topup.error.message : 'Failed.'}
+              </span>
+            )}
+          </div>
+        )}
       </div>
-      {!u.isInfinite && (
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            inputMode="decimal"
-            min={0}
-            value={amount}
-            placeholder="Top-up"
-            onChange={(e) => setAmount(e.target.value)}
-            className="tnum w-28 rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-sm outline-none focus:border-accent"
-          />
-          <Button
-            variant="ghost"
-            className="px-3 py-1.5 text-xs"
-            disabled={!valid || topup.isPending}
-            onClick={() => topup.mutate(n)}
-          >
-            {topup.isPending ? '…' : 'Top up'}
-          </Button>
-          {topup.isError && (
-            <span className="text-xs text-sell">
-              {topup.error instanceof ApiError ? topup.error.message : 'Failed.'}
-            </span>
-          )}
+
+      {open && <UserTransactions userId={u.userId} />}
+    </div>
+  );
+}
+
+// A user's transaction history, fetched on demand (admin-only).
+function UserTransactions({ userId }: { userId: string }) {
+  const tx = useAdminUserTransactions(userId);
+  if (tx.isLoading)
+    return (
+      <div className="mt-3">
+        <Spinner label="Loading history…" />
+      </div>
+    );
+  if (tx.error || !tx.data)
+    return <p className="mt-3 text-xs text-sell">Failed to load this user's history.</p>;
+
+  const { transactions, summary } = tx.data;
+  if (transactions.length === 0)
+    return <p className="mt-3 text-xs text-muted">No transactions yet.</p>;
+
+  return (
+    <div className="mt-3 flex flex-col gap-3">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-edge bg-panel-2 p-3 sm:grid-cols-4">
+        <Stat label="Funded in" value={fmt(summary.funded)} tone="buy" />
+        <Stat label="Claimed out" value={fmt(summary.claimed)} tone="accent" />
+        <Stat label="Trade volume" value={fmt(summary.tradeBuy + summary.tradeSell)} />
+        <Stat
+          label="Net flow"
+          value={fmtSigned(summary.net)}
+          tone={summary.net >= 0 ? 'buy' : 'sell'}
+          sub={`${summary.count} record${summary.count === 1 ? '' : 's'}`}
+        />
+      </div>
+      <div className="max-h-72 overflow-y-auto rounded-lg border border-edge">
+        <table className="w-full text-xs tnum">
+          <thead className="sticky top-0 border-b border-edge bg-panel text-muted">
+            <tr className="text-left">
+              <th className="px-3 py-2 font-medium">Type</th>
+              <th className="px-2 py-2 font-medium">Detail</th>
+              <th className="px-2 py-2 text-right font-medium">Amount</th>
+              <th className="px-3 py-2 text-right font-medium">When</th>
+            </tr>
+          </thead>
+          <tbody>
+            {transactions.map((t) => (
+              <tr key={t.txId} className="border-t border-edge/60">
+                <td className="px-3 py-1.5">{txLabel(t.kind)}</td>
+                <td className="px-2 py-1.5 text-muted">{t.marketTitle ?? t.counterparty ?? '—'}</td>
+                <td
+                  className={`px-2 py-1.5 text-right font-semibold ${t.amount >= 0 ? 'text-buy' : 'text-sell'}`}
+                >
+                  {fmtSigned(t.amount)}
+                </td>
+                <td
+                  className="whitespace-nowrap px-3 py-1.5 text-right text-muted"
+                  title={new Date(t.createdAt).toLocaleString()}
+                >
+                  {timeAgo(t.createdAt)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// system tab ---
+
+function SystemSection() {
+  const markets = useMarkets();
+  const users = useAdminUsers();
+
+  const byStatus = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const m of markets.data ?? []) map.set(m.status, (map.get(m.status) ?? 0) + 1);
+    return map;
+  }, [markets.data]);
+
+  const totalPool = useMemo(
+    () => (markets.data ?? []).reduce((s, m) => s + (m.pool?.nav ?? 0), 0),
+    [markets.data],
+  );
+
+  return (
+    <div className="flex flex-col gap-5">
+      <AlertsBanner />
+      <Panel title="System overview">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 p-4 sm:grid-cols-3 lg:grid-cols-4">
+          <Stat label="Markets" value={markets.data?.length ?? 0} />
+          <Stat label="Users" value={users.data?.length ?? 0} />
+          <Stat label="Open" value={byStatus.get('OPEN') ?? 0} tone="buy" />
+          <Stat label="Resolved" value={byStatus.get('RESOLVED') ?? 0} tone="accent" />
+          <Stat label="Settled" value={byStatus.get('SETTLED') ?? 0} />
+          <Stat label="Suspended" value={byStatus.get('SUSPENDED') ?? 0} tone="warn" />
+          <Stat label="Cancelled" value={byStatus.get('CANCELLED') ?? 0} tone="sell" />
+          <Stat label="Total pool NAV" value={fmtCompact(totalPool)} tone="accent" />
         </div>
-      )}
+      </Panel>
     </div>
   );
 }
