@@ -23,7 +23,7 @@ import {
   price,
 } from '@bmm/core';
 import { round8 } from '@bmm/shared';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import { db } from '../db/client.ts';
 import { marketRepo } from '../db/repos.ts';
 import {
@@ -208,6 +208,8 @@ export interface PortfolioPosition {
   realizedPnl: number;
   peakProfit: number; // stored running-max unrealized
   drawdownFromPeak: number; // peakProfit − current unrealized (≥ 0)
+  openedAt: string; // ISO — when the position was first opened
+  lastTradedAt: string; // ISO — last fill against this position (sort key)
   final: { thetaStar: number; payout: number; finalPnl: number; claimed: boolean } | null;
 }
 
@@ -237,11 +239,16 @@ export async function portfolio(userId: string): Promise<Portfolio> {
       currentSigma: markets.currentSigma,
       cfg: markets.cfg,
       thetaStar: markets.thetaStar,
+      openedAt: positions.createdAt,
+      lastTradedAt: positions.updatedAt,
     })
     .from(positions)
     .innerJoin(contracts, eq(positions.contractId, contracts.contractId))
     .innerJoin(markets, eq(positions.marketId, markets.marketId))
-    .where(eq(positions.userId, userId));
+    .where(eq(positions.userId, userId))
+    // Default order: most recently traded first (updatedAt bumps on every fill).
+    // The client can re-sort; this is just a stable, meaningful baseline.
+    .orderBy(desc(positions.updatedAt));
 
   // Which of this user's positions have already been claimed (settled markets)?
   const claimRows = await db
@@ -292,6 +299,8 @@ export async function portfolio(userId: string): Promise<Portfolio> {
       realizedPnl: r.realizedPnl,
       peakProfit: r.peakUnrealized,
       drawdownFromPeak: round8(Math.max(0, r.peakUnrealized - unrealizedPnl)),
+      openedAt: r.openedAt.toISOString(),
+      lastTradedAt: r.lastTradedAt.toISOString(),
       final,
     });
   }

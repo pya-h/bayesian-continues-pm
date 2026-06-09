@@ -130,6 +130,8 @@ export interface PortfolioPosition {
   realizedPnl: number;
   peakProfit: number;
   drawdownFromPeak: number;
+  openedAt: string;
+  lastTradedAt: string;
   final: { thetaStar: number; payout: number; finalPnl: number; claimed: boolean } | null;
 }
 

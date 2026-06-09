@@ -56,6 +56,7 @@ export function QuotePanel({
   outcomeUnit,
   outcomeMin = null,
   outcomeMax = null,
+  sellRequest = null,
 }: {
   marketId: string;
   spec: ContractSpec;
@@ -65,6 +66,7 @@ export function QuotePanel({
   outcomeUnit: string;
   outcomeMin?: number | null;
   outcomeMax?: number | null;
+  sellRequest?: { qty: number; nonce: number } | null;
 }) {
   const qc = useQueryClient();
   const { user, setUser } = useAuth();
@@ -73,6 +75,14 @@ export function QuotePanel({
   const [qty, setQty] = useState(1);
   const [slippageOn, setSlippageOn] = useState(true);
   const [lastFill, setLastFill] = useState<Fill | null>(null);
+
+  // A position click upstream sets the spec and bumps this request; respond by
+  // switching to the Sell tab and pre-filling the full held size.
+  useEffect(() => {
+    if (!sellRequest) return;
+    setSide('sell');
+    if (sellRequest.qty > 0) setQty(sellRequest.qty);
+  }, [sellRequest]);
 
   const signedQ = side === 'buy' ? Math.abs(qty) : -Math.abs(qty);
   // Round the belief into the key so live ticks re-quote, but not on every pixel.

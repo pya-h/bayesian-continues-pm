@@ -4,7 +4,7 @@
 // SETTLED, a Claim button credits the recorded payout.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAuth } from '../auth/AuthContext.tsx';
 import { qk, usePortfolio } from '../hooks/queries.ts';
 import { ApiError, api } from '../lib/api.ts';
@@ -21,15 +21,41 @@ export interface PositionBelief {
   outcomeMax: number | null;
 }
 
+type SortKey = 'recent' | 'oldest' | 'pnl' | 'value' | 'size';
+
+const SORTS: {
+  key: SortKey;
+  label: string;
+  cmp: (a: PortfolioPosition, b: PortfolioPosition) => number;
+}[] = [
+  {
+    key: 'recent',
+    label: 'Recently traded',
+    cmp: (a, b) => b.lastTradedAt.localeCompare(a.lastTradedAt),
+  },
+  { key: 'oldest', label: 'Oldest first', cmp: (a, b) => a.openedAt.localeCompare(b.openedAt) },
+  { key: 'pnl', label: 'Unrealized P&L', cmp: (a, b) => b.unrealizedPnl - a.unrealizedPnl },
+  { key: 'value', label: 'Position value', cmp: (a, b) => b.positionValue - a.positionValue },
+  { key: 'size', label: 'Size', cmp: (a, b) => Math.abs(b.quantity) - Math.abs(a.quantity) },
+];
+
 export function PositionPanel({
   marketId,
   belief,
+  onSell,
 }: {
   marketId: string;
   belief?: PositionBelief;
+  onSell?: (pos: PortfolioPosition) => void;
 }) {
   const portfolio = usePortfolio();
-  const here = (portfolio.data?.positions ?? []).filter((p) => p.marketId === marketId);
+  const [sort, setSort] = useState<SortKey>('recent');
+
+  const here = useMemo(() => {
+    const rows = (portfolio.data?.positions ?? []).filter((p) => p.marketId === marketId);
+    const cmp = SORTS.find((s) => s.key === sort)?.cmp;
+    return cmp ? [...rows].sort(cmp) : rows;
+  }, [portfolio.data, marketId, sort]);
 
   if (portfolio.isLoading)
     return (
@@ -41,10 +67,31 @@ export function PositionPanel({
     return <p className="p-4 text-sm text-muted">No positions in this market yet.</p>;
 
   return (
-    <div className="divide-y divide-edge">
-      {here.map((p) => (
-        <PositionRow key={p.contractId} pos={p} belief={belief} />
-      ))}
+    <div>
+      <div className="flex items-center justify-between gap-2 border-b border-edge px-4 py-2">
+        <span className="text-[11px] text-muted">
+          {here.length} position{here.length === 1 ? '' : 's'}
+        </span>
+        <label className="flex items-center gap-1.5 text-[11px] text-muted">
+          <span>Sort</span>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+            className="rounded-md border border-edge bg-panel-2 px-1.5 py-1 text-[11px] text-fg outline-none focus:border-accent"
+          >
+            {SORTS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="divide-y divide-edge">
+        {here.map((p) => (
+          <PositionRow key={p.contractId} pos={p} belief={belief} onSell={onSell} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -53,7 +100,13 @@ export function PositionRow({
   pos,
   hideClaim = false,
   belief,
-}: { pos: PortfolioPosition; hideClaim?: boolean; belief?: PositionBelief }) {
+  onSell,
+}: {
+  pos: PortfolioPosition;
+  hideClaim?: boolean;
+  belief?: PositionBelief;
+  onSell?: (pos: PortfolioPosition) => void;
+}) {
   const [open, setOpen] = useState(false);
   const qc = useQueryClient();
   const { user, setUser } = useAuth();
@@ -74,25 +127,47 @@ export function PositionRow({
 
   const settled = pos.marketStatus === 'SETTLED';
   const pnlTone = pos.unrealizedPnl >= 0 ? 'text-buy' : 'text-sell';
+  // A position is sellable when the market is live and the caller wired up a sell
+  // handler. Clicking the row then jumps the trade panel to Sell, pre-filled.
+  const sellable = !!onSell && pos.marketStatus === 'OPEN' && pos.quantity > 0;
 
   return (
-    <div className="px-4 py-3 text-sm">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between text-left"
-      >
-        <div>
-          <div className="font-semibold">{specLabel(pos.spec)}</div>
+    <div className="group px-4 py-3 text-sm">
+      <div className="flex w-full items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => (sellable ? onSell?.(pos) : setOpen((o) => !o))}
+          title={sellable ? 'Sell this position' : undefined}
+          className={`flex-1 text-left ${sellable ? 'cursor-pointer' : ''}`}
+        >
+          <div className="flex items-center gap-1.5 font-semibold">
+            {specLabel(pos.spec)}
+            {sellable && (
+              <span className="rounded bg-sell/15 px-1.5 py-0.5 text-[10px] font-semibold text-sell opacity-0 transition-opacity group-hover:opacity-100">
+                Sell →
+              </span>
+            )}
+          </div>
           <div className="tnum text-xs text-muted">
             {fmt(pos.quantity, 2)} @ {fmt(pos.avgEntryPrice)} · basis {fmt(pos.costBasis)}
           </div>
+        </button>
+        <div className="flex items-center gap-1.5">
+          <div className="text-right tnum">
+            <div className={`font-semibold ${pnlTone}`}>{fmtSigned(pos.unrealizedPnl)}</div>
+            <div className="text-xs text-muted">value {fmt(pos.positionValue)}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            aria-label={open ? 'Hide stats' : 'Show stats'}
+            aria-expanded={open}
+            className="rounded-md p-1 text-muted transition-colors hover:bg-panel-2 hover:text-fg"
+          >
+            <span className={`block transition-transform ${open ? 'rotate-90' : ''}`}>›</span>
+          </button>
         </div>
-        <div className="text-right tnum">
-          <div className={`font-semibold ${pnlTone}`}>{fmtSigned(pos.unrealizedPnl)}</div>
-          <div className="text-xs text-muted">value {fmt(pos.positionValue)}</div>
-        </div>
-      </button>
+      </div>
 
       {belief && (
         <div className="mt-3 rounded-lg border border-edge bg-panel-2/60 p-2">

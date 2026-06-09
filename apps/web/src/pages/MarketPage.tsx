@@ -3,7 +3,7 @@
 // the quote+execute panel, this-market positions, belief history, price-vs-strike
 // and a live trades tape. Belief μ/σ stream in via the market socket.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.tsx';
 import { BeliefChart } from '../components/BeliefChart.tsx';
@@ -19,7 +19,7 @@ import { useMarket, useMarketHistory, useMarketStats } from '../hooks/queries.ts
 import { useMarketSocket } from '../hooks/useMarketSocket.ts';
 import { ApiError } from '../lib/api.ts';
 import { fmt, fmtCompact, fmtPct } from '../lib/format.ts';
-import type { ContractSpec } from '../lib/types.ts';
+import type { ContractSpec, PortfolioPosition } from '../lib/types.ts';
 import { niceDomain } from '../lib/viz.ts';
 
 export function MarketPage() {
@@ -31,6 +31,15 @@ export function MarketPage() {
   const { connected, tape } = useMarketSocket(id, user?.userId);
 
   const [spec, setSpec] = useState<ContractSpec | null>(null);
+  const [sellRequest, setSellRequest] = useState<{ qty: number; nonce: number } | null>(null);
+
+  // Click a held position → load its contract into the composer, ask the trade
+  // panel to switch to Sell pre-filled, and bring the panel into view.
+  const handleSell = useCallback((p: PortfolioPosition) => {
+    setSpec(p.spec);
+    setSellRequest((r) => ({ qty: Math.abs(p.quantity), nonce: (r?.nonce ?? 0) + 1 }));
+    document.getElementById('quote-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   // Seed the composer with a Call once the belief is known (once only).
   const mu = market.data?.belief.mu ?? 0;
@@ -180,21 +189,25 @@ export function MarketPage() {
 
         {/* right: quote + positions + tape */}
         <div className="flex flex-col gap-4">
-          <Panel title="Quote & trade">
-            <QuotePanel
-              marketId={id}
-              spec={spec}
-              tradable={tradable}
-              mu={mu}
-              sigma={sigma}
-              outcomeUnit={m.outcomeUnit}
-              outcomeMin={m.outcomeMin}
-              outcomeMax={m.outcomeMax}
-            />
-          </Panel>
+          <div id="quote-panel" className="scroll-mt-4">
+            <Panel title="Quote & trade">
+              <QuotePanel
+                marketId={id}
+                spec={spec}
+                tradable={tradable}
+                mu={mu}
+                sigma={sigma}
+                outcomeUnit={m.outcomeUnit}
+                outcomeMin={m.outcomeMin}
+                outcomeMax={m.outcomeMax}
+                sellRequest={sellRequest}
+              />
+            </Panel>
+          </div>
           <Panel title="Your positions">
             <PositionPanel
               marketId={id}
+              onSell={handleSell}
               belief={{
                 mu,
                 sigma,
