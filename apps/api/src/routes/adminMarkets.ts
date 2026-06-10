@@ -1,4 +1,4 @@
-import { createMarketSchema } from '@bmm/shared';
+import { createMarketSchemaChecked } from '@bmm/shared';
 import { Elysia } from 'elysia';
 import { requireAdmin } from '../auth/plugin.ts';
 import type { UserRow } from '../db/repos.ts';
@@ -10,7 +10,7 @@ import { marketStats } from '../services/statsSvc.ts';
 export const adminMarketRoutes = new Elysia({ prefix: '/admin/markets' })
   .use(requireAdmin)
   .post('/', async ({ body, user, set }) => {
-    const parsed = createMarketSchema.safeParse(body);
+    const parsed = createMarketSchemaChecked.safeParse(body);
     if (!parsed.success) {
       set.status = 400;
       return { error: 'Validation failed', issues: parsed.error.issues };

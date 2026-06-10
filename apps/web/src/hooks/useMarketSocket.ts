@@ -5,7 +5,7 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { WS_URL } from '../lib/api.ts';
+import { WS_URL, getToken } from '../lib/api.ts';
 import type { MarketView } from '../lib/types.ts';
 import { qk } from './queries.ts';
 
@@ -32,6 +32,11 @@ export function useMarketSocket(marketId: string, userId?: string) {
   const seq = useRef(0); // monotonic counter — keeps tape keys unique without Date.now
 
   useEffect(() => {
+    // Clear any prior market's tape/price so a market→market navigation (this
+    // page doesn't remount.
+    setTape([]);
+    setLastPrice(null);
+
     let ws: WebSocket | null = null;
     let closed = false;
     let retry: ReturnType<typeof setTimeout> | null = null;
@@ -41,7 +46,10 @@ export function useMarketSocket(marketId: string, userId?: string) {
     };
 
     const connect = () => {
-      ws = new WebSocket(WS_URL);
+      // Pass the JWT as a query param — browsers can't set headers on a WS
+      // upgrade. The server authorizes the user:<id> topic against it.
+      const token = getToken();
+      ws = new WebSocket(token ? `${WS_URL}?token=${encodeURIComponent(token)}` : WS_URL);
 
       ws.onopen = () => {
         setConnected(true);

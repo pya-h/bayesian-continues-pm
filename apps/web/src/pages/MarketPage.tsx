@@ -41,7 +41,17 @@ export function MarketPage() {
     document.getElementById('quote-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
-  // Seed the composer with a Call once the belief is known (once only).
+  // Reset per-market UI state when navigating market→market. The app shell keys
+  // <main> on the first path segment, which is "markets" for every market page
+  // so this page is NOT remounted between two markets — without this, the prior
+  // market's composed spec / sell request would leak into the new one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on id change
+  useEffect(() => {
+    setSpec(null);
+    setSellRequest(null);
+  }, [id]);
+
+  // Seed the composer with a Call once the belief is known.
   const mu = market.data?.belief.mu ?? 0;
   const sigma = market.data?.belief.sigma ?? 1;
   useEffect(() => {
@@ -192,6 +202,7 @@ export function MarketPage() {
           <div id="quote-panel" className="scroll-mt-4">
             <Panel title="Quote & trade">
               <QuotePanel
+                key={id}
                 marketId={id}
                 spec={spec}
                 tradable={tradable}

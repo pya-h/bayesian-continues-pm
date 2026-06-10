@@ -97,7 +97,7 @@ export function evalBreakers(
         kind: 'insolvency_risk',
         severity: 'warning',
         action: 'alert',
-        message: `Cash ${fmt(input.cash)} approaching the ${t.reserveRatio}× reserve floor ${fmt(input.reserve)}.`,
+        message: `Cash ${fmt(input.cash)} below the ${t.reserveWarnRatio}× reserve warning level (floor ${t.reserveRatio}× of ${fmt(input.reserve)}).`,
         value: input.cash,
         threshold: t.reserveWarnRatio * input.reserve,
       });

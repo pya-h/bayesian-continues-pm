@@ -34,8 +34,12 @@ export const app = new Elysia()
     }
     const status = typeof set.status === 'number' && set.status >= 400 ? set.status : 500;
     set.status = status;
-    if (status >= 500) console.error(`[error] ${code}:`, (error as Error).message);
-    return { error: (error as Error).message ?? 'Internal error' };
+    if (status >= 500) {
+      // Log internally but never leak raw error/DB text to the client.
+      console.error(`[error] ${code}:`, (error as Error).message);
+      return { error: 'Internal error' };
+    }
+    return { error: (error as Error).message ?? 'Request failed' };
   })
   .onRequest(({ request }) => {
     if (process.env.NODE_ENV === 'test') return; // keep the test runner's output readable

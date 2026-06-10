@@ -94,6 +94,19 @@ export const createMarketSchema = z.object({
   closesAt: z.string().datetime().optional(),
   resolvesAt: z.string().datetime().optional(),
 });
+export const createMarketSchemaChecked = createMarketSchema.superRefine((val, ctx) => {
+  if (
+    val.outcomeMin !== undefined &&
+    val.outcomeMax !== undefined &&
+    !(val.outcomeMin < val.outcomeMax)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'outcomeMin must be less than outcomeMax',
+      path: ['outcomeMax'],
+    });
+  }
+});
 export type CreateMarketDTO = z.infer<typeof createMarketSchema>;
 
 // Trading -----------------------------------------------------------------

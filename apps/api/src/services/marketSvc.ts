@@ -8,7 +8,7 @@
 import { type EngineConfig, makeEngineConfig } from '@bmm/core';
 import type { CreateMarketDTO, MarketStatus } from '@bmm/shared';
 import { TransactionKind, round8, subMoney } from '@bmm/shared';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db } from '../db/client.ts';
 import { type MarketRow, type UserRow, marketRepo } from '../db/repos.ts';
 import { lpLedger, lpPositions, markets, oracles, users } from '../db/schema.ts';
@@ -40,14 +40,24 @@ export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Prom
   const reserve = dto.initialReserve;
 
   const market = await db.transaction(async (tx) => {
-    // Non-infinite creators fund the reserve from their balance.
+    // Non-infinite creators fund the reserve from their balance. Re-read the row
+    // FOR UPDATE inside the tx and debit with an atomic delta (like
+    // refundPositions / claimPayout) so a concurrent balance-affecting op can't
+    // cause a lost update from a stale request-time snapshot.
+    let lockedBalance = creator.balance;
     if (!creator.isInfinite) {
-      if (creator.balance < reserve) {
+      const locked = await tx
+        .select({ balance: users.balance })
+        .from(users)
+        .where(eq(users.userId, creator.userId))
+        .for('update');
+      lockedBalance = Number(locked[0]?.balance ?? creator.balance);
+      if (lockedBalance < reserve) {
         throw new HttpError(400, 'Insufficient balance to fund the initial reserve');
       }
       await tx
         .update(users)
-        .set({ balance: subMoney(creator.balance, reserve), updatedAt: new Date() })
+        .set({ balance: sql`${users.balance} - ${reserve}`, updatedAt: new Date() })
         .where(eq(users.userId, creator.userId));
     }
 
@@ -101,7 +111,7 @@ export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Prom
       userId: creator.userId,
       kind: TransactionKind.MARKET_CREATE,
       amount: round8(-reserve),
-      balanceAfter: creator.isInfinite ? null : round8(creator.balance - reserve),
+      balanceAfter: creator.isInfinite ? null : round8(lockedBalance - reserve),
       marketId: m.marketId,
       refType: 'market',
       refId: m.marketId,

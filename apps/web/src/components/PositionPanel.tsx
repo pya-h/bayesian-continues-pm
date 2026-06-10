@@ -169,7 +169,10 @@ export function PositionRow({
   const claim = useMutation({
     mutationFn: () => api.claim(pos.marketId).then((r) => r.claim),
     onSuccess: (c) => {
-      if (user && c.credited) setUser({ ...user, balance: user.balance + c.credited });
+      // Don't mutate an infinite (admin) balance — matches the guard on every
+      // other credit path (portfolio claim, LP claim, trade fill).
+      if (user && !user.isInfinite && c.credited)
+        setUser({ ...user, balance: user.balance + c.credited });
       qc.invalidateQueries({ queryKey: qk.portfolio });
     },
   });

@@ -1,10 +1,10 @@
-// System-alert socket. Opens a WS to the `system` topic (the server auto-
-// subscribes every client on connect) and collects circuit-breaker alerts
+// System-alert socket. Opens a WS and subscribes to the `system` topic — which
+// the server authorizes for admins only — to collect circuit-breaker alerts
 // so the admin sees them live. Keeps a rolling, dismissable
 // list with stable keys; auto-reconnects like useMarketSocket.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { WS_URL } from '../lib/api.ts';
+import { WS_URL, getToken } from '../lib/api.ts';
 import type { SystemAlert } from '../lib/types.ts';
 
 export interface LiveAlert extends SystemAlert {
@@ -26,7 +26,9 @@ export function useSystemAlerts(enabled = true) {
     let retry: ReturnType<typeof setTimeout> | null = null;
 
     const connect = () => {
-      ws = new WebSocket(WS_URL);
+      // system alerts require an admin token — passed via query param.
+      const token = getToken();
+      ws = new WebSocket(token ? `${WS_URL}?token=${encodeURIComponent(token)}` : WS_URL);
       ws.onopen = () => {
         setConnected(true);
         ws?.send(JSON.stringify({ action: 'subscribe', topic: 'system' }));
