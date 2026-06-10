@@ -4,6 +4,8 @@ Phased plan for V2. Companion to `V2-TDD.md`. **Prerequisite: V1 shipped and in 
 
 Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable checkpoint. `[blocked-by]` = hard deps.
 
+> ** Math-doc sync (standing rule).** The interactive math documentation (`docs/math/index.html`) is the public source-of-truth explainer for the model. **After every phase that changes the math** — new belief models, pricing/`dPrice_dMu`, margin/liquidation formulas, adaptive-parameter rules, hedging, reserve/sampler changes — its checkpoint is **not complete** until `docs/math/index.html` is updated to match: add/derive the new formulas, refresh any affected worked examples (re-compute the numbers), extend the relevant background blocks, and keep both Trader and Developer modes consistent with the shipped code. Verify the doc renders (0 tag errors, 0 KaTeX errors) before closing the phase. Phases that touch no math (e.g. KYC tiers, scale/ops, transaction ledger) need no math-doc change — note "math-doc: n/a" in the checkpoint.
+
 **Recommended order:** V2-1 (beliefs) and V2-2 (tiers) in parallel → V2-3 (leverage/margin/liquidation) → V2-4 (insurance) → V2-5/6/7 (adaptive, hedging, oracles) → V2-8 (scale) → V2-9 (hardening). Insurance (V2-4) is pulled before the rest because liquidation gap-loss depends on it.
 
 ---
@@ -18,7 +20,7 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 - [ ] `api`: market creation accepts `belief_kind`, components/ν; persist + serialize via flexible jsonb; belief-update path is kind-agnostic.
 - [ ] `web`: belief chart renders general pdf (multi-bump / fat tail) + component legend; creation editor for modes.
 - [ ] **Tests:** mixture price = weighted component sum (vs MC); merge/prune conserve mass+mean; t price vs MC; weight concentrates on consistent-signal component.
-**Checkpoint:** create a bimodal-mixture market, trade it, watch component weights shift live and prices stay consistent with MC.
+**Checkpoint:** create a bimodal-mixture market, trade it, watch component weights shift live and prices stay consistent with MC. **Math-doc:** add the Mixture/Student-t belief, `Σ π_k·componentPrice` pricing, generalized `dPrice_dMu`, per-component Bayes + weight update, and the per-kind MC sampler; new worked example for a bimodal price.
 
 ---
 
@@ -43,7 +45,7 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 - [ ] Short settlement at resolution (short of ITM contract pays out).
 - [ ] `web`: leverage selector + margin/liquidation preview in trade panel; portfolio health bars, liquidation distance, short positions, liquidation history.
 - [ ] **Tests:** margin gates; price-move triggers liquidation; gap loss hits insurance; shorts settle; tier leverage never exceeded.
-**Checkpoint:** open a 5× leveraged position, push the belief against it, watch margin call → liquidation → insurance-fund draw; short a call and settle it correctly.
+**Checkpoint:** open a 5× leveraged position, push the belief against it, watch margin call → liquidation → insurance-fund draw; short a call and settle it correctly. **Math-doc:** add the margin/equity/health formulas, the liquidation trigger (`equity < maintenance`), penalty/gap-loss flow, and short-payout settlement; worked example of a margin call.
 
 ---
 
@@ -63,7 +65,7 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 - [ ] `market_cfg_history` time series; admin pin/override; rail-hit circuit breaker.
 - [ ] Extend V1 sim/backtest tool to compare adaptive vs static (accuracy, calibration, MM PnL).
 - [ ] `web`: admin adaptive-param charts; `param_adapted` WS.
-**Checkpoint:** in a volatile simulated run, spreads/σ_ε adapt within rails and calibration improves vs static.
+**Checkpoint:** in a volatile simulated run, spreads/σ_ε adapt within rails and calibration improves vs static. **Math-doc:** add the EWMA `σ_ε`, regime-scaled `s₀`, optional adaptive `α/β`, and the `§14.1` clamp rails to the spread/Bayes background; note which V1 constants become dynamic.
 
 ---
 
@@ -74,7 +76,7 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 - [ ] `ExternalHedgeProvider` interface + **mock** provider.
 - [ ] `web`: admin hedge book + reserve before/after.
 - [ ] **Tests:** hedge reduces reserve; bookkeeping neutral to user payouts.
-**Checkpoint:** a high-reserve market auto-hedges and frees capital; admin sees the hedge book.
+**Checkpoint:** a high-reserve market auto-hedges and frees capital; admin sees the hedge book. **Math-doc:** add how an offsetting basis position lowers `L(θ)` variance and the reserve, with a before/after reserve worked example.
 
 ---
 
@@ -149,7 +151,23 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 - [ ] Extended Monte-Carlo sim covering leverage/liquidation cascades and multi-modal calibration.
 - [ ] Load test (multi-node + Redis); chaos test (node loss mid-trade).
 - [ ] Docs refresh; ops runbook (oracle failure, mass liquidation, insurance depletion).
+- [ ] **Final math-doc pass:** audit `docs/math/index.html` end-to-end against shipped V2 code (every formula, constant, and worked example re-computed; both modes consistent; 0 tag/KaTeX errors) — the per-phase syncs land incrementally, this is the consolidating review.
 **Checkpoint:** `bun test` green; load/chaos pass; V1 markets verified unchanged; demo script exercises beliefs + leverage + liquidation + disputes + insurance end-to-end.
+
+---
+
+## Phase V2-12 — Belief-history visualization in the main chart `[web]` `[blocked-by: all]` (Workstream J)
+**Goal:** let the **main belief chart** (`apps/web/src/components/BeliefChart.tsx`) show *how the consensus got here*, not just its current shape — encoding **time without a time axis** (the main chart's x-axis is the outcome θ). Pure presentation: no engine/math change. **Do last**, after the whole V2 build is otherwise done.
+
+**Design (decided):** a **ghost trail** — overlay faded snapshots of recent belief PDFs on the same θ-axis, older = more transparent, newest = solid, so the bump visibly drifts and narrows like a comet tail. Time → opacity. Gated behind a small "show history" toggle so the live chart stays clean by default. For V2 mixtures, the ghost is the general multi-modal `pdf(θ)`, so disagreement-then-consensus reads as two bumps fading into one.
+
+**Data dependency (the gating decision):** the ghost trail needs each history point to carry **both μ and σ** (mixture: the full component set) to redraw the past curve. Today `beliefHistory` powers "Belief μ over time" and may store μ only. So:
+- [ ] Confirm/extend the belief-history record to log the full belief **snapshot** (`μ, σ²` for Gaussian; serialized components for mixture/t) per sampled point — reuse the existing `BeliefStateDTO` serialization, sampled/throttled to keep the series light.
+- [ ] `lib/viz.ts`: pure helper to build N faded PDF polylines from a snapshot series (newest-first opacity ramp; cap the count, e.g. last ~8 snapshots, evenly spaced over the market's life).
+- [ ] `BeliefChart.tsx`: render the ghost layer **under** the live PDF/payoff; "show history" toggle (persisted) defaulting off; reuse the existing left-axis likelihood scale (peak-normalise each ghost to the *current* peak so shrinkage is visible).
+- [ ] *(Optional, stretch)* a scrubber / play button that animates the PDF morphing past → present (time as the animation clock) and/or a faint "lifetime μ±σ envelope" showing where belief has wandered.
+- [ ] **Tests:** the pure ghost-builder (opacity ramp monotone, snapshot cap, ordering, no-mutate); chart renders with 0/1/many snapshots without layout breakage.
+**Checkpoint:** toggling "show history" on a live market shows the belief's comet-tail drifting/narrowing over its life; off by default leaves the chart unchanged. **Math-doc:** n/a (presentation only).
 
 ---
 

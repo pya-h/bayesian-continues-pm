@@ -6,9 +6,13 @@
 // plus draggable handles for the contract's parameters (strike / bounds / center
 // / width). Belief μ/σ stream in live via props, so the curve breathes as trades
 // land. All geometry comes from the pure helpers in lib/viz.ts.
+// Two y-axes share the θ x-axis: the LEFT axis reads the belief as a relative
+// likelihood (peak-normalised to 1.0 — its absolute density is unit-dependent and
+// not meaningful to a trader), the RIGHT axis reads the contract payoff in outcome
+// units. They are colour-keyed to their curves (accent = belief, green = payoff).
 
 import { useCallback, useRef } from 'react';
-import { fmt } from '../lib/format.ts';
+import { fmt, fmtCompact } from '../lib/format.ts';
 import type { ContractSpec } from '../lib/types.ts';
 import {
   type Domain,
@@ -22,9 +26,11 @@ import {
 } from '../lib/viz.ts';
 
 const W = 720;
-const H = 330;
-const M = { top: 20, right: 18, bottom: 30, left: 18 };
+const H = 340;
+const M = { top: 30, right: 56, bottom: 34, left: 52 };
 const PLOT = { l: M.left, r: W - M.right, t: M.top, b: H - M.bottom };
+
+const LIKE_TICKS = [0, 0.25, 0.5, 0.75, 1] as const;
 
 interface Handle {
   id: string;
@@ -75,6 +81,31 @@ function applyHandle(spec: ContractSpec, id: string, x: number): ContractSpec {
   }
 }
 
+function LegendItem({
+  x,
+  color,
+  label,
+  block,
+}: {
+  x: number;
+  color: string;
+  label: string;
+  block?: boolean;
+}) {
+  return (
+    <g>
+      {block ? (
+        <rect x={x} y={9} width={14} height={9} rx={2} fill={color} opacity={0.18} />
+      ) : (
+        <line x1={x} x2={x + 14} y1={13.5} y2={13.5} stroke={color} strokeWidth={2.5} />
+      )}
+      <text x={x + 19} y={17} fontSize={11} className="fill-[var(--color-muted)]">
+        {label}
+      </text>
+    </g>
+  );
+}
+
 export function BeliefChart({
   mu,
   sigma,
@@ -121,6 +152,9 @@ export function BeliefChart({
   const syPay = scale(payMin - pad, payMax + pad, PLOT.b, PLOT.t);
 
   const regions = winningRegions(spec, domain);
+  const xTicks = niceTicks(lo, hi, 6);
+  const payTicks = niceTicks(payMin - pad, payMax + pad, 5);
+  const payZeroInRange = 0 >= payMin - pad && 0 <= payMax + pad;
 
   // Pointer → data-x, mapped through the SVG's rendered rect into viewBox units.
   const pointerToData = useCallback(
@@ -148,8 +182,6 @@ export function BeliefChart({
     dragId.current = null;
   };
 
-  const xTicks = niceTicks(lo, hi, 6);
-
   return (
     <svg
       ref={svgRef}
@@ -162,6 +194,25 @@ export function BeliefChart({
       onPointerLeave={onPointerUp}
     >
       <title>Belief PDF and payoff overlay</title>
+
+      {/* legend */}
+      <LegendItem x={PLOT.l} color="var(--color-accent)" label="Belief (likelihood)" />
+      <LegendItem x={PLOT.l + 168} color="var(--color-buy)" label="Payoff" />
+      <LegendItem x={PLOT.l + 268} color="var(--color-buy)" label="In-the-money" block />
+
+      {/* horizontal likelihood gridlines (left-axis reference) */}
+      {LIKE_TICKS.map((r) => (
+        <line
+          key={`hgrid-${r}`}
+          x1={PLOT.l}
+          x2={PLOT.r}
+          y1={syPdf(r * pdfMax)}
+          y2={syPdf(r * pdfMax)}
+          stroke="var(--color-edge)"
+          strokeWidth={1}
+          opacity={r === 0 ? 0.7 : 0.22}
+        />
+      ))}
 
       {/* winning-region shading */}
       {regions.map(([a, b]) => (
@@ -196,11 +247,19 @@ export function BeliefChart({
             y2={PLOT.b}
             stroke="var(--color-edge)"
             strokeWidth={1}
-            opacity={0.5}
+            opacity={0.35}
+          />
+          <line
+            x1={sx(t)}
+            x2={sx(t)}
+            y1={PLOT.b}
+            y2={PLOT.b + 4}
+            stroke="var(--color-muted)"
+            strokeWidth={1}
           />
           <text
             x={sx(t)}
-            y={H - 10}
+            y={PLOT.b + 16}
             textAnchor="middle"
             className="fill-[var(--color-muted)]"
             fontSize={11}
@@ -209,6 +268,86 @@ export function BeliefChart({
           </text>
         </g>
       ))}
+
+      {/* left y-axis: belief relative likelihood (peak = 1.0) */}
+      <line
+        x1={PLOT.l}
+        x2={PLOT.l}
+        y1={PLOT.t}
+        y2={PLOT.b}
+        stroke="var(--color-accent)"
+        strokeWidth={1}
+        opacity={0.45}
+      />
+      {LIKE_TICKS.map((r) => (
+        <g key={`lyt-${r}`}>
+          <line
+            x1={PLOT.l - 4}
+            x2={PLOT.l}
+            y1={syPdf(r * pdfMax)}
+            y2={syPdf(r * pdfMax)}
+            stroke="var(--color-accent)"
+            strokeWidth={1}
+            opacity={0.6}
+          />
+          <text
+            x={PLOT.l - 7}
+            y={syPdf(r * pdfMax) + 3.5}
+            textAnchor="end"
+            className="fill-[var(--color-muted)]"
+            fontSize={10}
+          >
+            {r.toFixed(2)}
+          </text>
+        </g>
+      ))}
+
+      {/* right y-axis: contract payoff (outcome units) */}
+      <line
+        x1={PLOT.r}
+        x2={PLOT.r}
+        y1={PLOT.t}
+        y2={PLOT.b}
+        stroke="var(--color-buy)"
+        strokeWidth={1}
+        opacity={0.45}
+      />
+      {payTicks.map((t) => (
+        <g key={`ryt-${t}`}>
+          <line
+            x1={PLOT.r}
+            x2={PLOT.r + 4}
+            y1={syPay(t)}
+            y2={syPay(t)}
+            stroke="var(--color-buy)"
+            strokeWidth={1}
+            opacity={0.6}
+          />
+          <text
+            x={PLOT.r + 7}
+            y={syPay(t) + 3.5}
+            textAnchor="start"
+            className="fill-[var(--color-muted)]"
+            fontSize={10}
+          >
+            {fmtCompact(t)}
+          </text>
+        </g>
+      ))}
+
+      {/* payoff zero baseline (where the contract pays nothing) */}
+      {payZeroInRange && (
+        <line
+          x1={PLOT.l}
+          x2={PLOT.r}
+          y1={syPay(0)}
+          y2={syPay(0)}
+          stroke="var(--color-buy)"
+          strokeWidth={1}
+          strokeDasharray="2 4"
+          opacity={0.4}
+        />
+      )}
 
       {/* belief PDF: filled area + outline */}
       <path
@@ -293,15 +432,15 @@ export function BeliefChart({
         );
       })}
 
-      {/* unit caption */}
+      {/* axis captions */}
       <text
         x={PLOT.r}
-        y={H - 10}
+        y={H - 2}
         textAnchor="end"
         className="fill-[var(--color-muted)]"
         fontSize={10}
       >
-        {outcomeUnit}
+        outcome θ ({outcomeUnit})
       </text>
     </svg>
   );

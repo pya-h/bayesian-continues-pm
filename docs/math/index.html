@@ -928,8 +928,9 @@ losses.sort();
         at each, and read the quantile off the empirical sample. The sampling error shrinks like
         \( 1/\sqrt n \), so 50k draws pin the 99th percentile to well under a cent.</p>
         <p><strong>Empirical quantile.</strong> Sort the \(n\) sampled losses ascending; the α-quantile is
-        the value at rank \( \lfloor\alpha(n-1)\rfloor \) (the “nearest-rank” method). For
-        \( \alpha=0.99,\ n=50{,}000 \) that is index 49499 — the 500th-largest loss. The
+        the value at rank \( \lfloor\alpha(n-1)\rfloor \) (the zero-indexed nearest-rank estimator). For
+        \( \alpha=0.99,\ n=50{,}000 \) that is index 49499 — the 501st-largest loss (the 501 values at
+        indices 49499…49999 sit at or above it). The
         \( \max(0,\cdot) \) clamps a net-credit book (negative liability) up to a non-negative reserve.</p>
       </details>
       <div class="ex"><span class="callout-title">Worked example</span>
