@@ -69,6 +69,8 @@
       <div class="group">Reference</div>
       <a href="#config">15 · Config parameters</a>
       <a href="#numerics">16 · Numerics &amp; rounding</a>
+      <div class="group">Validation</div>
+      <a href="#sim">17 · Model validation (Monte-Carlo)</a>
     </div>
 
     <!-- trader TOC -->
@@ -169,7 +171,7 @@
         <div class="tablewrap"><table>
           <thead><tr><th>Bet</th><th>In plain words</th><th>You win when…</th></tr></thead>
           <tbody>
-            <tr><td><strong>Higher / Lower</strong></td><td>Direct exposure to the number itself</td><td>the outcome moves your way (up if you bought, down if you sold)</td></tr>
+            <tr><td><strong>The number itself</strong></td><td>Direct exposure to the value — buy it to bet the outcome ends up high (it pays out the final number)</td><td>the outcome settles above what you paid (to bet on a fall, buy a Put instead)</td></tr>
             <tr><td><strong>Above a line (Call)</strong></td><td>“It'll finish above <em>K</em>” — and the more above, the more you make</td><td>the outcome ends above your line; payout grows with how far above</td></tr>
             <tr><td><strong>Below a line (Put)</strong></td><td>“It'll finish below <em>K</em>”</td><td>the outcome ends below your line; payout grows with how far below</td></tr>
             <tr><td><strong>Yes / No (Binary)</strong></td><td>A simple “will it clear <em>K</em>, yes or no?”</td><td>the condition is true at the end — pays a fixed 1, else 0</td></tr>
@@ -194,8 +196,8 @@
           probability — 0.30 means “≈30% likely”.</li>
           <li>For an <strong>above/below</strong> bet, it's the expected payout — bigger when the line
           is easy to clear, near zero when it's far out of reach.</li>
-          <li>For a <strong>Higher/Lower</strong> bet, it's just the market's centre — its best guess
-          for the number.</li>
+          <li>For the <strong>number-itself</strong> bet, it's just the market's centre — its best
+          guess for the number.</li>
         </ul>
         <p>Try it: drag the market's best guess and the line. The shaded area is the chance the outcome
         lands above the line — and that's exactly the Yes price.</p>
@@ -290,7 +292,7 @@
         <div class="tablewrap"><table>
           <thead><tr><th>Your bet</th><th>What you're paid at the end</th></tr></thead>
           <tbody>
-            <tr><td>Higher / Lower</td><td>the outcome value itself, per unit</td></tr>
+            <tr><td>The number itself</td><td>the outcome value itself, per unit</td></tr>
             <tr><td>Above a line (Call)</td><td>how far the outcome finished above your line (0 if it didn't)</td></tr>
             <tr><td>Below a line (Put)</td><td>how far it finished below your line (0 if it didn't)</td></tr>
             <tr><td>Yes / No</td><td>1 if the condition came true, 0 if not</td></tr>
@@ -479,7 +481,9 @@
       </table></div>
       <p class="small">Money is stored as <code>numeric(20,8)</code> and every arithmetic result is passed
       through <code>round8</code> (round-half-even to 8 decimals) — see §16. Formulas below omit the
-      rounding for clarity; the code never does.</p>
+      rounding for clarity; the code never does. Positions and MM inventory aggregate by a
+      <strong>canonical contract key</strong> (type + params normalised to 12 significant figures,
+      <code>contractKey</code>), so two specs that price identically share one book entry.</p>
     </section>
 
     <!-- =============================================================== -->
@@ -817,13 +821,21 @@ losses.sort();
     <section id="settlement">
       <h2><span class="section-num">11</span>Settlement<a class="anchor" href="#settlement">#</a></h2>
       <p>When an admin resolves the market with the true outcome \( \theta^\star \), each position
-      pays its payoff. Lifecycle: <code>OPEN → RESOLVED(θ*) → SETTLED → CLOSED</code>.</p>
+      pays its payoff. Normal lifecycle: <code>OPEN → RESOLVED(θ*) → SETTLED → CLOSED</code>. An admin
+      may instead <strong>cancel</strong> a market (<code>OPEN → CANCELLED</code>), which unwinds every
+      open position at cost rather than at payoff (below).</p>
       <div class="eqbox">$$ \text{Payout}(C, q)=q\cdot f_C(\theta^\star),\qquad \text{Realized P\&amp;L}=\text{Payout}-\text{costBasis} $$</div>
       <p>Trader payouts are paid from the pool, but — by design — they do <strong>not</strong> mutate
       <code>markets.cash</code> directly; the residual is computed logically so the cash-flow ledger
       reconciles exactly (see the admin market ledger). The leftover pool after all trader payouts is
       the LPs’ to claim:</p>
       <div class="eqbox named"><span>$$ \text{cashFinal}=\text{cash}-\sum_{\text{traders}}\text{Payout},\qquad \text{LP claim}=\frac{\text{shares}}{S_\text{total}}\cdot\text{cashFinal} $$</span><span class="eqlabel">lpMath.ts · settleMath.ts</span></div>
+      <h4>Cancellation refunds</h4>
+      <p>If a market is <em>cancelled</em> instead of resolved, no payoff is computed: every open
+      position is refunded the capital still locked in it — its <strong>cost basis</strong> — and the MM
+      hands back the premium it had collected. Only non-infinite (real) traders are credited:</p>
+      <div class="eqbox named"><span>$$ \text{Refund}(C,q)=q\cdot\overline{P}\qquad(\text{quantity}\times\text{average entry}) $$</span><span class="eqlabel">settleMath.ts · positionRefund</span></div>
+
       <h4>Proximity settlement</h4>
       <p>The <code>GAUSSIAN</code> contract <em>is</em> the proximity-reward mechanism: a point bet at
       \( c \) with tolerance \( w \) pays \( \exp(-(\theta^\star-c)^2/2w^2) \) — e.g. with \( w=1000 \),
@@ -868,7 +880,8 @@ losses.sort();
       <div class="eqbox">$$ \text{E[payout]}=qP,\quad \operatorname{Var}[qf]=q^2\,(m_2-P^2),\quad \text{Std}=|q|\sqrt{m_2-P^2} $$</div>
       <p>The second moment has closed forms too: for indicators \( f\in\{0,1\} \) so
       \( m_2=P \); for LINEAR \( m_2=\mu^2+\sigma^2 \); for GAUSSIAN it’s a proximity price with width
-      \( w/\sqrt2 \). Tail risk and win-probability come from the same Monte-Carlo draws:</p>
+      \( w/\sqrt2 \). (CALL/PUT have no simple closed \( m_2 \), so they fall back to the Simpson
+      integrator of §4.) Tail risk and win-probability come from the same Monte-Carlo draws:</p>
       <div class="tablewrap"><table>
         <thead><tr><th>Metric</th><th>Definition</th></tr></thead>
         <tbody>
@@ -940,6 +953,45 @@ losses.sort();
 <span class="kw">if</span> (diff &gt; <span class="num">0.5</span>) rounded = floor + <span class="num">1</span>;
 <span class="kw">else if</span> (diff &lt; <span class="num">0.5</span>) rounded = floor;
 <span class="kw">else</span> rounded = floor % <span class="num">2</span> === <span class="num">0</span> ? floor : floor + <span class="num">1</span>; <span class="cmt">// tie → even</span></code></pre>
+    </section>
+
+    <!-- =============================================================== -->
+    <section id="sim">
+      <h2><span class="section-num">17</span>Model validation — the Monte-Carlo harness<a class="anchor" href="#sim">#</a></h2>
+      <p>Beyond per-function unit tests, <code>sim.ts</code> runs the <em>entire</em> loop end-to-end
+      against synthetic informed traders to confirm the engine actually <strong>learns</strong>, stays
+      calibrated, and earns its spread. A single run draws a hidden truth, lets noisy-but-informed
+      traders arrive one by one, and settles:</p>
+      <div class="eqbox named"><span>$$
+        \begin{aligned}
+        \theta_\text{true} &amp;\sim \mathcal N(\mu_0,\sigma_0^2)\\[2pt]
+        \text{trader sees } y &amp;= \theta_\text{true}+\sigma_\text{obs}\,\varepsilon,\quad
+          \text{edge}=y-\mu,\ \ \text{buys a CALL/PUT struck at } K{=}\mu\\[2pt]
+        \text{size } q &amp;= \max\!\Big(1,\ \min\big(1,\tfrac{|\text{edge}|}{2\sigma}\big)\cdot Q_\text{max}\Big)
+          \quad(\text{conviction in } \sigma\text{-units})\\[2pt]
+        \text{MM} &amp;: \text{quote} \to \text{spread} \to \text{collect premium} \to \text{Bayes-update belief}\\[2pt]
+        \text{settle} &amp;: \text{pay } q\,f(\theta_\text{true}),\ \ \text{tally MM and trader P\&amp;L}
+        \end{aligned}
+      $$</span><span class="eqlabel">sim.ts · simulateRun</span></div>
+      <p>Aggregated over many runs — one seeded RNG threads the whole experiment, so the report is
+      fully reproducible — the summary answers two questions: did the posterior beat the no-learning
+      prior, and is the credible interval honest?</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Metric</th><th>Meaning</th><th>Healthy</th></tr></thead>
+        <tbody>
+          <tr><td><code>meanBeliefError</code></td><td>\( \overline{|\mu_\text{final}-\theta_\text{true}|} \)</td><td>&lt; <code>meanPriorError</code> (it learned)</td></tr>
+          <tr><td><code>meanPriorError</code></td><td>\( \overline{|\mu_0-\theta_\text{true}|} \) — the baseline to beat</td><td>reference</td></tr>
+          <tr><td><code>rmseBeliefError</code></td><td>root-mean-square posterior error</td><td>low</td></tr>
+          <tr><td><code>calibration80</code></td><td>fraction with \( \theta_\text{true}\in[\mu_f\pm1.2816\,\sigma_f] \)</td><td>\( \approx 0.80 \)</td></tr>
+          <tr><td><code>meanMmPnl</code></td><td>mean MM profit (premium income − settlement payouts)</td><td>\( \gtrsim 0 \)</td></tr>
+          <tr><td><code>meanUserWelfare</code></td><td>mean per-trader realized profit</td><td>informed traders \( \gtrsim 0 \)</td></tr>
+        </tbody>
+      </table></div>
+      <div class="note"><span class="callout-title">What it does and doesn’t cover</span>
+      The harness models spread income vs settlement payouts — the P&amp;L that drives calibration and
+      profitability — but deliberately does <strong>not</strong> run the reserve / solvency gate (§10);
+      that path is exercised by the API integration tests. So it’s a diagnostic and a parameter-tuning
+      tool: vary <code>cfg</code>, compare summaries, and pick the engine defaults of §15.</div>
     </section>
 
     <div class="footer">
