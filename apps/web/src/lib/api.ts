@@ -20,6 +20,7 @@ import type {
   PositionDetail,
   PublicUser,
   Quote,
+  SellAllResult,
   UserTransactions,
 } from './types.ts';
 
@@ -103,6 +104,8 @@ export const api = {
     request<{ quote: Quote }>(`/markets/${id}/quote`, { body: { spec, q } }),
   trade: (id: string, spec: ContractSpec, q: number, maxPrice?: number) =>
     request<{ fill: Fill }>(`/markets/${id}/trade`, { body: { spec, q, maxPrice } }),
+  sellAll: (id: string) =>
+    request<{ result: SellAllResult }>(`/markets/${id}/sell-all`, { method: 'POST' }),
   claim: (id: string) =>
     request<{ claim: { credited: number; payout: number; alreadyClaimed: boolean } }>(
       `/markets/${id}/claim`,

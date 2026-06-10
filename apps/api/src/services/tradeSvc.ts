@@ -504,3 +504,334 @@ export async function executeTrade(
 function priceAtBelief(spec: ContractSpec, mu: number, sigma: number): number {
   return price(spec, new GaussianBelief(mu, sigma * sigma));
 }
+
+export interface SellAllFill {
+  tradeId: string;
+  contractId: string;
+  contractKey: string;
+  spec: ContractSpec;
+  quantity: number; // |size| closed (positive)
+  execPrice: number;
+  proceeds: number; // credit to the trader (positive)
+  realizedPnl: number;
+  partial: boolean;
+}
+
+export interface SellAllResult {
+  marketId: string;
+  count: number; // positions closed
+  fills: SellAllFill[];
+  totalProceeds: number; // sum of credits to the trader
+  totalRealizedPnl: number;
+  cash: number; // pool cash after
+  reserveRequired: number;
+  balance: number | null; // trader balance after (null for infinite)
+  beliefAfter: { mu: number; sigma: number };
+}
+
+// Liquidate every position the trader holds in one market — atomically. Runs in a
+// single market lock + DB transaction; positions are closed sequentially against
+// the *evolving* belief/inventory/cash (exactly as N individual sells would move
+// the market), but committed together with one final market + balance write. Each
+// close still records its own trade, belief update, position upsert and ledger row
+// so the per-contract audit trail is identical to selling one at a time.
+export async function sellAllPositions(actor: UserRow, marketId: string): Promise<SellAllResult> {
+  let sigma0 = 0;
+  const affected = new Map<string, { spec: ContractSpec; fair: number }>();
+
+  const result = await withMarketLock(marketId, () =>
+    db.transaction(async (tx): Promise<SellAllResult> => {
+      const mrows = await tx
+        .select()
+        .from(markets)
+        .where(eq(markets.marketId, marketId))
+        .for('update');
+      const m = mrows[0];
+      if (!m) throw new HttpError(404, 'Market not found');
+      if (m.status !== 'OPEN') throw new HttpError(409, 'Market is not open for trading');
+      sigma0 = m.initialSigma;
+
+      const cfg = m.cfg as unknown as EngineConfig;
+      const reserveOpts = reserveOptsFor(cfg);
+
+      const urows = await tx
+        .select()
+        .from(users)
+        .where(eq(users.userId, actor.userId))
+        .for('update');
+      const u = urows[0];
+      if (!u) throw new HttpError(404, 'User not found');
+
+      // Every contract in the market, with its spec + initial mmShort — the full
+      // book the reserve is computed over. mmShort is evolved per close below.
+      const liveContracts = (
+        await tx.select().from(contracts).where(eq(contracts.marketId, marketId))
+      ).map((r) => ({
+        key: r.contractKey,
+        spec: specFromRow(r.type, r.params as Record<string, number>),
+        mmShort: r.mmShort,
+      }));
+
+      // The trader's open positions in this market, joined to their contract.
+      const posRows = await tx
+        .select({
+          contractId: positions.contractId,
+          quantity: positions.quantity,
+          avgEntryPrice: positions.avgEntryPrice,
+          realizedPnl: positions.realizedPnl,
+          peakUnrealized: positions.peakUnrealized,
+          contractKey: contracts.contractKey,
+          type: contracts.type,
+          params: contracts.params,
+        })
+        .from(positions)
+        .innerJoin(contracts, eq(positions.contractId, contracts.contractId))
+        .where(and(eq(positions.userId, u.userId), eq(positions.marketId, marketId)));
+
+      // Deterministic order; only positions with a real long to close.
+      const toClose = posRows
+        .filter((p) => p.quantity > 1e-9)
+        .sort((a, b) => a.contractKey.localeCompare(b.contractKey));
+      if (toClose.length === 0) throw new HttpError(400, 'No open positions to sell');
+
+      // Live market state, evolved per close.
+      let liveMu = m.currentMu;
+      let liveSigma = m.currentSigma;
+      let liveCash = m.cash;
+      let runningBalance = u.balance;
+      let reserveAfter = m.reserveRequired;
+      const mmShortByKey = new Map(liveContracts.map((c) => [c.key, c.mmShort]));
+
+      // Build the full book from the live mmShort map (every contract in the market).
+      const buildBook = (): BookEntry[] =>
+        liveContracts.map((c) => ({ spec: c.spec, mmShort: mmShortByKey.get(c.key) ?? 0 }));
+
+      const fills: SellAllFill[] = [];
+      let totalProceeds = 0;
+      let totalRealizedPnl = 0;
+
+      for (const p of toClose) {
+        const spec = specFromRow(p.type, p.params as Record<string, number>);
+        const key = p.contractKey;
+        const belief = new GaussianBelief(liveMu, liveSigma * liveSigma);
+        const fair = price(spec, belief);
+        const mmShort = mmShortByKey.get(key) ?? 0;
+        const book = buildBook();
+
+        const { fillSize } = solveFill({
+          spec,
+          side: 'sell',
+          targetSize: p.quantity,
+          mmShort,
+          book,
+          belief,
+          cfg,
+          fair,
+          cash: liveCash,
+          balance: u.balance,
+          isInfinite: u.isInfinite,
+          reserveOpts,
+          openMargin: OPEN_MARGIN,
+        });
+        if (fillSize < 1e-6) continue; // can't reduce risk further; leave it open
+
+        const filledQ = round8(-fillSize);
+        const spread = computeSpread(spec, filledQ, mmShort, belief, cfg);
+        const execPrice = execPriceFor('sell', fair, spread.total);
+
+        const sig = extractSignal(spec, filledQ, belief, cfg);
+        const newBelief = bayesUpdate(belief, sig.signal, sig.weight, cfg);
+        const newMmShort = round8(mmShort + filledQ);
+        mmShortByKey.set(key, newMmShort);
+        const newBook = buildBook();
+
+        const totalCost = round8(execPrice * filledQ); // negative (credit)
+        liveCash = round8(liveCash + totalCost);
+
+        const sigmaBefore = belief.stddev();
+        const sigmaAfter = newBelief.stddev();
+        reserveAfter = round8(requiredReserve(newBook, newBelief, reserveOpts));
+
+        await tx
+          .update(contracts)
+          .set({ mmShort: newMmShort })
+          .where(eq(contracts.contractId, p.contractId));
+
+        const tradeIns = await tx
+          .insert(trades)
+          .values({
+            marketId,
+            userId: u.userId,
+            contractId: p.contractId,
+            side: 'sell',
+            quantity: filledQ,
+            execPrice,
+            fairPrice: round8(fair),
+            spreadTotal: round8(spread.total),
+            totalCost,
+            beliefMuBefore: belief.mu,
+            beliefSigmaBefore: sigmaBefore,
+            beliefMuAfter: newBelief.mu,
+            beliefSigmaAfter: sigmaAfter,
+          })
+          .returning();
+        const tradeId = (tradeIns[0] as { tradeId: string }).tradeId;
+
+        const filled = applyFill(
+          { quantity: p.quantity, avgEntryPrice: p.avgEntryPrice, realizedPnl: p.realizedPnl },
+          filledQ,
+          execPrice,
+        );
+        const markAfter = price(spec, newBelief);
+        const unrealized = round8(filled.quantity * (markAfter - filled.avgEntryPrice));
+        const peakUnrealized = Math.max(p.peakUnrealized, unrealized);
+        await tx
+          .update(positions)
+          .set({
+            quantity: filled.quantity,
+            avgEntryPrice: filled.avgEntryPrice,
+            realizedPnl: filled.realizedPnl,
+            peakUnrealized,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(positions.userId, u.userId), eq(positions.contractId, p.contractId)));
+
+        await tx.insert(beliefUpdates).values({
+          marketId,
+          prevMu: belief.mu,
+          prevSigma: sigmaBefore,
+          newMu: newBelief.mu,
+          newSigma: sigmaAfter,
+          signalExtracted: sig.signal,
+          signalWeight: sig.weight,
+          triggerTradeId: tradeId,
+        });
+
+        if (!u.isInfinite) runningBalance = round8(runningBalance - totalCost); // credit
+
+        await recordTx(tx, {
+          userId: u.userId,
+          kind: TransactionKind.TRADE_SELL,
+          amount: round8(-totalCost), // + credit
+          balanceAfter: u.isInfinite ? null : runningBalance,
+          marketId,
+          refType: 'trade',
+          refId: tradeId,
+          metadata: {
+            side: 'sell',
+            quantity: filledQ,
+            execPrice: round8(execPrice),
+            contractKey: key,
+            contractType: spec.type,
+            sellAll: true,
+          },
+        });
+
+        const closedRealized = round8(filled.realizedPnl - p.realizedPnl);
+        const proceeds = round8(-totalCost);
+        totalProceeds = round8(totalProceeds + proceeds);
+        totalRealizedPnl = round8(totalRealizedPnl + closedRealized);
+        liveMu = newBelief.mu;
+        liveSigma = sigmaAfter;
+
+        affected.set(key, { spec, fair: price(spec, newBelief) });
+        fills.push({
+          tradeId,
+          contractId: p.contractId,
+          contractKey: key,
+          spec,
+          quantity: round8(fillSize),
+          execPrice: round8(execPrice),
+          proceeds,
+          realizedPnl: closedRealized,
+          partial: fillSize + 1e-9 < p.quantity,
+        });
+      }
+
+      if (fills.length === 0) {
+        throw new HttpError(409, 'Trade rejected: positions could not be closed (solvency gate)');
+      }
+
+      await tx
+        .update(markets)
+        .set({
+          currentMu: liveMu,
+          currentSigma: liveSigma,
+          cash: liveCash,
+          reserveRequired: reserveAfter,
+          updatedAt: new Date(),
+        })
+        .where(eq(markets.marketId, marketId));
+
+      let newBalance: number | null = null;
+      if (!u.isInfinite) {
+        newBalance = runningBalance;
+        await tx
+          .update(users)
+          .set({ balance: newBalance, updatedAt: new Date() })
+          .where(eq(users.userId, u.userId));
+      }
+
+      return {
+        marketId,
+        count: fills.length,
+        fills,
+        totalProceeds,
+        totalRealizedPnl,
+        cash: liveCash,
+        reserveRequired: reserveAfter,
+        balance: newBalance,
+        beliefAfter: { mu: round8(liveMu), sigma: round8(liveSigma) },
+      };
+    }),
+  );
+
+  // Side effects (after commit) ---
+  publish(topics.market(marketId), {
+    type: 'belief_update',
+    mu: result.beliefAfter.mu,
+    sigma: result.beliefAfter.sigma,
+  });
+  for (const [key, { fair }] of affected) {
+    publish(topics.market(marketId), {
+      type: 'price_change',
+      contractKey: key,
+      fair: round8(fair),
+    });
+  }
+  publish(topics.market(marketId), {
+    type: 'reserve_update',
+    reserveRequired: result.reserveRequired,
+    cash: result.cash,
+  });
+  publish(topics.user(actor.userId), { type: 'trade_executed', marketId, sellAll: true });
+
+  const alerts = evalBreakers({
+    sigma: result.beliefAfter.sigma,
+    sigma0,
+    priceMovePct: 0,
+    cash: result.cash,
+    reserve: result.reserveRequired,
+  });
+  for (const alert of alerts) {
+    publish(topics.system, {
+      type: 'system:alert',
+      marketId,
+      ...alert,
+      at: new Date().toISOString(),
+    });
+  }
+
+  await writeAudit({
+    actorId: actor.userId,
+    action: 'trade_sell_all',
+    targetId: marketId,
+    payload: {
+      count: result.count,
+      totalProceeds: result.totalProceeds,
+      totalRealizedPnl: result.totalRealizedPnl,
+    },
+  });
+
+  return result;
+}

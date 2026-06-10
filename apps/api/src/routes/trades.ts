@@ -2,7 +2,7 @@ import { quoteSchema, tradeSchema } from '@bmm/shared';
 import { Elysia } from 'elysia';
 import { requireAuth } from '../auth/plugin.ts';
 import type { UserRow } from '../db/repos.ts';
-import { executeTrade, quote } from '../services/tradeSvc.ts';
+import { executeTrade, quote, sellAllPositions } from '../services/tradeSvc.ts';
 
 export const tradeRoutes = new Elysia({ prefix: '/markets' })
   .use(requireAuth)
@@ -22,4 +22,8 @@ export const tradeRoutes = new Elysia({ prefix: '/markets' })
     }
     const fill = await executeTrade(user as UserRow, params.id, parsed.data);
     return { fill };
+  })
+  .post('/:id/sell-all', async ({ params, user }) => {
+    const result = await sellAllPositions(user as UserRow, params.id);
+    return { result };
   });

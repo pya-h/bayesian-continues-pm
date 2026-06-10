@@ -11,7 +11,7 @@ import { qk, usePortfolio } from '../hooks/queries.ts';
 import { ApiError, api } from '../lib/api.ts';
 import { fmt, fmtPct, fmtSigned } from '../lib/format.ts';
 import { sellCloseStats, tradeStats } from '../lib/tradeStats.ts';
-import type { ContractSpec, Fill } from '../lib/types.ts';
+import type { ContractSpec, Fill, SellAllResult } from '../lib/types.ts';
 import { Button, ErrorNote, FlashNumber } from './ui.tsx';
 
 // Money formatters that survive an unbounded (±∞) best/worst case.
@@ -75,6 +75,8 @@ export function QuotePanel({
   const [qty, setQty] = useState(1);
   const [slippageOn, setSlippageOn] = useState(true);
   const [lastFill, setLastFill] = useState<Fill | null>(null);
+  const [lastSellAll, setLastSellAll] = useState<SellAllResult | null>(null);
+  const [confirmSellAll, setConfirmSellAll] = useState(false);
 
   // A position click upstream sets the spec and bumps this request; respond by
   // switching to the Sell tab and pre-filling the full held size.
@@ -110,7 +112,29 @@ export function QuotePanel({
     },
     onSuccess: (fill) => {
       setLastFill(fill);
+      setLastSellAll(null);
       if (user) setUser({ ...user, balance: fill.balance ?? user.balance });
+      qc.invalidateQueries({ queryKey: qk.market(marketId) });
+      qc.invalidateQueries({ queryKey: qk.stats(marketId) });
+      qc.invalidateQueries({ queryKey: qk.history(marketId) });
+      qc.invalidateQueries({ queryKey: qk.portfolio });
+    },
+  });
+
+  // All open positions the trader holds in *this* market — the sell-all set.
+  const heldInMarket = useMemo(
+    () =>
+      (portfolio.data?.positions ?? []).filter((p) => p.marketId === marketId && p.quantity > 0),
+    [portfolio.data, marketId],
+  );
+
+  const sellAll = useMutation({
+    mutationFn: () => api.sellAll(marketId).then((r) => r.result),
+    onSuccess: (result) => {
+      setLastSellAll(result);
+      setLastFill(null);
+      setConfirmSellAll(false);
+      if (user) setUser({ ...user, balance: result.balance ?? user.balance });
       qc.invalidateQueries({ queryKey: qk.market(marketId) });
       qc.invalidateQueries({ queryKey: qk.stats(marketId) });
       qc.invalidateQueries({ queryKey: qk.history(marketId) });
@@ -175,7 +199,10 @@ export function QuotePanel({
           <button
             key={s}
             type="button"
-            onClick={() => setSide(s)}
+            onClick={() => {
+              setSide(s);
+              setConfirmSellAll(false);
+            }}
             className={`relative z-10 py-2 capitalize transition-colors ${
               side === s ? 'text-white' : 'text-muted hover:text-fg'
             }`}
@@ -378,7 +405,87 @@ export function QuotePanel({
         </ErrorNote>
       )}
 
+      {/* Sell-all: liquidate every open position in this market in one shot. */}
+      {!isBuy && tradable && heldInMarket.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-lg border border-edge bg-panel-2 p-3">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-semibold text-fg">Liquidate everything</span>
+            <span className="text-muted">
+              {heldInMarket.length} position{heldInMarket.length === 1 ? '' : 's'} ·{' '}
+              {fmt(
+                heldInMarket.reduce((s, p) => s + p.quantity, 0),
+                0,
+              )}{' '}
+              contracts
+            </span>
+          </div>
+          <p className="text-[11px] text-muted">
+            Closes all your positions in this market at once. Each sell moves the price, so later
+            closes fill at the updated mark.
+          </p>
+          {confirmSellAll ? (
+            <div className="flex gap-2">
+              <Button
+                variant="sell"
+                className="flex-1"
+                disabled={sellAll.isPending}
+                onClick={() => sellAll.mutate()}
+              >
+                {sellAll.isPending ? 'Selling…' : `Confirm — sell all ${heldInMarket.length}`}
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={sellAll.isPending}
+                onClick={() => setConfirmSellAll(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button variant="ghost" onClick={() => setConfirmSellAll(true)}>
+              Sell all positions
+            </Button>
+          )}
+        </div>
+      )}
+
+      {sellAll.isError && (
+        <ErrorNote>
+          {sellAll.error instanceof ApiError ? sellAll.error.message : 'Sell all failed.'}
+        </ErrorNote>
+      )}
+
       {lastFill && <FillReceipt fill={lastFill} />}
+      {lastSellAll && <SellAllReceipt result={lastSellAll} />}
+    </div>
+  );
+}
+
+function SellAllReceipt({ result }: { result: SellAllResult }) {
+  return (
+    <div className="animate-pop rounded-lg border border-buy/40 bg-buy-soft p-3 text-xs tnum">
+      <div className="mb-1.5 font-semibold text-buy">
+        Liquidated {result.count} position{result.count === 1 ? '' : 's'}
+      </div>
+      <Row label="Total received" value={fmtSigned(result.totalProceeds)} tone="buy" />
+      <Row
+        label="Realized P&L"
+        value={fmtSigned(result.totalRealizedPnl)}
+        tone={result.totalRealizedPnl >= 0 ? 'buy' : 'sell'}
+      />
+      <div className="mt-1.5 flex flex-col gap-0.5 border-t border-edge pt-1.5 text-muted">
+        {result.fills.map((f) => (
+          <div key={f.tradeId} className="flex items-center justify-between">
+            <span>
+              {fmt(f.quantity, 0)} @ {fmt(f.execPrice)}
+              {f.partial ? ' (partial)' : ''}
+            </span>
+            <span className={f.realizedPnl >= 0 ? 'text-buy' : 'text-sell'}>
+              {fmtSigned(f.realizedPnl)}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

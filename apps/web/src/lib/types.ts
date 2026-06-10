@@ -94,6 +94,30 @@ export interface Fill {
   position: { quantity: number; avgEntryPrice: number; realizedPnl: number };
 }
 
+export interface SellAllFill {
+  tradeId: string;
+  contractId: string;
+  contractKey: string;
+  spec: ContractSpec;
+  quantity: number;
+  execPrice: number;
+  proceeds: number;
+  realizedPnl: number;
+  partial: boolean;
+}
+
+export interface SellAllResult {
+  marketId: string;
+  count: number;
+  fills: SellAllFill[];
+  totalProceeds: number;
+  totalRealizedPnl: number;
+  cash: number;
+  reserveRequired: number;
+  balance: number | null;
+  beliefAfter: { mu: number; sigma: number };
+}
+
 export interface MarketStats {
   marketId: string;
   status: MarketStatus;
