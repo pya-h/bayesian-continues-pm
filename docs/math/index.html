@@ -502,6 +502,20 @@
       since \( \Phi^{-1}(0.9)\approx 1.2816 \). Drag <span class="sym">μ</span> and <span class="sym">σ</span>
       and watch the mass move and stretch:</p>
 
+      <details>
+        <summary>Background — the probability toolkit (everything the rest of the page assumes)</summary>
+        <p>A few standard definitions, so nothing below needs an outside reference:</p>
+        <ul>
+          <li><strong>Random variable &amp; density.</strong> θ is a <em>random variable</em> — a quantity whose value is uncertain. Its <strong>probability density</strong> \( p(\theta) \) measures relative likelihood; the probability θ lands in \( [a,b] \) is the area \( \int_a^b p(\theta)\,d\theta \), and the total \( \int_{-\infty}^{\infty} p=1 \).</li>
+          <li><strong>CDF &amp; quantile.</strong> The <strong>cumulative</strong> \( F(\theta)=P(\le\theta)=\int_{-\infty}^{\theta} p \) runs 0→1. Its inverse, the <strong>quantile function</strong> \( F^{-1}(u) \), answers the reverse question — “below which value does fraction \(u\) of the mass sit?”. For the Gaussian, \( F=\Phi(\tfrac{\theta-\mu}{\sigma}) \) and \( F^{-1}(u)=\mu+\sigma\,\Phi^{-1}(u) \).</li>
+          <li><strong>Expectation (the average).</strong> \( \mathbb E[g(\theta)]=\int g(\theta)\,p(\theta)\,d\theta \) — the value of any function \(g\), weighted by likelihood. (This “plug the function inside the integral” rule is the law of the unconscious statistician.) The mean is \( \mathbb E[\theta]=\mu \), and it is exactly the fair price of §4.</li>
+          <li><strong>Variance.</strong> Spread around the mean: \( \operatorname{Var}[\theta]=\mathbb E[(\theta-\mu)^2]=\mathbb E[\theta^2]-\mu^2 \). That last identity — <em>second moment minus mean-squared</em> — is reused all through §13. For the Gaussian, \( \operatorname{Var}=\sigma^2 \).</li>
+          <li><strong>Standardization (the z-score).</strong> Subtracting the mean and dividing by σ turns any \( \mathcal N(\mu,\sigma^2) \) into the <em>standard</em> \( \mathcal N(0,1) \): \( z=\tfrac{\theta-\mu}{\sigma} \). That is why the standard PDF/CDF \( \varphi,\Phi \) suffice everywhere — each formula just evaluates them at a z-score such as \( d=\tfrac{\mu-K}{\sigma} \).</li>
+          <li><strong>Credible interval.</strong> The Bayesian “the value is in here with probability X%”. The symmetric central X% interval runs between the \( \tfrac{1-X}{2} \) and \( \tfrac{1+X}{2} \) quantiles. For 80% that is the 0.10 and 0.90 quantiles, i.e. \( \mu\pm\Phi^{-1}(0.9)\,\sigma=\mu\pm1.2816\,\sigma \).</li>
+        </ul>
+        <p class="small" style="margin-top:.6rem">Made concrete on the belief \( \mathcal N(100,10^2) \): the density peaks at \( \theta=100 \); the CDF reads \( \text{cdf}(110)=\Phi(1)=0.8413 \), so 84% of the mass sits below 110; the 0.9-quantile is \( 100+10\cdot1.2816=112.82 \); and the 80% credible interval is \( [\,87.18,\ 112.82\,] \). Every later section just feeds a different z-score into these same three functions \( \varphi,\ \Phi,\ \Phi^{-1} \) — there is nothing else to learn.</p>
+      </details>
+
       <div class="viz" id="viz-belief">
         <div class="viz-head"><div class="viz-title">The belief over θ<span class="tag">live</span></div><div class="viz-hint">μ slides it · σ widens it</div></div>
         <div class="viz-grid">
@@ -552,7 +566,8 @@
         <span class="eqlabel">pricing.ts</span>
       </div>
       <p>For a Gaussian belief, every v1 contract has a <strong>closed form</strong> — no integration
-      at runtime. Using \( d=\tfrac{\mu-K}{\sigma} \):</p>
+      at runtime. Using \( d=\tfrac{\mu-K}{\sigma} \) (the z-score of the strike — how many σ the mean
+      sits above \(K\), see §2):</p>
       <div class="tablewrap"><table>
         <thead><tr><th>Type</th><th>Fair price (closed form)</th><th>Reading</th></tr></thead>
         <tbody>
@@ -566,12 +581,38 @@
         </tbody>
       </table></div>
       <details>
-        <summary>Where the CALL formula comes from</summary>
-        <p>\( \mathbb E[\max(0,\theta-K)]=\int_K^\infty(\theta-K)\,\mathcal N(\theta;\mu,\sigma^2)\,d\theta \).
-        Splitting into \( \int\theta\,p - K\int p \) over \( [K,\infty) \) and using
-        \( \int_K^\infty \theta\,p\,d\theta=\mu\,\Phi(d)+\sigma\,\varphi(d) \) gives
-        \( \sigma\varphi(d)+(\mu-K)\Phi(d) \). The GAUSSIAN price is the integral of a product of two
-        Gaussians, which is itself Gaussian in \( (c-\mu) \) with variance \( w^2+\sigma^2 \).</p>
+        <summary>Where the CALL and GAUSSIAN formulas come from (full derivation)</summary>
+        <p><strong>The CALL.</strong> By the definition of expectation (§2),
+        \( \mathbb E[\max(0,\theta-K)]=\int_K^{\infty}(\theta-K)\,p(\theta)\,d\theta
+        =\underbrace{\int_K^{\infty}\theta\,p\,d\theta}_{A}-K\underbrace{\int_K^{\infty} p\,d\theta}_{B} \).
+        The easy piece is \( B=P(\theta\ge K)=\Phi(d) \). For \(A\), standardize with
+        \( z=\tfrac{\theta-\mu}{\sigma} \) (so \( \theta=\mu+\sigma z \), \( p\,d\theta=\varphi(z)\,dz \),
+        and the lower limit becomes \( z=-d \)):
+        \( A=\int_{-d}^{\infty}(\mu+\sigma z)\,\varphi(z)\,dz=\mu\Phi(d)+\sigma\!\int_{-d}^{\infty} z\,\varphi(z)\,dz \).
+        The trick is that \( z\,\varphi(z)=-\varphi'(z) \) (differentiate \( \varphi(z)=\tfrac{1}{\sqrt{2\pi}}e^{-z^2/2} \)),
+        so \( \int_{-d}^{\infty} z\,\varphi(z)\,dz=\big[-\varphi(z)\big]_{-d}^{\infty}=\varphi(d) \)
+        (using \( \varphi(-d)=\varphi(d) \)). Hence \( A=\mu\Phi(d)+\sigma\varphi(d) \) and
+        \( \text{CALL}=A-KB=(\mu-K)\Phi(d)+\sigma\varphi(d) \). The PUT follows the same way — or instantly
+        from put–call parity \( \text{CALL}-\text{PUT}=\mu-K \).</p>
+        <p><strong>The GAUSSIAN.</strong> Its price is the overlap of two bell curves,
+        \( \int_{-\infty}^{\infty} e^{-(\theta-c)^2/2w^2}\,\mathcal N(\theta;\mu,\sigma^2)\,d\theta \).
+        The whole job is to collect the two exponents into a single squared term in θ plus a constant.
+        Write \( a=\tfrac{1}{w^2}+\tfrac{1}{\sigma^2}=\tfrac{w^2+\sigma^2}{w^2\sigma^2} \) for the coefficient
+        of \( \theta^2 \); completing the square gives</p>
+        <div class="eqbox">$$ -\frac{(\theta-c)^2}{2w^2}-\frac{(\theta-\mu)^2}{2\sigma^2} \;=\; -\frac{a}{2}\,(\theta-b)^2 \;-\; \frac{(c-\mu)^2}{2(w^2+\sigma^2)},\qquad b=\frac{c/w^2+\mu/\sigma^2}{a}. $$</div>
+        <p>The first term still depends on θ; the second does not. So the integral factors into a θ-Gaussian
+        times a constant. The θ-Gaussian, integrated against the belief’s \( \tfrac{1}{\sqrt{2\pi\sigma^2}} \)
+        normalizer, contributes \( \tfrac{1}{\sqrt{2\pi\sigma^2}}\cdot\sqrt{\tfrac{2\pi}{a}}=\tfrac{1}{\sqrt{\sigma^2 a}}=\sqrt{\tfrac{w^2}{w^2+\sigma^2}} \);
+        the constant survives untouched. Multiplying the two:</p>
+        <div class="eqbox">$$ \text{Price}_\text{GAUSSIAN}=\sqrt{\frac{w^2}{w^2+\sigma^2}}\;\exp\!\Big(-\frac{(c-\mu)^2}{2(w^2+\sigma^2)}\Big). $$</div>
+        <p>Read it off: the two uncertainties \( w \) (contract tolerance) and \( \sigma \) (belief width)
+        <em>add in quadrature</em>, \( (w^2+\sigma^2) \) — the exact rule for convolving two normals — so a
+        wider belief <em>or</em> a more forgiving contract both flatten the peak and lower the price. The
+        prefactor \( \sqrt{w^2/(w^2+\sigma^2)}\le1 \) is the height penalty for that spreading; the
+        exponential measures how far the target \( c \) sits from the mean \( \mu \) in the combined scale.
+        This same complete-the-square step — two Gaussians multiplied, the θ² coefficient giving a precision
+        and the θ coefficient giving a centre — is precisely the engine of the Bayesian update in §7; there
+        we keep the θ-Gaussian and discard the constant, here we do the reverse.</p>
       </details>
       <div class="ex"><span class="callout-title">Worked example</span>
       Belief \( \mathcal N(100,10^2) \). A <code>BINARY_CALL</code> at \(K=105\) is worth
@@ -619,6 +660,23 @@
       <p>Note a CALL’s delta is exactly \( P(\theta\ge K) \): deep in-the-money it tracks μ one-for-one
       (delta→1), far out it barely reacts (delta→0). That’s the intuition the spread uses to charge
       more on trades that could move the price a lot.</p>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      At the §4 belief \( \mathcal N(100,10^2) \), a <code>CALL</code> struck at \(K=105\) has
+      \( d=\tfrac{100-105}{10}=-0.5 \), so its delta is \( \Phi(-0.5)=\mathbf{0.3085} \): a one-unit rise
+      in the belief mean μ lifts that call’s fair price by about \( 0.31 \). A <code>BINARY_CALL</code> at
+      the same strike has delta \( \varphi(-0.5)/10=0.3521/10=\mathbf{0.0352} \) — much flatter, because a
+      binary’s payoff is capped at 1.</div>
+      <details>
+        <summary>Why a CALL’s delta collapses to just \( \Phi(d) \) (the edge terms cancel)</summary>
+        <p>Differentiate \( \text{CALL}=(\mu-K)\Phi(d)+\sigma\varphi(d) \) with respect to μ, with
+        \( d=\tfrac{\mu-K}{\sigma} \) so \( \tfrac{\partial d}{\partial\mu}=\tfrac1\sigma \). The product
+        rule gives three terms:
+        \( \Phi(d)+(\mu-K)\varphi(d)\tfrac1\sigma+\sigma\,\varphi'(d)\tfrac1\sigma \).
+        Because \( \varphi'(d)=-d\,\varphi(d)=-\tfrac{\mu-K}{\sigma}\varphi(d) \), the third term is
+        \( -(\mu-K)\varphi(d)\tfrac1\sigma \), which exactly cancels the second. Only \( \Phi(d) \) survives,
+        so \( \partial\text{Price}/\partial\mu=\Phi(d)=P(\theta\ge K) \). This same cancellation — the
+        density-weighted boundary terms always vanish — is why every delta in the table above is so clean.</p>
+      </details>
     </section>
 
     <!-- =============================================================== -->
@@ -626,7 +684,7 @@
       <h2><span class="section-num">6</span>Signal extraction<a class="anchor" href="#signal">#</a></h2>
       <p>When someone trades, they reveal information. The engine decodes a trade
       \( (C, q) \) into a <strong>signal</strong> \( s \) — the trader’s implied estimate of θ — and a
-      <strong>weight</strong> \( w \in[0,1) \) — how much to trust it. Define direction
+      <strong>weight</strong> \( w \ge 0 \) — how much to trust it. Define direction
       \( \text{dir}=\operatorname{sign}(q) \) and intensity \( \iota=|q|/Q_\text{max} \).</p>
       <div class="eqbox named"><span>$$
         s=\begin{cases}
@@ -638,10 +696,13 @@
       $$</span><span class="eqlabel">signal.ts</span></div>
       <p>The intuition: buying a CALL says “θ is above the strike”; selling it says the opposite.
       Buying a LINEAR pushes the signal above the current mean; selling pushes below. A range/point
-      bet pulls the signal toward the target when bought, and away (in μ’s current direction) when sold.</p>
+      bet sets the signal <em>at</em> the target when bought, and pushes it away — along \( \operatorname{sign}(\mu-\text{target}) \) — when sold.</p>
       <p>The weight rises with size but treats tiny trades as noise — below the threshold
       \( q_\text{th} \) it’s near zero:</p>
       <div class="eqbox">$$ w=\iota\,\Big(1-e^{-|q|/q_\text{th}}\Big)=\frac{|q|}{Q_\text{max}}\Big(1-e^{-|q|/q_\text{th}}\Big) $$</div>
+      <p class="small">The weight is not clamped: for an in-range size \( |q|\le Q_\text{max} \) it stays
+      below 1, but since \( \iota=|q|/Q_\text{max} \) is unbounded, an oversized order yields \( w&gt;1 \).
+      In practice fills are bounded by the reserve gate (§10), so \( w\in[0,1) \) on the live path.</p>
       <div class="ex"><span class="callout-title">Worked example</span>
       Prior \( \mathcal N(100,12^2) \), a <strong>buy of 120</strong> units of a <code>CALL</code> at
       \(K=100\) (defaults \( \alpha=1,\ \beta=1,\ Q_\text{max}=500,\ q_\text{th}=10 \)). Intensity
@@ -670,6 +731,36 @@
       can only <em>shrink</em> (more data → more confidence). A floor
       \( \sigma'^2\ge\sigma_\text{min}^2 \) prevents runaway overconfidence. With the demo default
       \( \sigma_\varepsilon=\sigma_0 \), a full-weight signal moves μ about halfway to \(s\).</p>
+      <details>
+        <summary>Why these exact formulas? The Normal–Normal conjugate derivation</summary>
+        <p>Bayes’ rule says posterior \( \propto \) prior \( \times \) likelihood. The prior is
+        \( \mathcal N(\mu,\sigma^2) \); we treat the trade as a noisy observation of the truth,
+        \( s\sim\mathcal N(\theta,\ \sigma_\varepsilon^2/w) \) — a reading centred on θ whose precision
+        scales with the trust weight \(w\). Both factors are Gaussian, so their product is Gaussian too
+        (a <em>conjugate</em> pair: the posterior stays in the same family):</p>
+        <div class="eqbox">$$ p(\theta\mid s)\ \propto\ \exp\!\Big(-\tfrac{(\theta-\mu)^2}{2\sigma^2}\Big)\,\exp\!\Big(-\tfrac{w\,(\theta-s)^2}{2\sigma_\varepsilon^2}\Big) $$</div>
+        <p>Add the two exponents and <strong>complete the square</strong> in θ. Writing
+        \( \tau_0=\tfrac1{\sigma^2} \) and \( \tau_s=\tfrac{w}{\sigma_\varepsilon^2} \), expand the squares and
+        regroup by powers of θ:</p>
+        <div class="eqbox">$$ -\tfrac12\big[\tau_0(\theta-\mu)^2+\tau_s(\theta-s)^2\big]=-\tfrac12(\tau_0+\tau_s)\,\theta^2+(\tau_0\mu+\tau_s s)\,\theta+\text{const}. $$</div>
+        <p>Any Gaussian \( \exp\!\big(-\tfrac12\tau'(\theta-\mu')^2\big) \) has \( \theta^2 \)-coefficient
+        \( -\tfrac12\tau' \) and θ-coefficient \( +\tau'\mu' \). Matching those two coefficients to the line
+        above reads the posterior off directly — the quadratic term fixes the precision, the linear term
+        fixes the centre:</p>
+        <div class="eqbox">$$ \tau'=\underbrace{\tfrac{1}{\sigma^2}}_{\tau_0}+\underbrace{\tfrac{w}{\sigma_\varepsilon^2}}_{\tau_s},\qquad \mu'=\frac{\tau_0\,\mu+\tau_s\,s}{\tau'},\qquad \sigma'^2=\frac{1}{\tau'} $$</div>
+        <p>Notice the constant term we dropped carries no θ, so it only renormalizes the density and never
+        touches \( \mu' \) or \( \sigma' \) — which is why the posterior depends on the prior and the signal
+        but not on how “surprising” the signal was. The mean \( \mu' \) is a genuine weighted average:
+        rewrite it as \( \mu'=\mu+\tfrac{\tau_s}{\tau_0+\tau_s}(s-\mu) \), a step from the prior toward the
+        signal whose fractional size \( \tfrac{\tau_s}{\tau_0+\tau_s}\in[0,1) \) is exactly the signal’s
+        share of the total precision. With the demo default \( \sigma_\varepsilon=\sigma_0 \) and full weight
+        \( w=1 \), that share is \( \tfrac{1}{1+1}=\tfrac12 \) — μ moves <em>halfway</em> to \(s\), as §7 claims.</p>
+        <p>That is the whole rule: <strong>precisions add</strong> — each independent source of information
+        contributes \( 1/\text{variance} \) — and the new mean is the precision-weighted average of prior
+        and signal, leaning toward whichever is more certain. Since \( \tau_s\ge0 \), the posterior
+        precision only grows, so \( \sigma'^2 \) can only <em>shrink</em>: more data, more confidence. The
+        \( \sigma_\text{min} \) floor merely stops this from collapsing into absurd over-confidence.</p>
+      </details>
       <div class="ex"><span class="callout-title">Worked example (continuing §6)</span>
       Feed \( s=114.88,\ w=0.24 \) into prior \( \mathcal N(100,12^2) \) with
       \( \sigma_\varepsilon=\sigma_0=12 \). Precisions \( \tau_0=\tfrac1{144},\ \tau_s=\tfrac{0.24}{144} \),
@@ -726,6 +817,39 @@
       \( 0.5(0.24)(0.5)(10)=0.600 \), volatility \( 0.05(0.1)(3.9894)=0.020 \) → spread
       \( \mathbf{1.298} \). You pay \( 3.989+1.298=\mathbf{5.288} \). Here inventory and adverse
       selection dominate — exactly the price-impact-sensitive terms.</div>
+      <details>
+        <summary>Background — why a maker needs a spread (inventory &amp; adverse selection)</summary>
+        <p>An automated maker quotes both sides of every contract without knowing the outcome. It is not
+        greedy for the spread — it <em>needs</em> it to survive two structural risks, and the four terms
+        above are exactly those risks turned into numbers.</p>
+        <p><strong>Adverse selection — the informed-trader problem.</strong> Some traders know more than the
+        maker, and they only trade when the maker’s price is wrong in their favour: they buy what is cheap
+        and sell what is dear. So averaged over its counterparties the maker systematically <em>loses</em> —
+        it gets “picked off”. The classic market-microstructure result (Glosten–Milgrom) is that the only
+        defence is to pre-charge every trade for the information it might carry, because you cannot tell the
+        informed from the noise traders in advance. How large is that expected loss? A trade can move the
+        belief, and the resulting price change is the price’s sensitivity to the mean times the mean’s own
+        uncertainty, \( |\partial P/\partial\mu|\cdot\sigma \); a bigger order (intensity \( \iota \)) is both
+        more likely to be informed and more costly when it is. That is the term
+        \( \lambda\,\iota\,|\partial P/\partial\mu|\,\sigma \) — note it uses the very delta of §5, so contracts
+        whose price barely reacts to μ are cheap to quote, and price-sensitive ones are dear.</p>
+        <p><strong>Inventory risk — the unwanted-position problem.</strong> Every fill leaves the maker
+        holding the opposite side, a book \( \text{mmShort}+q \) it never chose and cannot lay off on anyone
+        else (it <em>is</em> the market). The more lopsided that book, the more a bad settlement hurts, so the
+        maker skews its quotes to discourage growing it — the Avellaneda–Stoikov idea of inventory control.
+        Charging in proportion to the post-trade position, \( \gamma\,|\text{mmShort}+q|\,|\text{Fair}| \),
+        makes the side that <em>flattens</em> the book cheaper to trade and the side that worsens it more
+        expensive, gently steering flow back toward neutral while paying the maker for the risk it carries
+        in the meantime.</p>
+        <p><strong>Volatility and base.</strong> A wider belief means any quote could be stale a moment later,
+        so the spread scales with relative uncertainty \( \sigma/\max(|\mu|,\sigma) \). The \( \max \) in the
+        denominator keeps this well-defined as \( \mu\to0 \) and caps the ratio at 1 (since the numerator can
+        never exceed the denominator), so the volatility charge is always between 0 and \( \eta\,|\text{Fair}| \).
+        The flat base \( s_0\,|\text{Fair}| \) is the floor — the minimum edge that keeps the maker profitable on
+        benign, uninformed flow. Three of the four terms are expressed as a fraction of \( |\text{Fair}| \) so
+        they scale with the contract’s magnitude; adverse selection is already in price units because
+        \( |\partial P/\partial\mu|\cdot\sigma \) is itself a price move.</p>
+      </details>
       <p>The bid is floored at 0 — the MM can charge to take a contract back but never pays you to
       hand it over. Drag size and inventory to see which component dominates:</p>
 
@@ -768,7 +892,7 @@
 <span class="kw">const</span> reserveAfter  = requiredReserve(nextBook, belief);
 <span class="kw">const</span> margin       = reserveAfter &gt; reserveBefore ? openMargin : <span class="num">1</span>; <span class="cmt">// 1.2 to open, 1.0 to close</span>
 <span class="kw">const</span> solvent      = effectiveCash + EPS &gt;= margin * reserveAfter;
-<span class="kw">const</span> affordable   = side === <span class="str">'sell'</span> || balance + EPS &gt;= totalCost;</code></pre>
+<span class="kw">const</span> affordable   = side === <span class="str">'sell'</span> || isInfinite || balance + EPS &gt;= totalCost;</code></pre>
       <div class="note"><span class="callout-title">Subtle but important</span>
       <code>effectiveCash = cash + min(0, totalCost)</code> means a <em>buy’s</em> incoming premium is
       <strong>not</strong> counted as backing for the new risk it creates (only past cash backs risk),
@@ -792,6 +916,22 @@
 <span class="kw">for</span> (...) losses[i] = liability(book, draws[i]);
 losses.sort();
 <span class="kw">return</span> Math.max(<span class="num">0</span>, losses[Math.floor(alpha * (n - <span class="num">1</span>))]);</code></pre>
+      <details>
+        <summary>Background — Value-at-Risk, Monte-Carlo, and the empirical quantile</summary>
+        <p><strong>Value-at-Risk (VaR).</strong> The α-VaR is the loss you will <em>not</em> exceed with
+        probability α — i.e. the α-quantile of the loss distribution. At \( \alpha=0.99 \) it answers
+        “how much could the book owe on all but the worst 1% of outcomes?”. Holding that much cash means
+        only a 1-in-100 tail can breach the reserve.</p>
+        <p><strong>Why Monte-Carlo.</strong> Across a <em>mixed</em> book (calls, binaries, spreads…) the
+        total liability \( L(\theta) \) is a kinked, non-Gaussian function with no closed-form quantile.
+        The Monte-Carlo method estimates it by brute force: draw many θ from the belief, evaluate \( L \)
+        at each, and read the quantile off the empirical sample. The sampling error shrinks like
+        \( 1/\sqrt n \), so 50k draws pin the 99th percentile to well under a cent.</p>
+        <p><strong>Empirical quantile.</strong> Sort the \(n\) sampled losses ascending; the α-quantile is
+        the value at rank \( \lfloor\alpha(n-1)\rfloor \) (the “nearest-rank” method). For
+        \( \alpha=0.99,\ n=50{,}000 \) that is index 49499 — the 500th-largest loss. The
+        \( \max(0,\cdot) \) clamps a net-credit book (negative liability) up to a non-negative reserve.</p>
+      </details>
       <div class="ex"><span class="callout-title">Worked example</span>
       Book = 300 units of a <code>BINARY_CALL</code> at \(K=100\), belief \( \mathcal N(100,12^2) \).
       Each unit pays at most 1, so liability is capped at 300. The expected liability is
@@ -892,6 +1032,26 @@ losses.sort();
           <tr><td>Calibration (inCi80)</td><td>did \( \theta^\star \) land inside the final 80% CI? Should hold ≈80% of the time</td></tr>
         </tbody>
       </table></div>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      A <code>BINARY_CALL</code> with fair price \( P=0.3085 \). Since an indicator squares to itself,
+      \( m_2=P \), so the per-unit variance is \( P-P^2=0.3085(1-0.3085)=\mathbf{0.2133} \) and the
+      per-unit standard deviation is \( \sqrt{0.2133}=\mathbf{0.4619} \). A 100-lot position therefore has
+      \( \text{Std}=100\cdot0.4619=\mathbf{46.19} \) — the spread of its settlement value around the
+      \( 100\cdot0.3085=30.85 \) expected payout.</div>
+      <details>
+        <summary>Background — the variance identity, VaR vs CVaR</summary>
+        <p><strong>Variance from two moments.</strong> For any payoff,
+        \( \operatorname{Var}[f]=\mathbb E[f^2]-(\mathbb E[f])^2=m_2-P^2 \) (§2). Scaling by \(q\) units
+        multiplies the variance by \( q^2 \) (and the standard deviation by \( |q| \)), giving
+        \( \operatorname{Var}[qf]=q^2(m_2-P^2) \). For an indicator \( f\in\{0,1\} \), \( f^2=f \) so
+        \( m_2=P \) and the variance is the Bernoulli \( P(1-P) \).</p>
+        <p><strong>VaR vs CVaR.</strong> Both summarise the loss tail. <strong>VaR₉₅</strong> is a single
+        threshold — the 5th-percentile P&amp;L, the loss you beat 95% of the time. <strong>CVaR₉₅</strong>
+        (a.k.a. expected shortfall) is the <em>average</em> loss <em>given</em> you are already in that
+        worst 5% — it sees how deep the tail goes <em>beyond</em> the threshold, which VaR alone hides.
+        Necessarily \( \text{CVaR}\le\text{VaR} \) (it averages strictly worse outcomes). Both are read
+        from the same sorted Monte-Carlo P&amp;L sample.</p>
+      </details>
     </section>
 
     <!-- =============================================================== -->
@@ -945,6 +1105,48 @@ losses.sort();
       <p><code>erf</code> uses a Maclaurin series for \( |z|&lt;2 \) and a Lentz continued fraction in
       the tails. Randomness flows through a seeded <strong>mulberry32</strong> PRNG — never
       <code>Math.random</code> — so Monte-Carlo reserve and tests are reproducible.</p>
+      <details>
+        <summary>Background — what each numerical method is (and why it’s here)</summary>
+        <ul>
+          <li><strong>\( \operatorname{erf} \) and the link to \( \Phi \).</strong> The error function
+          \( \operatorname{erf}(x)=\tfrac{2}{\sqrt\pi}\int_0^x e^{-t^2}\,dt \) is the Gaussian integral written
+          in its standard form, and \( \operatorname{erfc}(x)=1-\operatorname{erf}(x) \) is its right tail.
+          The normal CDF is just a shifted, rescaled copy of it: substituting \( t=u/\sqrt2 \) in \( \Phi \)’s
+          integral turns it into an \( \operatorname{erf} \), giving
+          \( \Phi(x)=\tfrac12\big(1+\operatorname{erf}(x/\sqrt2)\big)=\tfrac12\operatorname{erfc}(-x/\sqrt2) \).
+          So implementing one well-conditioned \( \operatorname{erf} \) hands you every Gaussian probability on
+          this page — pdf, cdf, prices, reserve — for free.</li>
+          <li><strong>Why two methods for \( \operatorname{erf} \) (series vs continued fraction).</strong>
+          Near zero the Maclaurin (Taylor-at-0) series
+          \( \operatorname{erf}(z)=\tfrac{2}{\sqrt\pi}\sum_{n\ge0}\tfrac{(-1)^n z^{2n+1}}{n!\,(2n+1)} \)
+          converges in a handful of terms. Out in the tails its terms first grow enormous and then nearly
+          cancel, so finite precision is destroyed — there the code instead evaluates \( \operatorname{erfc} \)
+          as a <em>continued fraction</em>, a nested ratio
+          \( \cfrac{a_1}{b_1+\cfrac{a_2}{b_2+\cdots}} \) that converges fastest exactly where the series is
+          worst. It is summed by <em>Lentz’s algorithm</em>, which accumulates the fraction from the top using
+          running ratios, so nothing overflows and you needn’t fix the depth in advance. Handing over at
+          \( |z|=2 \) keeps the whole real line at ~1e-12.</li>
+          <li><strong>\( \Phi^{-1} \): Acklam’s approximation + one Halley step.</strong> No elementary function
+          inverts \( \Phi \). <em>Acklam’s algorithm</em> splits \( (0,1) \) into a central region and two
+          tails and fits each with a ratio of low-order polynomials (a <em>rational</em> approximation),
+          reaching ~1.15e-9 relative error. One step of <em>Halley’s method</em> then polishes that to full
+          double precision. Halley refines a root of \( g(x)=\Phi(x)-p \) using the value, the slope
+          \( g'=\varphi \), and the curvature \( g''=-x\varphi \):
+          \( x\leftarrow x-\dfrac{2\,g\,g'}{2\,g'^2-g\,g''} \). It is the cubically-convergent cousin of
+          Newton’s method, so each pass roughly <em>triples</em> the number of correct digits (Newton only
+          doubles) — taking ~9 good digits to the full ~16 in a single shot.</li>
+          <li><strong>Inverse-transform sampling.</strong> If \( U \) is uniform on \( (0,1) \) then
+          \( F^{-1}(U) \) has exactly the distribution whose CDF is \( F \) — because
+          \( P\big(F^{-1}(U)\le\theta\big)=P\big(U\le F(\theta)\big)=F(\theta) \). For a normal that reads
+          \( \theta=\mu+\sigma\,\Phi^{-1}(u) \): push a uniform through the inverse-CDF and a Gaussian draw
+          comes out. That is precisely how the reserve’s Monte-Carlo θ’s (§10) are generated — one cheap
+          \( \Phi^{-1} \) evaluation per sample, all sharing the same seeded uniform stream.</li>
+          <li><strong>mulberry32.</strong> A tiny 32-bit <em>seeded</em> generator: from a single integer of
+          state it emits a fast, well-spread sequence of uniforms. Because it is seeded, every uniform — and
+          therefore every reserve estimate, every sampled draw, every test — is bit-for-bit reproducible
+          across runs and machines, the one guarantee an unseeded <code>Math.random</code> cannot give.</li>
+        </ul>
+      </details>
       <h3>Money &amp; rounding</h3>
       <p>All money is <code>numeric(20,8)</code>. Every arithmetic result goes through <code>round8</code>
       — <strong>round-half-even</strong> (banker’s rounding) to 8 decimals — so repeated operations
