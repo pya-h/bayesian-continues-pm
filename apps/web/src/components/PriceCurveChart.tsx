@@ -1,6 +1,7 @@
 // Model fair price vs the contract's primary parameter (strike / center), swept
 // across the visible domain at the current belief. Computed client-side with the
-// same `core.price` the server uses, with a dot at the composed contract's value.
+// same `core.price` the server uses, drawn as a proper x–y chart with a dot at the
+// composed contract's value.
 
 import { GaussianBelief, price } from '@bmm/core';
 import { fmt } from '../lib/format.ts';
@@ -9,7 +10,7 @@ import { type Domain, niceTicks, scale, toPath } from '../lib/viz.ts';
 
 const W = 360;
 const H = 140;
-const P = { l: 8, r: 8, t: 12, b: 18 };
+const P = { l: 34, r: 10, t: 12, b: 22 };
 
 // Build a spec with its primary parameter set to x (or null if not applicable).
 function withParam(spec: ContractSpec, x: number): ContractSpec | null {
@@ -80,25 +81,62 @@ export function PriceCurveChart({
   const herePrice = here ? price(here, belief) : 0;
 
   const yTicks = niceTicks(yMin, yMax, 3);
+  const xTicks = niceTicks(lo, hi, 4);
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Fair price vs strike">
       <title>Model fair price across the strike/center parameter</title>
+
+      {/* y gridlines + left-gutter labels */}
       {yTicks.map((t) => (
-        <g key={t}>
+        <g key={`y-${t}`}>
           <line
             x1={P.l}
             x2={W - P.r}
             y1={sy(t)}
             y2={sy(t)}
             stroke="var(--color-edge)"
-            opacity={0.5}
+            opacity={0.4}
           />
-          <text x={P.l} y={sy(t) - 2} fontSize={9} className="fill-[var(--color-muted)]">
+          <text
+            x={P.l - 5}
+            y={sy(t) + 3}
+            textAnchor="end"
+            fontSize={9}
+            className="fill-[var(--color-muted)]"
+          >
             {fmt(t, 0)}
           </text>
         </g>
       ))}
+
+      {/* axis spines */}
+      <line x1={P.l} x2={P.l} y1={P.t} y2={H - P.b} stroke="var(--color-edge)" opacity={0.8} />
+      <line
+        x1={P.l}
+        x2={W - P.r}
+        y1={H - P.b}
+        y2={H - P.b}
+        stroke="var(--color-edge)"
+        opacity={0.8}
+      />
+
+      {/* x ticks (strike / center in θ units) */}
+      {xTicks.map((t) => (
+        <g key={`x-${t}`}>
+          <line x1={sx(t)} x2={sx(t)} y1={H - P.b} y2={H - P.b + 3} stroke="var(--color-muted)" />
+          <text
+            x={sx(t)}
+            y={H - P.b + 13}
+            textAnchor="middle"
+            fontSize={9}
+            className="fill-[var(--color-muted)]"
+          >
+            {fmt(t, 0)}
+          </text>
+        </g>
+      ))}
+
       <path d={toPath(pts, sx, sy)} fill="none" stroke="var(--color-buy)" strokeWidth={2} />
       <line
         x1={sx(param)}

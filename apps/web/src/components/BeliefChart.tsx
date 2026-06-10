@@ -10,12 +10,16 @@
 // likelihood (peak-normalised to 1.0 — its absolute density is unit-dependent and
 // not meaningful to a trader), the RIGHT axis reads the contract payoff in outcome
 // units. They are colour-keyed to their curves (accent = belief, green = payoff).
+// Hovering the plot shows a crosshair + a translucent readout of the exact
+// (θ, belief-likelihood, payoff) under the cursor, with a dot on each curve.
 
-import { useCallback, useRef } from 'react';
+import { payoff } from '@bmm/core';
+import { useCallback, useRef, useState } from 'react';
 import { fmt, fmtCompact } from '../lib/format.ts';
 import type { ContractSpec } from '../lib/types.ts';
 import {
   type Domain,
+  gaussianPdf,
   niceDomain,
   niceTicks,
   payoffCurve,
@@ -127,6 +131,7 @@ export function BeliefChart({
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragId = useRef<string | null>(null);
+  const [hover, setHover] = useState<{ theta: number; vy: number } | null>(null);
 
   const handles = handlesFor(spec);
   const kinks = handles.map((h) => h.value);
@@ -156,31 +161,85 @@ export function BeliefChart({
   const payTicks = niceTicks(payMin - pad, payMax + pad, 5);
   const payZeroInRange = 0 >= payMin - pad && 0 <= payMax + pad;
 
-  // Pointer → data-x, mapped through the SVG's rendered rect into viewBox units.
+  // viewBox-space pointer position (so we can map both x→θ and keep the cursor y).
+  const pointerToView = useCallback((clientX: number, clientY: number) => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const rect = svg.getBoundingClientRect();
+    return {
+      vx: ((clientX - rect.left) / rect.width) * W,
+      vy: ((clientY - rect.top) / rect.height) * H,
+    };
+  }, []);
+
   const pointerToData = useCallback(
     (clientX: number): number => {
-      const svg = svgRef.current;
-      if (!svg) return 0;
-      const rect = svg.getBoundingClientRect();
-      const vbX = ((clientX - rect.left) / rect.width) * W;
-      const dataX = lo + ((vbX - PLOT.l) / (PLOT.r - PLOT.l)) * (hi - lo);
+      const v = pointerToView(clientX, 0);
+      if (!v) return 0;
+      const dataX = lo + ((v.vx - PLOT.l) / (PLOT.r - PLOT.l)) * (hi - lo);
       return Math.min(hi, Math.max(lo, dataX));
     },
-    [lo, hi],
+    [lo, hi, pointerToView],
   );
 
   const onPointerDown = (id: string) => (e: React.PointerEvent) => {
     e.preventDefault();
     dragId.current = id;
+    setHover(null);
     (e.target as Element).setPointerCapture?.(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragId.current) return;
-    onSpecChange(applyHandle(spec, dragId.current, pointerToData(e.clientX)));
+    if (dragId.current) {
+      onSpecChange(applyHandle(spec, dragId.current, pointerToData(e.clientX)));
+      return;
+    }
+    const v = pointerToView(e.clientX, e.clientY);
+    if (!v || v.vx < PLOT.l - 2 || v.vx > PLOT.r + 2 || v.vy < PLOT.t - 2 || v.vy > PLOT.b + 2) {
+      setHover((h) => (h ? null : h));
+      return;
+    }
+    const theta = Math.min(
+      hi,
+      Math.max(lo, lo + ((v.vx - PLOT.l) / (PLOT.r - PLOT.l)) * (hi - lo)),
+    );
+    setHover({ theta, vy: v.vy });
   };
   const onPointerUp = () => {
     dragId.current = null;
   };
+  const onLeave = () => {
+    dragId.current = null;
+    setHover(null);
+  };
+
+  // Crosshair / readout geometry, derived from the hovered θ.
+  const cross = (() => {
+    if (!hover) return null;
+    const theta = Math.min(hi, Math.max(lo, hover.theta));
+    const tpx = sx(theta);
+    const pdfV = gaussianPdf(theta, mu, sigma);
+    const payV = payoff(spec, theta);
+    const hv = Math.min(PLOT.b, Math.max(PLOT.t, hover.vy));
+    const cardW = 138;
+    const cardH = 66;
+    let tx = tpx + 12;
+    if (tx + cardW > PLOT.r) tx = tpx - 12 - cardW;
+    if (tx < PLOT.l + 2) tx = PLOT.l + 2;
+    const ty = Math.min(PLOT.b - cardH, Math.max(PLOT.t, hv - cardH / 2));
+    return {
+      theta,
+      tpx,
+      like: Math.min(1, pdfV / pdfMax),
+      payV,
+      by: syPdf(pdfV),
+      py: syPay(payV),
+      hv,
+      tx,
+      ty,
+      cardW,
+      cardH,
+    };
+  })();
 
   return (
     <svg
@@ -191,9 +250,20 @@ export function BeliefChart({
       aria-label="Belief density and contract payoff"
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerLeave={onPointerUp}
+      onPointerLeave={onLeave}
     >
       <title>Belief PDF and payoff overlay</title>
+
+      {/* framed plot area */}
+      <rect
+        x={PLOT.l}
+        y={PLOT.t}
+        width={PLOT.r - PLOT.l}
+        height={PLOT.b - PLOT.t}
+        rx={5}
+        fill="var(--color-panel-2)"
+        opacity={0.35}
+      />
 
       {/* legend */}
       <LegendItem x={PLOT.l} color="var(--color-accent)" label="Belief (likelihood)" />
@@ -431,6 +501,139 @@ export function BeliefChart({
           </g>
         );
       })}
+
+      {/* hover crosshair + readout (non-interactive, drawn on top) */}
+      {cross && (
+        <g pointerEvents="none">
+          <line
+            x1={PLOT.l}
+            x2={PLOT.r}
+            y1={cross.hv}
+            y2={cross.hv}
+            stroke="var(--color-fg)"
+            strokeWidth={1}
+            strokeDasharray="3 4"
+            opacity={0.2}
+          />
+          <line
+            x1={cross.tpx}
+            x2={cross.tpx}
+            y1={PLOT.t}
+            y2={PLOT.b}
+            stroke="var(--color-fg)"
+            strokeWidth={1}
+            strokeDasharray="3 4"
+            opacity={0.35}
+          />
+          {/* θ chip on the x-axis */}
+          <g>
+            <rect
+              x={cross.tpx - 26}
+              y={PLOT.b + 3}
+              width={52}
+              height={15}
+              rx={3}
+              fill="var(--color-fg)"
+              opacity={0.85}
+            />
+            <text
+              x={cross.tpx}
+              y={PLOT.b + 13.5}
+              textAnchor="middle"
+              fontSize={10}
+              className="fill-[var(--color-ink)] font-semibold"
+            >
+              {fmt(cross.theta, 0)}
+            </text>
+          </g>
+          {/* curve dots */}
+          <circle
+            cx={cross.tpx}
+            cy={cross.by}
+            r={3.5}
+            fill="var(--color-accent)"
+            stroke="var(--color-ink)"
+            strokeWidth={1.5}
+          />
+          <circle
+            cx={cross.tpx}
+            cy={cross.py}
+            r={3.5}
+            fill="var(--color-buy)"
+            stroke="var(--color-ink)"
+            strokeWidth={1.5}
+          />
+          {/* translucent readout card */}
+          <g>
+            <rect
+              x={cross.tx}
+              y={cross.ty}
+              width={cross.cardW}
+              height={cross.cardH}
+              rx={6}
+              fill="var(--color-panel)"
+              stroke="var(--color-edge)"
+              strokeWidth={1}
+              opacity={0.92}
+            />
+            <text
+              x={cross.tx + 12}
+              y={cross.ty + 18}
+              fontSize={10.5}
+              className="fill-[var(--color-muted)]"
+            >
+              θ
+            </text>
+            <text
+              x={cross.tx + cross.cardW - 12}
+              y={cross.ty + 18}
+              textAnchor="end"
+              fontSize={11}
+              className="fill-[var(--color-fg)] font-semibold"
+            >
+              {fmt(cross.theta, 0)}
+            </text>
+
+            <circle cx={cross.tx + 15} cy={cross.ty + 33} r={3.5} fill="var(--color-accent)" />
+            <text
+              x={cross.tx + 24}
+              y={cross.ty + 36.5}
+              fontSize={10.5}
+              className="fill-[var(--color-muted)]"
+            >
+              Belief
+            </text>
+            <text
+              x={cross.tx + cross.cardW - 12}
+              y={cross.ty + 36.5}
+              textAnchor="end"
+              fontSize={11}
+              className="fill-[var(--color-accent)] font-semibold"
+            >
+              {cross.like.toFixed(2)}
+            </text>
+
+            <circle cx={cross.tx + 15} cy={cross.ty + 51} r={3.5} fill="var(--color-buy)" />
+            <text
+              x={cross.tx + 24}
+              y={cross.ty + 54.5}
+              fontSize={10.5}
+              className="fill-[var(--color-muted)]"
+            >
+              Payoff
+            </text>
+            <text
+              x={cross.tx + cross.cardW - 12}
+              y={cross.ty + 54.5}
+              textAnchor="end"
+              fontSize={11}
+              className="fill-[var(--color-buy)] font-semibold"
+            >
+              {fmtCompact(cross.payV)}
+            </text>
+          </g>
+        </g>
+      )}
 
       {/* axis captions */}
       <text
