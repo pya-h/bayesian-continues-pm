@@ -3,55 +3,400 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>BMM — The Mathematics</title>
+  <title>BMM — How it works &amp; the mathematics</title>
   <link rel="stylesheet" href="vendor/katex/katex.min.css" />
   <link rel="stylesheet" href="styles.css" />
   <script>
-    /* Apply the saved/system theme before first paint to avoid a flash. */
+    /* Apply the saved/system theme + saved reading mode before first paint to
+       avoid a flash of the wrong palette or the wrong content set. */
     (function () {
       try {
         var saved = localStorage.getItem('bmm-theme');
         var theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
         if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
       } catch (e) {}
+      try {
+        var mode = localStorage.getItem('bmm-mode');
+        if (mode !== 'dev' && mode !== 'user') mode = 'user';
+        document.documentElement.setAttribute('data-mode', mode);
+      } catch (e) {
+        document.documentElement.setAttribute('data-mode', 'user');
+      }
     })();
   </script>
 </head>
 <body>
 <div class="progress" id="progress"></div>
+
+<!-- mode switch: flips the whole page between the plain-language trader guide
+     and the full developer/math reference. Persisted, like the theme. -->
+<div class="mode-switch" id="mode-switch" role="tablist" aria-label="Reading mode">
+  <button class="ms-btn" data-mode="user" role="tab"><span class="ms-i" aria-hidden="true">◎</span>Trader</button>
+  <button class="ms-btn" data-mode="dev" role="tab"><span class="ms-i" aria-hidden="true">∑</span>Developer</button>
+</div>
+
 <button class="theme-toggle" id="theme-toggle" aria-label="Toggle light / dark theme" title="Toggle light / dark theme">
   <span class="glyph" aria-hidden="true">◑</span>
   <span class="lbl"><span class="to-dark">Dark</span><span class="to-light">Light</span></span>
 </button>
+
 <div class="layout">
   <nav class="toc">
-    <div class="brand"><span>BMM</span> · The Math</div>
-    <div class="sub">Interactive engine internals</div>
-    <div class="group">Foundations</div>
-    <a href="#idea">0 · The big idea</a>
-    <a href="#concepts">1 · Core concepts &amp; notation</a>
-    <a href="#belief">2 · The belief model</a>
-    <div class="group">The pricing engine</div>
-    <a href="#payoffs">3 · Contracts &amp; payoffs</a>
-    <a href="#pricing">4 · Fair price = E[payoff]</a>
-    <a href="#sensitivity">5 · Price sensitivity ∂P/∂μ</a>
-    <a href="#signal">6 · Signal extraction</a>
-    <a href="#bayes">7 · The Bayesian update</a>
-    <a href="#spread">8 · The bid–ask spread</a>
-    <a href="#exec">9 · Execution &amp; position math</a>
-    <div class="group">Risk &amp; capital</div>
-    <a href="#reserve">10 · Reserve &amp; solvency</a>
-    <a href="#settlement">11 · Settlement</a>
-    <a href="#lp">12 · Liquidity providers</a>
-    <a href="#stats">13 · Stats &amp; metrics</a>
-    <a href="#breakers">14 · Circuit breakers</a>
-    <div class="group">Reference</div>
-    <a href="#config">15 · Config parameters</a>
-    <a href="#numerics">16 · Numerics &amp; rounding</a>
-    <a href="#users">17 · For users (traders &amp; creators)</a>
+    <div class="brand"><span>BMM</span> · <span class="brand-dev">The Math</span><span class="brand-user">How it works</span></div>
+    <div class="sub brand-dev">Interactive engine internals</div>
+    <div class="sub brand-user">A plain-language trader's guide</div>
+
+    <!-- developer TOC -->
+    <div class="toc-dev">
+      <div class="group">Foundations</div>
+      <a href="#idea">0 · The big idea</a>
+      <a href="#concepts">1 · Core concepts &amp; notation</a>
+      <a href="#belief">2 · The belief model</a>
+      <div class="group">The pricing engine</div>
+      <a href="#payoffs">3 · Contracts &amp; payoffs</a>
+      <a href="#pricing">4 · Fair price = E[payoff]</a>
+      <a href="#sensitivity">5 · Price sensitivity ∂P/∂μ</a>
+      <a href="#signal">6 · Signal extraction</a>
+      <a href="#bayes">7 · The Bayesian update</a>
+      <a href="#spread">8 · The bid–ask spread</a>
+      <a href="#exec">9 · Execution &amp; position math</a>
+      <div class="group">Risk &amp; capital</div>
+      <a href="#reserve">10 · Reserve &amp; solvency</a>
+      <a href="#settlement">11 · Settlement</a>
+      <a href="#lp">12 · Liquidity providers</a>
+      <a href="#stats">13 · Stats &amp; metrics</a>
+      <a href="#breakers">14 · Circuit breakers</a>
+      <div class="group">Reference</div>
+      <a href="#config">15 · Config parameters</a>
+      <a href="#numerics">16 · Numerics &amp; rounding</a>
+    </div>
+
+    <!-- trader TOC -->
+    <div class="toc-user">
+      <div class="group">Start here</div>
+      <a href="#u-what">1 · What is this?</a>
+      <a href="#u-belief">2 · The market's best guess</a>
+      <a href="#u-bets">3 · What you can bet on</a>
+      <a href="#u-price">4 · Reading the price</a>
+      <div class="group">Trading</div>
+      <a href="#u-trade">5 · Making a trade</a>
+      <a href="#u-impact">6 · You move the price</a>
+      <a href="#u-positions">7 · Your positions &amp; profit</a>
+      <a href="#u-end">8 · When the market ends</a>
+      <div class="group">Going further</div>
+      <a href="#u-provide">9 · Funding a market (LPs &amp; creators)</a>
+      <a href="#u-risks">10 · Risks &amp; smart habits</a>
+      <a href="#u-glossary">11 · Glossary</a>
+    </div>
   </nav>
 
   <main>
+    <!-- ================================================================= -->
+    <!-- ============================ TRADER ============================== -->
+    <!-- ================================================================= -->
+    <div class="mode-user">
+      <div class="hero">
+        <h1>How this market <span class="grad">works</span></h1>
+        <p>A plain-language guide to trading on BMM — a prediction market where you bet on
+        an unknown number, the price tells you the crowd's best estimate, and the market gets
+        smarter every time someone trades. No maths required. If you'd like the formulas and
+        the engine internals instead, flip the switch to <strong>Developer</strong>.</p>
+        <div class="pills">
+          <span class="pill">bet on a number</span>
+          <span class="pill">price = the estimate</span>
+          <span class="pill">you move the market</span>
+          <span class="pill">paid out at the end</span>
+        </div>
+      </div>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-what">
+        <h2><span class="section-num">1</span>What is this?<a class="anchor" href="#u-what">#</a></h2>
+        <p class="lead">A place to bet on “what number will it be?” — and a price that turns the
+        whole crowd's opinion into a single, readable estimate.</p>
+
+        <p>Every market is about one unknown number that will be settled later — call it the
+        <strong>outcome</strong>. It could be “the price of BTC at month-end”, “the winning
+        vote share”, “Friday's high temperature”. Nobody knows it yet.</p>
+
+        <p>You don't trade against other people directly. You trade against the
+        <strong>market maker</strong> — an automated counterparty that's always willing to take
+        the other side of your bet at a price it quotes. That price reflects what the market
+        currently believes about the outcome. When you think the maker's estimate is wrong, you
+        trade — and if you're right, you profit when the outcome is revealed.</p>
+
+        <div class="idea">
+          <span class="callout-title">The whole idea in five lines</span>
+          <ol style="margin:.3rem 0">
+            <li>The market holds a <strong>best guess</strong> about the outcome (a centre, and how unsure it is).</li>
+            <li>It <strong>quotes a price</strong> for any bet — that price <em>is</em> its estimate.</li>
+            <li>You <strong>buy</strong> if you think the real answer is higher/more likely, <strong>sell</strong> if lower/less likely.</li>
+            <li>Your trade <strong>nudges the estimate</strong> toward your view — bigger trades nudge it more.</li>
+            <li>When the outcome is known, every bet <strong>pays out</strong> based on what actually happened.</li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-belief">
+        <h2><span class="section-num">2</span>The market's best guess<a class="anchor" href="#u-belief">#</a></h2>
+        <p>At any moment the market summarises everything it “thinks” with two simple ideas:</p>
+        <div class="cards">
+          <div class="card">
+            <div class="card-h">The centre</div>
+            <p>Its single best guess for the outcome — the most likely value right now. If a market's
+            centre is 100, the crowd's consensus is “around 100”.</p>
+          </div>
+          <div class="card">
+            <div class="card-h">The uncertainty</div>
+            <p>How sure it is. A <em>narrow</em> market is confident the answer is close to the centre;
+            a <em>wide</em> one is still very unsure and could land far away.</p>
+          </div>
+        </div>
+        <p>Picture a bell-shaped hill of probability sitting over the number line: tall and narrow
+        when the market is confident, low and spread-out when it isn't. As people trade, that hill
+        slides toward the value informed traders are backing, and it gets taller and tighter as more
+        information arrives. <strong>The market literally learns.</strong></p>
+        <p class="small">You never have to think about the shape of that hill to trade — but it's why
+        the price moves the way it does, and why a brand-new market reacts more than a mature one.</p>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-bets">
+        <h2><span class="section-num">3</span>What you can bet on<a class="anchor" href="#u-bets">#</a></h2>
+        <p>A market offers a few kinds of bet (“contracts”) on the same underlying outcome. You don't
+        need any formulas — here's what each one means and when it pays:</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Bet</th><th>In plain words</th><th>You win when…</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Higher / Lower</strong></td><td>Direct exposure to the number itself</td><td>the outcome moves your way (up if you bought, down if you sold)</td></tr>
+            <tr><td><strong>Above a line (Call)</strong></td><td>“It'll finish above <em>K</em>” — and the more above, the more you make</td><td>the outcome ends above your line; payout grows with how far above</td></tr>
+            <tr><td><strong>Below a line (Put)</strong></td><td>“It'll finish below <em>K</em>”</td><td>the outcome ends below your line; payout grows with how far below</td></tr>
+            <tr><td><strong>Yes / No (Binary)</strong></td><td>A simple “will it clear <em>K</em>, yes or no?”</td><td>the condition is true at the end — pays a fixed 1, else 0</td></tr>
+            <tr><td><strong>In a range</strong></td><td>“It'll land between <em>a</em> and <em>b</em>”</td><td>the outcome falls inside your range — pays 1, else 0</td></tr>
+            <tr><td><strong>Close to a target</strong></td><td>“It'll be near <em>c</em>” — a precision bet</td><td>the outcome is close to your target; the closer, the bigger the payout</td></tr>
+          </tbody>
+        </table></div>
+        <div class="user"><span class="callout-title">Yes/No and range bets are just probabilities</span>
+        For these, the price is the market's estimated <em>chance</em> of the event. A price of
+        <strong>0.62</strong> means “about a 62% chance”. Buy below what you think the real chance is,
+        sell above it.</div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-price">
+        <h2><span class="section-num">4</span>Reading the price<a class="anchor" href="#u-price">#</a></h2>
+        <p>The price of a bet is simply <strong>its average payout under the market's current best
+        guess</strong> — what it's worth if the market is right. That single number is the most
+        useful thing on the screen:</p>
+        <ul>
+          <li>For a <strong>Yes/No</strong> or <strong>range</strong> bet, the price <em>is</em> the
+          probability — 0.30 means “≈30% likely”.</li>
+          <li>For an <strong>above/below</strong> bet, it's the expected payout — bigger when the line
+          is easy to clear, near zero when it's far out of reach.</li>
+          <li>For a <strong>Higher/Lower</strong> bet, it's just the market's centre — its best guess
+          for the number.</li>
+        </ul>
+        <p>Try it: drag the market's best guess and the line. The shaded area is the chance the outcome
+        lands above the line — and that's exactly the Yes price.</p>
+
+        <div class="viz" id="u-viz-price">
+          <div class="viz-head"><div class="viz-title">“Will it finish above the line?”<span class="tag">live</span></div><div class="viz-hint">the shaded chance is the Yes price</div></div>
+          <div class="viz-grid">
+            <div>
+              <canvas></canvas>
+              <div class="legend"><span><i style="background:var(--accent)"></i>the market's view</span><span><i style="background:var(--buy)"></i>your line</span><span><i style="background:var(--tint-buy-strong)"></i>chance above</span></div>
+            </div>
+            <div><div class="controls"></div><div class="readout"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-trade">
+        <h2><span class="section-num">5</span>Making a trade<a class="anchor" href="#u-trade">#</a></h2>
+        <p>Trading is two buttons: <strong>buy</strong> if you think the bet is underpriced,
+        <strong>sell</strong> if you think it's overpriced (or to close something you hold). You choose
+        a size, and the maker quotes you an exec price.</p>
+
+        <h3>The spread is the cost of trading</h3>
+        <p>The maker never trades at exactly the fair estimate. It charges a small margin: you
+        <strong>buy a touch above</strong> the fair price and <strong>sell a touch below</strong> it.
+        That gap is the <em>spread</em> — the maker's only profit, and effectively your trading fee. It
+        gets a little wider when:</p>
+        <div class="cards">
+          <div class="card"><div class="card-h">Your order is large</div><p>Big orders move the market more, so they cost a bit more per unit.</p></div>
+          <div class="card"><div class="card-h">The maker is already loaded</div><p>If lots of people are on one side, the maker charges more to take even more of that risk.</p></div>
+          <div class="card"><div class="card-h">The market is jumpy</div><p>More uncertainty → a wider spread, to protect the maker.</p></div>
+        </div>
+
+        <h3>See it for yourself</h3>
+        <p>This is a live market (best guess 100, betting on “above 100”). Pick a side and size and
+        watch the price you'd get, the small spread you'd pay, and how your trade shifts the market's
+        estimate:</p>
+
+        <div class="viz" id="u-viz-trade">
+          <div class="viz-head"><div class="viz-title">Place a trade<span class="tag">live</span></div><div class="viz-hint">real engine — same maths the server runs</div></div>
+          <div class="viz-grid">
+            <div><div class="u-trade-panel"></div></div>
+            <div><div class="controls"></div><div class="readout"></div></div>
+          </div>
+        </div>
+        <p class="small">“Sell all” in the real app liquidates every position you hold in a market at
+        once. Because each sale nudges the price down a little, later units fill a touch lower than the
+        first — the estimate you see before confirming is at current prices.</p>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-impact">
+        <h2><span class="section-num">6</span>You move the price<a class="anchor" href="#u-impact">#</a></h2>
+        <p>This is the heart of a prediction market: <strong>your trade is information</strong>. When you
+        buy, you're telling the market “I think this is more likely / higher than you do” — so the maker
+        shifts its best guess toward you. Sellers push it the other way.</p>
+        <div class="cards">
+          <div class="card"><div class="card-h">Bigger = stronger</div><p>A large order signals more conviction, so it moves the estimate more. A tiny one barely registers — the market treats it as noise.</p></div>
+          <div class="card"><div class="card-h">New markets move most</div><p>An uncertain, young market shifts a lot per trade. A mature, confident one barely budges — it already “knows” a lot.</p></div>
+          <div class="card"><div class="card-h">The crowd converges</div><p>As informed traders pile in, the price homes in on the true answer. The final price is the crowd's best collective estimate.</p></div>
+        </div>
+        <div class="user"><span class="callout-title">What this means for you</span>
+        If you trade big in a thin market, you'll push the price against yourself as you go — your last
+        units fill at a worse price than your first. Sizing sensibly keeps your average price close to
+        where you started.</div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-positions">
+        <h2><span class="section-num">7</span>Your positions &amp; profit<a class="anchor" href="#u-positions">#</a></h2>
+        <p>When you buy, you open (or add to) a <strong>position</strong>. The app tracks your
+        <strong>average entry price</strong> — the typical price you paid across all your buys.</p>
+        <ul>
+          <li><strong>Selling closes a position.</strong> In v1 you can only hold the “bought” side, so
+          a sell reduces something you already hold and books your profit or loss against your average
+          entry.</li>
+          <li><strong>Profit = exit − entry.</strong> If your average entry was 4.00 and you sell at
+          5.20, you've made 1.20 per unit on the units you sold.</li>
+          <li><strong>Unrealised vs realised.</strong> Before you sell, your profit is “on paper” and
+          moves with the price. Once you sell (or the market settles), it's locked in.</li>
+        </ul>
+        <p>You can hold until the market settles instead of selling — at settlement every position pays
+        out automatically based on the real outcome (next section).</p>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-end">
+        <h2><span class="section-num">8</span>When the market ends<a class="anchor" href="#u-end">#</a></h2>
+        <p>Eventually the true outcome becomes known and an administrator <strong>settles</strong> the
+        market. Each open bet pays its payoff for the real outcome:</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Your bet</th><th>What you're paid at the end</th></tr></thead>
+          <tbody>
+            <tr><td>Higher / Lower</td><td>the outcome value itself, per unit</td></tr>
+            <tr><td>Above a line (Call)</td><td>how far the outcome finished above your line (0 if it didn't)</td></tr>
+            <tr><td>Below a line (Put)</td><td>how far it finished below your line (0 if it didn't)</td></tr>
+            <tr><td>Yes / No</td><td>1 if the condition came true, 0 if not</td></tr>
+            <tr><td>In a range</td><td>1 if the outcome landed in your range, 0 if not</td></tr>
+            <tr><td>Close to a target</td><td>more the closer it landed; e.g. with a tolerance of 1000, being 500 off pays ≈0.88, being 2000 off pays ≈0.14</td></tr>
+          </tbody>
+        </table></div>
+        <p>Your final profit is what you're paid minus what the position cost you. Range and
+        “close-to” bets reward being <em>accurate</em>, not just directionally right — handy when you
+        have a strong view on roughly where the answer will land.</p>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-provide">
+        <h2><span class="section-num">9</span>Funding a market — LPs &amp; creators<a class="anchor" href="#u-provide">#</a></h2>
+        <p>Someone has to put up the cash the maker pays out from. Those people are
+        <strong>liquidity providers (LPs)</strong>, and the person who opens a market is its first one.</p>
+        <div class="cards">
+          <div class="card">
+            <div class="card-h">You set the opening view</div>
+            <p>As creator you pick the starting best guess and how uncertain it is. A wider opening makes
+            a more forgiving market that needs more trading to sharpen up.</p>
+          </div>
+          <div class="card">
+            <div class="card-h">You fund the reserve</div>
+            <p>You put up starting cash — the <em>reserve</em> — that backs the maker's worst-case
+            payouts. This makes you the market's first liquidity provider.</p>
+          </div>
+          <div class="card">
+            <div class="card-h">You earn the spread</div>
+            <p>Every trade pays the maker a small spread. As an LP you own a share of the pool, so that
+            income accrues to you — your stake grows as the market does business.</p>
+          </div>
+          <div class="card">
+            <div class="card-h">You carry the risk</div>
+            <p>In exchange, you're on the hook for payouts if the outcome goes against the maker's book.
+            More reserve = the market can safely take bigger trades before it has to shrink them.</p>
+          </div>
+        </div>
+        <p>LPs hold <strong>shares</strong> of the pool, priced at the pool's value per share. Deposits
+        buy in at the current value and withdrawals cash out at it — so nobody dilutes anyone. If the
+        maker earns more in spread than it pays out, the pool's value rises and every LP's share is
+        worth more.</p>
+        <div class="user"><span class="callout-title">Two ways to play</span>
+        <strong>Trade</strong> if you have a view on the outcome and want to bet on it.
+        <strong>Provide liquidity</strong> if you'd rather earn the spread from others' trading and are
+        comfortable carrying the market's risk in return.</div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-risks">
+        <h2><span class="section-num">10</span>Risks &amp; smart habits<a class="anchor" href="#u-risks">#</a></h2>
+        <ul>
+          <li><strong>You can lose.</strong> If the outcome goes against your bet, your position can be
+          worth far less than you paid — or nothing.</li>
+          <li><strong>The spread is a real cost.</strong> You buy above and sell below fair, so a quick
+          in-and-out round-trip loses the spread even if the price doesn't move. Trade when you have an
+          edge, not for the sake of it.</li>
+          <li><strong>Big orders move the price against you.</strong> Split large trades or accept that
+          your average price will drift as you fill.</li>
+          <li><strong>Orders can be partially filled.</strong> If a trade would push the maker past what
+          its reserve can safely cover, it fills only as much as is safe and tells you. That protects
+          the pool — and you — from a market that can't pay out.</li>
+          <li><strong>Settlement timing is set by the market.</strong> Know when a market resolves and
+          on what source before you put money in.</li>
+        </ul>
+        <div class="user"><span class="callout-title">One sentence</span>
+        You're trading against an automated maker that prices every bet as its expected payout, charges
+        a small spread, and learns from the order flow — so over time the price becomes the crowd's best
+        estimate of the outcome, and your job is to spot when it's wrong.</div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-glossary">
+        <h2><span class="section-num">11</span>Glossary<a class="anchor" href="#u-glossary">#</a></h2>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Term</th><th>What it means for you</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Outcome</strong></td><td>The unknown number the market settles to.</td></tr>
+            <tr><td><strong>Market maker</strong></td><td>The automated counterparty you trade against; always quotes a price.</td></tr>
+            <tr><td><strong>Best guess / centre</strong></td><td>The market's current single estimate of the outcome.</td></tr>
+            <tr><td><strong>Fair price</strong></td><td>A bet's average payout under that best guess — the mid price before spread.</td></tr>
+            <tr><td><strong>Spread</strong></td><td>The small margin you pay: buy above fair, sell below. The maker's profit.</td></tr>
+            <tr><td><strong>Position</strong></td><td>A bet you hold, tracked at your average entry price.</td></tr>
+            <tr><td><strong>Settle</strong></td><td>The market ends, the real outcome is set, and every position pays out.</td></tr>
+            <tr><td><strong>Liquidity provider (LP)</strong></td><td>Someone who funds the pool and earns the spread while carrying its risk.</td></tr>
+            <tr><td><strong>Reserve</strong></td><td>Cash the maker holds back to cover worst-case payouts; caps trade size.</td></tr>
+            <tr><td><strong>Partial fill</strong></td><td>When only part of your order can be safely taken, and the rest is declined.</td></tr>
+          </tbody>
+        </table></div>
+        <p class="small" style="margin-top:1.2rem">Want to know exactly how the price, spread, learning
+        and reserve are computed? Flip the switch at the top-left to <strong>Developer</strong> for the
+        full mathematics — every formula, with worked examples and live plots.</p>
+      </section>
+
+      <div class="footer">
+        <p>BMM — trader's guide · the plain-language companion to the engine reference. Every live demo
+        on this page runs the <em>real</em> pricing maths in your browser, so the numbers you see are
+        the numbers the market would give you.</p>
+      </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- ========================== DEVELOPER ============================= -->
+    <!-- ================================================================= -->
+    <div class="mode-dev">
     <div class="hero">
       <h1>BMM — <span class="grad">The Mathematics</span></h1>
       <p>A complete, developer-facing tour of every formula behind this Bayesian Market Maker:
@@ -224,6 +569,13 @@
         \( \sigma\varphi(d)+(\mu-K)\Phi(d) \). The GAUSSIAN price is the integral of a product of two
         Gaussians, which is itself Gaussian in \( (c-\mu) \) with variance \( w^2+\sigma^2 \).</p>
       </details>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      Belief \( \mathcal N(100,10^2) \). A <code>BINARY_CALL</code> at \(K=105\) is worth
+      \( \Phi(\tfrac{100-105}{10})=\Phi(-0.5)=0.3085 \) — the market gives \( \theta\ge105 \) a
+      <strong>30.85%</strong> chance. The plain <code>CALL</code> at the same strike, with
+      \( d=-0.5,\ \varphi(d)=0.3521 \), is \( 10(0.3521)+(-5)(0.3085)=\mathbf{1.978} \). And a
+      <code>SPREAD</code> over \([95,105]\) prices to \( \Phi(0.5)-\Phi(-0.5)=\mathbf{0.3829} \), i.e.
+      a 38.29% chance of landing in the band.</div>
       <p>The plot draws the payoff \( f(\theta) \) and the belief \( p(\theta) \) (green, scaled to
       fit). The fair price is the area of their product — change the belief or the contract and watch
       it move:</p>
@@ -286,6 +638,12 @@
       <p>The weight rises with size but treats tiny trades as noise — below the threshold
       \( q_\text{th} \) it’s near zero:</p>
       <div class="eqbox">$$ w=\iota\,\Big(1-e^{-|q|/q_\text{th}}\Big)=\frac{|q|}{Q_\text{max}}\Big(1-e^{-|q|/q_\text{th}}\Big) $$</div>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      Prior \( \mathcal N(100,12^2) \), a <strong>buy of 120</strong> units of a <code>CALL</code> at
+      \(K=100\) (defaults \( \alpha=1,\ \beta=1,\ Q_\text{max}=500,\ q_\text{th}=10 \)). Intensity
+      \( \iota=120/500=0.24 \). Signal \( s=100+(+1)(1)(12)(1+0.24)=\mathbf{114.88} \). Weight
+      \( w=0.24\,(1-e^{-120/10})=0.24(1-e^{-12})\approx\mathbf{0.2400} \). The trade reads as “θ is
+      around 115, trust it ~24%”.</div>
       <div class="dev"><span class="callout-title">Why this shape</span>
       Larger orders are more likely to be informed and carry more conviction, so both the signal
       magnitude \( (1+\iota) \) and the weight grow with \(|q|\). The \( 1-e^{-|q|/q_\text{th}} \)
@@ -308,6 +666,13 @@
       can only <em>shrink</em> (more data → more confidence). A floor
       \( \sigma'^2\ge\sigma_\text{min}^2 \) prevents runaway overconfidence. With the demo default
       \( \sigma_\varepsilon=\sigma_0 \), a full-weight signal moves μ about halfway to \(s\).</p>
+      <div class="ex"><span class="callout-title">Worked example (continuing §6)</span>
+      Feed \( s=114.88,\ w=0.24 \) into prior \( \mathcal N(100,12^2) \) with
+      \( \sigma_\varepsilon=\sigma_0=12 \). Precisions \( \tau_0=\tfrac1{144},\ \tau_s=\tfrac{0.24}{144} \),
+      so \( \mu'=\tfrac{100+0.24(114.88)}{1.24}=\mathbf{102.88} \) and
+      \( \sigma'=\sqrt{144/1.24}=\mathbf{10.78} \). One 120-lot call buy moved the mean up
+      \( 2.88 \) and tightened σ from 12 to 10.78. <em>Commit &amp; repeat</em> below to watch this
+      compound.</div>
       <p>This widget runs the real loop: choose a trade, see the prior (grey) become the posterior
       (blue). Hit <em>Commit &amp; repeat</em> to feed the posterior back in and watch the belief
       converge and tighten — the market learning:</p>
@@ -350,6 +715,13 @@
         <li><strong>Volatility</strong> — scales with relative uncertainty \( \sigma/\max(|\mu|,\sigma) \); a jittery market quotes wider.</li>
       </ul>
       <div class="eqbox">$$ \text{Ask (buy)}=\text{Fair}+\text{Spread},\qquad \text{Bid (sell)}=\max\!\big(0,\ \text{Fair}-\text{Spread}\big) $$</div>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      Belief \( \mathcal N(100,10^2) \), a <code>CALL</code> at \(K=100\) (fair \(=3.9894\)), a
+      <strong>buy of 120</strong> over an existing \( \text{mmShort}=200 \). The four charges are
+      base \( 0.01(3.9894)=0.040 \), inventory \( 0.0005|320|(3.9894)=0.638 \), adverse
+      \( 0.5(0.24)(0.5)(10)=0.600 \), volatility \( 0.05(0.1)(3.9894)=0.020 \) → spread
+      \( \mathbf{1.298} \). You pay \( 3.989+1.298=\mathbf{5.288} \). Here inventory and adverse
+      selection dominate — exactly the price-impact-sensitive terms.</div>
       <p>The bid is floored at 0 — the MM can charge to take a contract back but never pays you to
       hand it over. Drag size and inventory to see which component dominates:</p>
 
@@ -377,6 +749,11 @@
       \text{buy: } \overline{P}'=\frac{Q\,\overline{P}+q\,\text{exec}}{Q+q};\qquad
       \text{sell: } \Delta\text{realized}=|q|\,(\text{exec}-\overline{P})
       $$</span><span class="eqlabel">tradeMath.ts · applyFill</span></div>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      You hold 100 units at average \( \overline{P}=4.00 \). Buy 50 more at \( 4.60 \):
+      \( \overline{P}'=\tfrac{100(4)+50(4.6)}{150}=4.20 \). Later sell 60 at \( 5.20 \): realized
+      \( =60(5.20-4.20)=\mathbf{60.00} \), quantity falls to 90, and the average stays \( 4.20 \)
+      until you flatten completely.</div>
 
       <h3>Partial fills — solving the feasible size</h3>
       <p>If the full size would breach solvency (or the buyer’s balance), the engine fills the
@@ -411,6 +788,12 @@
 <span class="kw">for</span> (...) losses[i] = liability(book, draws[i]);
 losses.sort();
 <span class="kw">return</span> Math.max(<span class="num">0</span>, losses[Math.floor(alpha * (n - <span class="num">1</span>))]);</code></pre>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      Book = 300 units of a <code>BINARY_CALL</code> at \(K=100\), belief \( \mathcal N(100,12^2) \).
+      Each unit pays at most 1, so liability is capped at 300. The expected liability is
+      \( 300\cdot\Phi(0)=\mathbf{150} \), but the 99th-percentile draw lands well into \( \theta\ge100 \)
+      where every unit pays in full, so the required reserve is \( \approx\mathbf{300} \) — the MM must
+      hold double its expected loss to survive the tail.</div>
       <p>A trade is admitted only if cash covers a margin multiple of the post-trade reserve
       (1.2× when opening risk, 1.0× when closing). The plot shows the liability curve \( L(\theta) \)
       (red) against the belief; the dashed lines are the reserve and the expected liability — toggle
@@ -444,7 +827,8 @@ losses.sort();
       <h4>Proximity settlement</h4>
       <p>The <code>GAUSSIAN</code> contract <em>is</em> the proximity-reward mechanism: a point bet at
       \( c \) with tolerance \( w \) pays \( \exp(-(\theta^\star-c)^2/2w^2) \) — e.g. with \( w=1000 \),
-      being 500 off pays ≈ 0.88, being 2000 off pays ≈ 0.14.</p>
+      being 500 off pays \( \exp(-0.125)\approx 0.8825 \), being 2000 off pays
+      \( \exp(-2)\approx 0.1353 \).</p>
     </section>
 
     <!-- =============================================================== -->
@@ -458,6 +842,12 @@ losses.sort();
       <div class="eqbox named"><span>$$ \Delta S=\text{amount}\cdot\frac{S_\text{total}}{\text{NAV}_\text{before}},\qquad \text{cashOut}=\frac{\text{shares}}{S_\text{total}}\cdot\text{NAV} $$</span><span class="eqlabel">lpMath.ts</span></div>
       <p>At genesis the creator deposits the reserve \( R_0 \) and is minted \( S_0=R_0 \) shares
       (price 1). If the MM earns spread income, NAV rises above \( R_0 \) and the LP’s claim grows.</p>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      Pool NAV 1000 over 1000 shares → share price \( \mathbf{1.000} \); a deposit of 200 mints
+      \( 200\cdot\tfrac{1000}{1000}=\mathbf{200} \) shares. Now the MM earns 100 of spread, lifting NAV
+      to 1100 (price \( \mathbf{1.100} \)). The same 200 deposit then mints only
+      \( 200\cdot\tfrac{1000}{1100}=\mathbf{181.82} \) shares — later entrants pay the appreciated
+      price, so early LPs aren’t diluted by the profit they earned.</div>
 
       <div class="viz" id="viz-lp">
         <div class="viz-head"><div class="viz-title">LP share accounting<span class="tag">live</span></div><div class="viz-hint">deposit mints at the current price</div></div>
@@ -552,55 +942,13 @@ losses.sort();
 <span class="kw">else</span> rounded = floor % <span class="num">2</span> === <span class="num">0</span> ? floor : floor + <span class="num">1</span>; <span class="cmt">// tie → even</span></code></pre>
     </section>
 
-    <!-- =============================================================== -->
-    <section id="users">
-      <h2><span class="section-num">17</span>For users — traders &amp; creators<a class="anchor" href="#users">#</a></h2>
-      <p class="lead">The short version, no calculus required.</p>
-
-      <h3>If you’re a trader</h3>
-      <ul>
-        <li><strong>The price is a probability (mostly).</strong> For yes/no and range contracts, the
-        fair price <em>is</em> the market’s estimated chance of the event — 0.62 means “about 62%
-        likely”. For calls/puts it’s an expected payout.</li>
-        <li><strong>You move the price.</strong> Buying nudges the market’s belief your way; the bigger
-        your order, the bigger the nudge — and the wider the spread you pay. Small orders barely move it.</li>
-        <li><strong>The spread is the cost of trading.</strong> You buy a touch above fair and sell a
-        touch below. It widens with order size, the maker’s existing inventory, and uncertainty. The
-        trade box shows the breakdown.</li>
-        <li><strong>Selling closes a position.</strong> v1 is long-only: a sell reduces something you
-        hold and realizes profit vs. your average entry. “Sell all” liquidates every position in the
-        market at once; because each sell moves the price, later ones fill a touch lower (the estimate
-        you see before confirming is at current marks).</li>
-        <li><strong>Settlement.</strong> When the outcome is known, each contract pays its payoff. Range
-        and proximity bets reward being close.</li>
-      </ul>
-
-      <h3>If you’re a market creator</h3>
-      <ul>
-        <li><strong>You set the starting belief.</strong> \( \mu_0 \) is your opening best guess,
-        \( \sigma_0 \) is how uncertain it is — a wider \( \sigma_0 \) means a flatter, more forgiving
-        opening market that needs more trading to sharpen.</li>
-        <li><strong>You fund the reserve \( R_0 \).</strong> That cash backs the maker’s worst-case
-        payouts and makes you the genesis liquidity provider; you earn the spread income (and bear
-        settlement risk) pro-rata.</li>
-        <li><strong>Bigger reserve, bigger capacity.</strong> The maker only takes on risk it can cover
-        at the 99th percentile, so a larger \( R_0 \) lets users trade larger before hitting partial
-        fills.</li>
-        <li><strong>The defaults are sensible.</strong> Spread/learning parameters (§15) ship tuned for
-        a play-money demo; you rarely need to touch them.</li>
-      </ul>
-
-      <div class="user"><span class="callout-title">One sentence</span>
-      You’re trading against a maker that prices every claim as the average payoff under its current
-      belief, charges a small spread, and learns from the order flow — so over time the price becomes
-      the crowd’s best estimate of the outcome.</div>
-    </section>
-
     <div class="footer">
       <p>BMM — The Mathematics · generated as living documentation. Every figure is computed
       client-side by <code>math.js</code>, a direct port of <code>packages/core</code>; formulas are
       typeset with vendored KaTeX (fully offline). Cross-check any formula against the cited source
-      file — they’re kept in lockstep.</p>
+      file — they’re kept in lockstep. New to the platform? Flip the switch to
+      <strong>Trader</strong> for the plain-language guide.</p>
+    </div>
     </div>
   </main>
 </div>

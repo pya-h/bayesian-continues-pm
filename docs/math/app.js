@@ -398,6 +398,91 @@
     return '<div><div class="k">' + k + '</div><div class="v ' + (tone || '') + '">' + v + '</div></div>';
   }
 
+  function vizUserPrice() {
+    const root = $('#u-viz-price'); if (!root) return;
+    const cv = $('canvas', root), controls = $('.controls', root), out = $('.readout', root);
+    const P = Plot(cv);
+    const sMu = slider(controls, { label: "Market's best guess", min: 60, max: 140, step: 0.5, value: 100, fmt: (v) => fmt(v, 0) });
+    const sK = slider(controls, { label: 'Your line', min: 60, max: 140, step: 1, value: 108, fmt: (v) => fmt(v, 0) });
+    const SG = 12; // a fixed, representative uncertainty — users don't tune it here
+    function draw() {
+      const mu = sMu.get(), K = sK.get(), b = new M.Belief(mu, SG);
+      const x0 = mu - 4 * SG, x1 = mu + 4 * SG, ymax = b.pdf(mu) * 1.15;
+      P.clear().domain(x0, x1, 0, ymax);
+      P.grid([mu - 3 * SG, mu, mu + 3 * SG], [], { xfmt: (v) => fmt(v, 0) });
+      P.area((x) => b.pdf(x), 'rgba(91,157,255,0.10)');
+      // shade the "above the line" mass — this area IS the Yes price
+      P.areaBetween(K, x1, (x) => b.pdf(x), tintBuyStrong(), 240);
+      P.curve((x) => b.pdf(x), P.COL.accent, 2.4);
+      P.vline(K, P.COL.buy, 'line', true);
+      const chance = M.price({ type: 'BINARY_CALL', strike: K }, b); // = P(θ ≥ K)
+      out.innerHTML =
+        cell('Chance above the line', fmt(chance * 100, 1) + '%', 'buy') +
+        cell('"Yes" price', fmt(chance, 2), 'accent') +
+        cell('"No" price', fmt(1 - chance, 2)) +
+        cell('Read it as', chance >= 0.5 ? 'likely' : 'unlikely');
+    }
+    sMu.on(draw); sK.on(draw); redraws.push(draw); draw();
+  }
+  // live read of the strong buy tint so the shaded "above" area repaints on theme switch
+  function tintBuyStrong() { return getComputedStyle(document.documentElement).getPropertyValue('--tint-buy-strong').trim(); }
+
+  function vizUserTrade() {
+    const root = $('#u-viz-trade'); if (!root) return;
+    const panel = $('.u-trade-panel', root), controls = $('.controls', root), out = $('.readout', root);
+    const b = new M.Belief(100, 12);            // a live market: best guess 100
+    const cfg = M.makeEngineConfig(100, 12);
+    const spec = { type: 'CALL', strike: 100 }; // "betting it finishes above 100"
+    const sideSeg = seg(controls, { label: 'Your trade', value: 'buy', options: [{ label: 'Buy ▲', value: 'buy' }, { label: 'Sell ▼', value: 'sell' }] });
+    const sQ = slider(controls, { label: 'How many units', min: 1, max: 500, step: 1, value: 120, fmt: (v) => fmt(v, 0) });
+    panel.innerHTML =
+      '<div class="u-row"><span class="u-lab">Price you ' + '<b data-verb></b>' + '<span class="u-sub">per unit</span></span><span class="u-big" data-exec>—</span></div>' +
+      '<div class="u-row"><span class="u-lab">Fair value <span class="u-sub">before the fee</span></span><span class="u-big accent" data-fair>—</span></div>' +
+      '<div class="u-row"><span class="u-lab">Spread <span class="u-sub">the maker\'s fee</span></span><span class="u-big" data-spread>—</span></div>' +
+      '<div class="u-move"><span>Market\'s guess</span><span class="u-arrow">→</span><span data-move>—</span></div>';
+    const el = (s) => $(s, panel);
+    function draw() {
+      const side = sideSeg.get(), buy = side === 'buy';
+      const q = (buy ? 1 : -1) * sQ.get();
+      const s = M.computeSpread(spec, q, 0, b, cfg);
+      const exec = M.execPriceFor(buy ? 'buy' : 'sell', s.fair, s.total);
+      const sig = M.extractSignal(spec, q, b, cfg);
+      const post = M.bayesUpdate(b, sig.signal, sig.weight, cfg);
+      el('[data-verb]').textContent = buy ? 'pay' : 'get';
+      const execEl = el('[data-exec]'); execEl.textContent = fmt(exec, 2); execEl.className = 'u-big ' + (buy ? 'buy' : 'sell');
+      el('[data-fair]').textContent = fmt(s.fair, 2);
+      el('[data-spread]').textContent = '+' + fmt(s.total, 2);
+      el('[data-move]').textContent = fmt(b.mu, 1) + '  →  ' + fmt(post.mu, 1);
+      out.innerHTML =
+        cell(buy ? 'You pay in total' : 'You receive in total', fmt(Math.abs(exec * q), 2), buy ? 'sell' : 'buy') +
+        cell('Fee as % of fair', (s.fair ? fmt((s.total / Math.abs(s.fair)) * 100, 1) : '—') + '%') +
+        cell('New market guess', fmt(post.mu, 2), 'accent') +
+        cell('You moved it by', fmtS(post.mu - b.mu, 2));
+    }
+    [sideSeg, sQ].forEach((c) => c.on(draw)); redraws.push(draw); draw();
+  }
+
+  function modeSwitch() {
+    const root = document.documentElement;
+    const wrap = $('#mode-switch');
+    if (!wrap) return;
+    const reveal = (m) => $$('.mode-' + m + ' section, .mode-' + m + ' .hero').forEach((el) => el.classList.add('in'));
+    reveal(root.getAttribute('data-mode') || 'user');
+    $$('.ms-btn', wrap).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const m = btn.getAttribute('data-mode');
+        if (root.getAttribute('data-mode') === m) return;
+        root.setAttribute('data-mode', m);
+        try { localStorage.setItem('bmm-mode', m); } catch (e) {}
+        reveal(m);
+        window.scrollTo({ top: 0 });
+        // repaint canvases now visible with correct layout/palette
+        redraws.forEach((fn) => { try { fn(); } catch (e) {} });
+        const p = $('#progress'); if (p) p.style.width = '0%';
+      });
+    });
+  }
+
   function theme() {
     const root = document.documentElement;
     const btn = $('#theme-toggle');
@@ -442,8 +527,10 @@
     renderMath();
     scrollspy();
     theme();
+    modeSwitch();
     progress();
     vizBelief(); vizPricing(); vizBayes(); vizSpread(); vizReserve(); vizLp();
+    vizUserPrice(); vizUserTrade();
     reveal();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
