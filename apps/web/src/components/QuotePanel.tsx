@@ -128,6 +128,17 @@ export function QuotePanel({
     [portfolio.data, marketId],
   );
 
+  // Pre-trade estimate at the *current* marks (close bid). Selling moves the
+  // price, so the realized total is a touch lower — hence "≈".
+  const sellAllEst = useMemo(() => {
+    const proceeds = heldInMarket.reduce((s, p) => s + p.positionValue, 0);
+    const profit = heldInMarket.reduce((s, p) => s + p.unrealizedPnl, 0);
+    const costBasis = heldInMarket.reduce((s, p) => s + p.costBasis, 0);
+    const contracts = heldInMarket.reduce((s, p) => s + p.quantity, 0);
+    const ret = costBasis > 1e-9 ? profit / costBasis : null;
+    return { proceeds, profit, costBasis, contracts, ret };
+  }, [heldInMarket]);
+
   const sellAll = useMutation({
     mutationFn: () => api.sellAll(marketId).then((r) => r.result),
     onSuccess: (result) => {
@@ -412,11 +423,7 @@ export function QuotePanel({
             <span className="font-semibold text-fg">Liquidate everything</span>
             <span className="text-muted">
               {heldInMarket.length} position{heldInMarket.length === 1 ? '' : 's'} ·{' '}
-              {fmt(
-                heldInMarket.reduce((s, p) => s + p.quantity, 0),
-                0,
-              )}{' '}
-              contracts
+              {fmt(sellAllEst.contracts, 0)} contracts
             </span>
           </div>
           <p className="text-[11px] text-muted">
@@ -424,22 +431,50 @@ export function QuotePanel({
             closes fill at the updated mark.
           </p>
           {confirmSellAll ? (
-            <div className="flex gap-2">
-              <Button
-                variant="sell"
-                className="flex-1"
-                disabled={sellAll.isPending}
-                onClick={() => sellAll.mutate()}
-              >
-                {sellAll.isPending ? 'Selling…' : `Confirm — sell all ${heldInMarket.length}`}
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={sellAll.isPending}
-                onClick={() => setConfirmSellAll(false)}
-              >
-                Cancel
-              </Button>
+            <div className="flex flex-col gap-2">
+              {/* Pre-trade estimate at current marks (≈ — selling moves the price). */}
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2 rounded-lg border border-edge bg-panel p-2.5">
+                <AnalysisCell
+                  label="Est. you receive"
+                  raw={sellAllEst.proceeds}
+                  text={`≈ ${fmt(sellAllEst.proceeds)}`}
+                  tone="buy"
+                />
+                <AnalysisCell
+                  label="Est. profit"
+                  raw={sellAllEst.profit}
+                  text={`≈ ${fmtSigned(sellAllEst.profit)}`}
+                  tone={sellAllEst.profit >= 0 ? 'buy' : 'sell'}
+                />
+                <AnalysisCell
+                  label="Cost basis"
+                  raw={sellAllEst.costBasis}
+                  text={fmt(sellAllEst.costBasis)}
+                />
+                <AnalysisCell
+                  label="Est. return"
+                  raw={sellAllEst.ret ?? 0}
+                  text={sellAllEst.ret == null ? '—' : fmtSignedPct(sellAllEst.ret)}
+                  tone={(sellAllEst.ret ?? 0) >= 0 ? 'buy' : 'sell'}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="sell"
+                  className="flex-1"
+                  disabled={sellAll.isPending}
+                  onClick={() => sellAll.mutate()}
+                >
+                  {sellAll.isPending ? 'Selling…' : `Confirm — sell all ${heldInMarket.length}`}
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={sellAll.isPending}
+                  onClick={() => setConfirmSellAll(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           ) : (
             <Button variant="ghost" onClick={() => setConfirmSellAll(true)}>
