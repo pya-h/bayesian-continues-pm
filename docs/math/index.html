@@ -6,8 +6,23 @@
   <title>BMM — The Mathematics</title>
   <link rel="stylesheet" href="vendor/katex/katex.min.css" />
   <link rel="stylesheet" href="styles.css" />
+  <script>
+    /* Apply the saved/system theme before first paint to avoid a flash. */
+    (function () {
+      try {
+        var saved = localStorage.getItem('bmm-theme');
+        var theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
+<div class="progress" id="progress"></div>
+<button class="theme-toggle" id="theme-toggle" aria-label="Toggle light / dark theme" title="Toggle light / dark theme">
+  <span class="glyph" aria-hidden="true">◑</span>
+  <span class="lbl"><span class="to-dark">Dark</span><span class="to-light">Light</span></span>
+</button>
 <div class="layout">
   <nav class="toc">
     <div class="brand"><span>BMM</span> · The Math</div>

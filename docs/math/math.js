@@ -9,6 +9,22 @@
 (function (global) {
   'use strict';
 
+  // shared/money.ts: round8 (round-half-even) -----------------------
+  // Core passes every money result through round8; mirrored here so applyFill
+  // and the LP helpers are byte-identical to the server, not just close.
+  const MONEY_SCALE = 1e8;
+  function round8(x) {
+    if (!isFinite(x)) return x;
+    const scaled = x * MONEY_SCALE;
+    const floor = Math.floor(scaled);
+    const diff = scaled - floor;
+    let r;
+    if (diff > 0.5) r = floor + 1;
+    else if (diff < 0.5) r = floor;
+    else r = floor % 2 === 0 ? floor : floor + 1; // tie → even
+    return r / MONEY_SCALE;
+  }
+
   // numerics.ts -------------------------------------------------------
   const SQRT2 = Math.SQRT2;
   const INV_SQRT2PI = 1 / Math.sqrt(2 * Math.PI);
@@ -270,26 +286,27 @@
     return Math.max(0, losses[idx]);
   }
 
-  // lpMath.ts --------------------------------------------------------
-  function lpSharePrice(nav, sharesTotal) { return sharesTotal > 0 ? nav / sharesTotal : 1; }
-  function sharesForDeposit(amount, sharesTotal, navBefore) { return (amount * sharesTotal) / navBefore; }
-  function cashOutForShares(shares, sharesTotal, nav) { return sharesTotal > 0 ? (shares / sharesTotal) * nav : 0; }
-  function lpClaimAmount(shares, sharesTotal, cashFinal) { return sharesTotal > 0 ? (shares / sharesTotal) * cashFinal : 0; }
+  // lpMath.ts (round8 applied, as in core) ---------------------------
+  function lpSharePrice(nav, sharesTotal) { return sharesTotal > 0 ? round8(nav / sharesTotal) : 1; }
+  function sharesForDeposit(amount, sharesTotal, navBefore) { return round8((amount * sharesTotal) / navBefore); }
+  function cashOutForShares(shares, sharesTotal, nav) { return sharesTotal > 0 ? round8((shares / sharesTotal) * nav) : 0; }
+  function lpClaimAmount(shares, sharesTotal, cashFinal) { return sharesTotal > 0 ? round8((shares / sharesTotal) * cashFinal) : 0; }
 
-  // applyFill (tradeMath.ts) -----------------------------------------
+  // applyFill (tradeMath.ts, round8 applied) -------------------------
   function applyFill(pos, q, execPrice) {
     if (q >= 0) {
-      const newQty = pos.quantity + q;
-      const avg = newQty > 0 ? (pos.quantity * pos.avgEntryPrice + q * execPrice) / newQty : 0;
+      const newQty = round8(pos.quantity + q);
+      const avg = newQty > 0 ? round8((pos.quantity * pos.avgEntryPrice + q * execPrice) / newQty) : 0;
       return { quantity: newQty, avgEntryPrice: avg, realizedPnl: pos.realizedPnl };
     }
     const sellQty = -q;
-    const realized = pos.realizedPnl + sellQty * (execPrice - pos.avgEntryPrice);
-    const newQty = pos.quantity - sellQty;
+    const realized = round8(pos.realizedPnl + sellQty * (execPrice - pos.avgEntryPrice));
+    const newQty = round8(pos.quantity - sellQty);
     return { quantity: newQty, avgEntryPrice: newQty > 0 ? pos.avgEntryPrice : 0, realizedPnl: realized };
   }
 
   global.BMM = {
+    round8,
     phi, Phi, erf, erfc, normInv, Rng, Belief,
     payoff, price, dPriceDMu, priceGaussianPayoff,
     DEFAULT_PARAMS, makeEngineConfig,

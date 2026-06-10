@@ -8,6 +8,7 @@
 (function () {
   'use strict';
   const M = window.BMM;
+  const redraws = []; // each widget registers its draw so a theme switch can repaint
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
   const fmt = (n, d = 2) =>
@@ -60,11 +61,12 @@
     const pad = Object.assign({ l: 46, r: 16, t: 14, b: 28 }, opts.pad || {});
     let dom = { x0: 0, x1: 1, y0: 0, y1: 1 };
     const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-    const COL = {
-      edge: css('--edge'), faint: css('--faint'), muted: css('--muted'),
-      accent: css('--accent'), buy: css('--buy'), sell: css('--sell'),
-      fg: css('--fg'), warn: css('--warn'),
-    };
+    // Live getters: re-read tokens on every access so a theme switch + redraw
+    // repaints with the new palette (no stale cached colors).
+    const COL = {};
+    ['edge', 'faint', 'muted', 'accent', 'buy', 'sell', 'fg', 'warn'].forEach((k) => {
+      Object.defineProperty(COL, k, { get: () => css('--' + k), enumerable: true });
+    });
     const px = (x) => pad.l + ((x - dom.x0) / (dom.x1 - dom.x0)) * (W - pad.l - pad.r);
     const py = (y) => H - pad.b - ((y - dom.y0) / (dom.y1 - dom.y0)) * (H - pad.t - pad.b);
     const api = {
@@ -184,7 +186,7 @@
         cell('80% CI', '[' + fmt(lo, 1) + ', ' + fmt(hi, 1) + ']', 'accent') +
         cell('P(θ ≤ μ)', fmt(b.cdf(mu) * 100, 1) + '%');
     }
-    sMu.on(draw); sSg.on(draw); draw();
+    sMu.on(draw); sSg.on(draw); redraws.push(draw); draw();
   }
 
   function vizPricing() {
@@ -242,7 +244,7 @@
         default: return '—';
       }
     }
-    [tSeg, sMu, sSg, sK, sW].forEach((c) => c.on(draw)); draw();
+    [tSeg, sMu, sSg, sK, sW].forEach((c) => c.on(draw)); redraws.push(draw); draw();
   }
 
   function vizBayes() {
@@ -288,7 +290,7 @@
     }
     $('#bayes-commit', btns).onclick = () => { prior = compute().post; draw(); };
     $('#bayes-reset', btns).onclick = () => { prior = new M.Belief(100, 12); draw(); };
-    [tSeg, sideSeg, sQ, sK].forEach((c) => c.on(draw)); draw();
+    [tSeg, sideSeg, sQ, sK].forEach((c) => c.on(draw)); redraws.push(draw); draw();
   }
 
   function vizSpread() {
@@ -304,19 +306,24 @@
     const sQ = slider(controls, { label: 'size |q|', min: 1, max: 500, step: 1, value: 120 });
     const sInv = slider(controls, { label: 'mmShort (existing inventory)', min: 0, max: 1000, step: 10, value: 200 });
     const COLORS = { base: '--muted', inventory: '--warn', adverseSelection: '--accent', volatility: '--sell' };
+    const PARTS = ['base', 'inventory', 'adverseSelection', 'volatility'];
+    // Build the bar rows once; draw only updates widths/values so CSS can
+    // animate the transition smoothly instead of replacing the DOM each tick.
+    const rows = {};
+    bars.innerHTML = PARTS.map((k) =>
+      '<div class="bar-row"><div class="bar-head"><span>' + k + '</span><span class="tnum" data-v="' + k + '">—</span></div>' +
+      '<div class="bar-track"><div class="bar-fill" data-f="' + k + '" style="background:var(' + COLORS[k] + ')"></div></div></div>',
+    ).join('');
+    PARTS.forEach((k) => { rows[k] = { v: $('[data-v="' + k + '"]', bars), f: $('[data-f="' + k + '"]', bars) }; });
     function spec() { const t = tSeg.get(); return t === 'LINEAR' ? { type: 'LINEAR' } : { type: t, strike: 100 }; }
     function draw() {
       const q = (sideSeg.get() === 'buy' ? 1 : -1) * sQ.get();
       const s = M.computeSpread(spec(), q, sInv.get(), b, cfg);
-      const parts = [['base', s.base], ['inventory', s.inventory], ['adverseSelection', s.adverseSelection], ['volatility', s.volatility]];
-      bars.innerHTML = parts.map(([k, v]) => {
-        const pct = s.total > 0 ? (v / s.total) * 100 : 0;
-        const col = getComputedStyle(document.documentElement).getPropertyValue(COLORS[k]).trim();
-        return '<div style="margin:.35rem 0"><div style="display:flex;justify-content:space-between;font-size:.74rem;color:var(--muted)"><span>' +
-          k + '</span><span class="tnum">' + fmt(v, 4) + '</span></div>' +
-          '<div style="height:9px;border-radius:5px;background:var(--code-bg);overflow:hidden;margin-top:2px"><div style="height:100%;width:' +
-          pct.toFixed(1) + '%;background:' + col + '"></div></div></div>';
-      }).join('');
+      PARTS.forEach((k) => {
+        const v = s[k], pct = s.total > 0 ? (v / s.total) * 100 : 0;
+        rows[k].v.textContent = fmt(v, 4);
+        rows[k].f.style.width = pct.toFixed(1) + '%';
+      });
       const fair = s.fair, exec = M.execPriceFor(q >= 0 ? 'buy' : 'sell', fair, s.total);
       out.innerHTML =
         cell('Fair (mid)', fmt(fair, 4)) +
@@ -324,7 +331,7 @@
         cell(q >= 0 ? 'Ask (you pay)' : 'Bid (you get)', fmt(exec, 4), q >= 0 ? 'sell' : 'buy') +
         cell('spread / fair', (fair ? fmt((s.total / Math.abs(fair)) * 100, 2) : '—') + '%');
     }
-    [tSeg, sideSeg, sQ, sInv].forEach((c) => c.on(draw)); draw();
+    [tSeg, sideSeg, sQ, sInv].forEach((c) => c.on(draw)); redraws.push(draw); draw();
   }
 
   function vizReserve() {
@@ -363,7 +370,7 @@
         cell('Open gate 1.2 × R', fmt(gate, 2)) +
         cell('cash ≥ gate?', ok ? 'SOLVENT ✓' : 'BLOCKED ✕', ok ? 'buy' : 'sell');
     }
-    [tSeg, sShort, sMu, sSg, sCash].forEach((c) => c.on(draw)); draw();
+    [tSeg, sShort, sMu, sSg, sCash].forEach((c) => c.on(draw)); redraws.push(draw); draw();
   }
 
   function vizLp() {
@@ -384,17 +391,60 @@
         cell('Your ownership', fmt(ownPct, 2) + '%') +
         cell('Pool after', fmt(newNav, 0) + ' / ' + fmt(newShares, 0) + ' sh');
     }
-    [sNav, sShares, sDep].forEach((c) => c.on(draw)); draw();
+    [sNav, sShares, sDep].forEach((c) => c.on(draw)); redraws.push(draw); draw();
   }
 
   function cell(k, v, tone) {
     return '<div><div class="k">' + k + '</div><div class="v ' + (tone || '') + '">' + v + '</div></div>';
   }
 
+  function theme() {
+    const root = document.documentElement;
+    const btn = $('#theme-toggle');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const toLight = root.getAttribute('data-theme') !== 'light';
+      if (toLight) root.setAttribute('data-theme', 'light');
+      else root.removeAttribute('data-theme');
+      try { localStorage.setItem('bmm-theme', toLight ? 'light' : 'dark'); } catch (e) {}
+      // Repaint every canvas widget with the new palette.
+      redraws.forEach((fn) => { try { fn(); } catch (e) {} });
+    });
+  }
+
+  function progress() {
+    const bar = $('#progress');
+    if (!bar) return;
+    const tick = () => {
+      const h = document.documentElement;
+      const max = h.scrollHeight - h.clientHeight;
+      bar.style.width = (max > 0 ? (h.scrollTop / max) * 100 : 0) + '%';
+    };
+    window.addEventListener('scroll', tick, { passive: true });
+    window.addEventListener('resize', tick);
+    tick();
+  }
+
+  function reveal() {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    document.body.classList.add('reveal-ready');
+    const targets = $$('section, .hero');
+    const obs = new IntersectionObserver(
+      (entries) => entries.forEach((e) => {
+        if (e.isIntersecting) { e.target.classList.add('in'); obs.unobserve(e.target); }
+      }),
+      { rootMargin: '0px 0px -8% 0px', threshold: 0.04 },
+    );
+    targets.forEach((t) => obs.observe(t));
+  }
+
   function boot() {
     renderMath();
     scrollspy();
+    theme();
+    progress();
     vizBelief(); vizPricing(); vizBayes(); vizSpread(); vizReserve(); vizLp();
+    reveal();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
