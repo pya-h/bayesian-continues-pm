@@ -1201,6 +1201,90 @@ losses.sort();
       <a href="../capacity/TASKS.md">build plan</a>. Code: <code>tradeMath.ts</code>
       (<code>solveFill</code>), <code>tradeSvc.ts</code> (acceptance gate), <code>solvency.ts</code>
       (reserve).</p>
+
+      <!-- ================= interactive capacity sandbox ================= -->
+      <details class="cap-wrap">
+        <summary>Interactive sandbox — a market at the gate, and every fix applied live</summary>
+        <div id="cap-sandbox" class="cap-sandbox">
+          <p class="cap-intro">A faithful miniature of the trade engine, booted into the <strong>no-buy band</strong>:
+          a default market that took so many one-sided buys it hit the gate, so every further buy is rejected.
+          Pick any fix below and the market <strong>re-initialises in “after-fix” mode</strong> — it replays the
+          same buy-demand under the new rules so you can see where it lands, then you can keep buying and watch
+          the stats, the price ramp, the payouts, and the positions react. Every number is the real engine
+          (<code>window.BMM</code>), not a mock-up.</p>
+
+          <div class="cap-top">
+            <label class="cap-cashbox">Initial liquidity
+              <input id="cap-cash" type="number" value="5000" min="1000" max="50000" step="500" /></label>
+            <button id="cap-cash-apply" type="button" class="cap-btn cap-btn-sm" disabled>Re-simulate</button>
+            <span id="cap-cash-msg" class="cap-cash-msg"></span>
+            <span class="cap-market">Market: <em>“Will the outcome θ exceed 100 by resolution?”</em> · the crowd is long
+              <code>CALL(K=100)</code> (pays \( \max(0,\theta-100) \)) · genesis \( \mu_0{=}100,\ \sigma_0{=}12 \)</span>
+          </div>
+
+          <div id="cap-status" class="cap-status sell"><span class="dot"></span>…</div>
+
+          <div class="cap-grid">
+            <div class="cap-charts">
+              <figure class="cap-chart">
+                <figcaption>Belief &amp; the MM’s liability tail</figcaption>
+                <canvas id="cap-cv-belief" data-h="190"></canvas>
+              </figure>
+              <figure class="cap-chart">
+                <figcaption>Price to buy more — cliff vs ramp</figcaption>
+                <canvas id="cap-cv-ramp" data-h="190"></canvas>
+              </figure>
+            </div>
+            <div class="readout cap-stats" id="cap-stats"></div>
+          </div>
+
+          <div class="cap-fixes">
+            <div class="cap-fixes-head">Choose a fix — the market re-initialises under its rules:</div>
+            <div id="cap-fix-select" class="seg-group cap-fix-select"></div>
+            <div id="cap-fix-info" class="cap-fix-info"></div>
+            <div id="cap-fix-params" class="controls"></div>
+          </div>
+
+          <div id="cap-buy-wrap" class="cap-buy">
+            <div class="cap-buy-row">
+              <span class="cap-buy-lab">Contract</span>
+              <div id="cap-buy-type" class="seg-group"></div>
+              <label class="cap-knum" id="cap-buy-k-wrap"><span id="cap-buy-k-lab">strike K</span>
+                <input id="cap-buy-k" type="number" value="100" step="1" /></label>
+              <label class="cap-knum" id="cap-buy-w-wrap">± width
+                <input id="cap-buy-w" type="number" value="8" min="1" step="1" /></label>
+            </div>
+            <div class="cap-buy-row">
+              <label>Buy <input id="cap-buy-size" type="number" value="12" min="1" max="2000" step="1" /> contracts</label>
+              <button id="cap-buy-btn" type="button" class="cap-btn">Buy</button>
+              <span id="cap-buy-out" class="cap-buy-out"></span>
+            </div>
+            <p class="cap-buy-tip">Tip: in the <strong>blocked</strong> market, buying more <code>CALL 100</code> is rejected
+            (it <em>opens</em> risk) — but buying a <code>PUT</code> (the opposite side) is <em>risk-reducing</em>, drops to
+            margin 1, and still fills. That’s the gate working as designed — it only blocks new risk, never offsets.</p>
+          </div>
+
+          <div class="cap-tables">
+            <div class="cap-tbl">
+              <h4>Payouts <span class="cap-h-note">— what winners are owed, and the solvency factor</span></h4>
+              <div id="cap-payout"></div>
+            </div>
+            <div class="cap-tbl">
+              <h4>Positions <span class="cap-h-note">— the crowd that filled the book, plus “You”</span></h4>
+              <div id="cap-positions"></div>
+            </div>
+          </div>
+
+          <p class="cap-foot small">Computed client-side by <code>capacity-sandbox.js</code> on
+          <code>window.BMM</code> (the same port of <code>packages/core</code> that draws every figure on this
+          page). Reserve is the closed-form 99%/α VaR of this single-CALL book — exactly the value the live
+          engine estimates by Monte-Carlo. <strong>A–E and G run the real fix logic;</strong> F is a simplified
+          hedge approximation; H &amp; I are explained, not simulated (they redefine the product menu / payout
+          rule, so they can’t mutate this one book). Design notes:
+          <a href="../capacity/expanding-capacity.md">expanding-capacity.md</a>,
+          <a href="../capacity/soft-cap.md">soft-cap.md</a>.</p>
+        </div>
+      </details>
     </section>
 
     <!-- =============================================================== -->
@@ -1343,5 +1427,6 @@ losses.sort();
 <script src="vendor/katex/auto-render.min.js" defer></script>
 <script src="math.js" defer></script>
 <script src="app.js" defer></script>
+<script src="capacity-sandbox.js" defer></script>
 </body>
 </html>

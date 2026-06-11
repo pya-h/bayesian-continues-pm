@@ -16,3 +16,9 @@ how we plan to make that limit graceful instead of a hard wall.
 refactor is queued to start **after V2 ships**. The soft cap preserves the
 solvency guarantee — it makes the existing limit *graceful*, it does not remove it
 (see `soft-cap.md` §"What soft cap does NOT do").
+
+**Try it live.** The math doc ships an interactive **capacity sandbox**
+(`docs/math/index.html` → *Developer* mode → §15 *Capacity & the gate*): a faithful
+miniature engine booted into the no-buy band where you apply each option (A–E, G
+live; F approximated; H, I explained) and watch the gate, price ramp, payouts, and
+positions react. Engine: `docs/math/capacity-sandbox.js` on `window.BMM`.
