@@ -9,7 +9,6 @@
 // Returns a breakdown (not just a scalar) so the UI can explain the quote.
 // The half-spread is always ≥ 0; exec price = fair + spread (buy) / fair − spread (sell).
 
-import type { GaussianBelief } from './gaussian.ts';
 import { dPriceDMu, price } from './pricing.ts';
 import type { BeliefModel, ContractSpec, EngineConfig } from './types.ts';
 
@@ -29,13 +28,10 @@ export function computeSpread(
   belief: BeliefModel,
   cfg: EngineConfig,
 ): SpreadBreakdown {
-  if (belief.kind !== 'gaussian') {
-    throw new Error(`computeSpread: v1 requires Gaussian belief, got ${belief.kind}`);
-  }
-  const g = belief as GaussianBelief;
   const fair = price(spec, belief);
   const absFair = Math.abs(fair);
-  const sigma = g.stddev();
+  const mu = belief.mean();
+  const sigma = belief.stddev();
   const intensity = Math.abs(q) / cfg.qMax;
 
   const base = cfg.s0 * absFair;
@@ -45,7 +41,7 @@ export function computeSpread(
   const perSigmaMove = Math.abs(dPriceDMu(spec, belief)) * sigma;
   const adverseSelection = cfg.lambda * intensity * perSigmaMove;
 
-  const sigmaRel = sigma / Math.max(Math.abs(g.mu), sigma);
+  const sigmaRel = sigma / Math.max(Math.abs(mu), sigma);
   const volatility = cfg.eta * sigmaRel * absFair;
 
   const total = base + inventory + adverseSelection + volatility;

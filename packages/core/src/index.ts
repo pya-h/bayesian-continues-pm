@@ -10,13 +10,28 @@ export { phi, Phi, erf, erfc, normInv, Rng, SQRT2, SQRT2PI } from './numerics.ts
 // types & belief
 export type {
   BeliefModel,
+  BeliefKind,
   BeliefStateDTO,
   GaussianStateDTO,
+  MixtureStateDTO,
+  MixtureComponentDTO,
+  StudentTStateDTO,
   ContractType,
   ContractSpec,
   EngineConfig,
 } from './types.ts';
 export { GaussianBelief } from './gaussian.ts';
+export { StudentTBelief } from './student_t.ts';
+export { MixtureBelief, type MixtureComponent } from './mixture.ts';
+export {
+  type MixtureOpsConfig,
+  DEFAULT_MIXTURE_OPS,
+  mergeTwo,
+  pruneComponents,
+  mergeComponents,
+  manageMixture,
+  splitComponent,
+} from './mixture_ops.ts';
 
 // config
 export { DEFAULT_PARAMS, makeEngineConfig } from './config.ts';
@@ -39,7 +54,7 @@ export { computeSpread, type SpreadBreakdown } from './spread.ts';
 
 // signal & bayes
 export { extractSignal, type ExtractedSignal } from './signal.ts';
-export { bayesUpdate } from './bayes.ts';
+export { bayesUpdate, bayesUpdateMixture, updateBelief } from './bayes.ts';
 
 // solvency
 export {

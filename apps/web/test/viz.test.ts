@@ -7,6 +7,8 @@ import {
   clampViewMul,
   fitPointDomain,
   gaussianPdf,
+  mixturePdf,
+  mixturePdfCurve,
   niceDomain,
   niceTicks,
   panOffset,
@@ -53,6 +55,47 @@ describe('pdfCurve', () => {
     const ymax = Math.max(...pts.map((p) => p.y));
     const atMu = pts.reduce((best, p) => (Math.abs(p.x - 50) < Math.abs(best.x - 50) ? p : best));
     expect(close(atMu.y, ymax, 1e-3)).toBe(true);
+  });
+});
+
+describe('mixturePdf / mixturePdfCurve (V2-1)', () => {
+  const comps = [
+    { pi: 0.5, mu: 60, sigma: 5 },
+    { pi: 0.5, mu: 80, sigma: 5 },
+  ];
+
+  test('equals the weighted sum of component Gaussians', () => {
+    const x = 62;
+    const expected = 0.5 * gaussianPdf(x, 60, 5) + 0.5 * gaussianPdf(x, 80, 5);
+    expect(close(mixturePdf(x, comps), expected)).toBe(true);
+  });
+
+  test('integrates to ~1 over a wide window', () => {
+    let area = 0;
+    const dx = 0.05;
+    for (let x = 20; x < 120; x += dx) area += mixturePdf(x, comps) * dx;
+    expect(close(area, 1, 1e-3)).toBe(true);
+  });
+
+  test('is genuinely bimodal — dips between the two modes', () => {
+    expect(mixturePdf(60, comps) > mixturePdf(70, comps)).toBe(true);
+    expect(mixturePdf(80, comps) > mixturePdf(70, comps)).toBe(true);
+  });
+
+  test('a single-weight component matches the plain Gaussian curve', () => {
+    const curve = mixturePdfCurve([{ pi: 1, mu: 50, sigma: 10 }], [20, 80], 40);
+    const gauss = pdfCurve(50, 10, [20, 80], 40);
+    expect(curve.length).toBe(gauss.length);
+    for (let i = 0; i < curve.length; i++) {
+      expect(close(curve[i]?.y ?? 0, gauss[i]?.y ?? -1, 1e-12)).toBe(true);
+    }
+  });
+
+  test('curve spans the domain endpoints', () => {
+    const curve = mixturePdfCurve(comps, [30, 110], 80);
+    expect(curve[0]?.x).toBe(30);
+    expect(curve[curve.length - 1]?.x).toBe(110);
+    expect(curve.length).toBe(81);
   });
 });
 

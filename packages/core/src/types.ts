@@ -3,17 +3,41 @@
 
 import type { Rng } from './numerics.ts';
 
+export type BeliefKind = 'gaussian' | 'mixture' | 'student_t';
+
 export interface GaussianStateDTO {
   kind: 'gaussian';
   mu: number;
   sigma2: number;
 }
-export type BeliefStateDTO = GaussianStateDTO; // v2: | MixtureStateDTO | StudentTStateDTO
+
+// One Gaussian component of a mixture: weight π, mean μ, variance σ².
+export interface MixtureComponentDTO {
+  pi: number;
+  mu: number;
+  sigma2: number;
+}
+
+// Serializable snapshot of a K-component Gaussian mixture belief. Σπ_k = 1.
+export interface MixtureStateDTO {
+  kind: 'mixture';
+  components: MixtureComponentDTO[];
+}
+
+// Serializable snapshot of a location-scale Student-t belief. scale2 = s² (not variance).
+export interface StudentTStateDTO {
+  kind: 'student_t';
+  nu: number;
+  mu: number;
+  scale2: number;
+}
+
+export type BeliefStateDTO = GaussianStateDTO | MixtureStateDTO | StudentTStateDTO;
 
 // The abstraction every pricing/solvency/stats consumer depends on. v1 ships
 // GaussianBelief; v2 adds MixtureBelief / StudentTBelief behind this same shape.
 export interface BeliefModel {
-  readonly kind: 'gaussian';
+  readonly kind: BeliefKind;
   mean(): number;
   variance(): number;
   stddev(): number;

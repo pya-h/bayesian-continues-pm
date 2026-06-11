@@ -5,6 +5,7 @@
 // shared string-union types (no pg enums → painless migrations).
 
 import type {
+  BeliefStateDTO,
   ContractType,
   LpLedgerKind,
   MarketStatus,
@@ -71,6 +72,10 @@ export const markets = pgTable('markets', {
   initialSigma: doublePrecision('initial_sigma').notNull(),
   currentMu: doublePrecision('current_mu').notNull(),
   currentSigma: doublePrecision('current_sigma').notNull(),
+  // Full serialized belief for non-Gaussian markets (mixture / student_t). NULL ⇒
+  // Gaussian, reconstructed from current_mu/current_sigma (v1 rows untouched).
+  // current_mu/current_sigma are kept in sync as the summary mean/σ for cheap reads.
+  beliefState: jsonb('belief_state').$type<BeliefStateDTO>(),
   cfg: jsonb('cfg').$type<Record<string, number | boolean>>().notNull(),
   cash: money('cash').notNull().default(0),
   reserveRequired: money('reserve_required').notNull().default(0),

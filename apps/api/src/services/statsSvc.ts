@@ -35,6 +35,7 @@ import {
   positions,
   trades,
 } from '../db/schema.ts';
+import { loadBelief } from '../lib/belief.ts';
 import { specFromRow } from '../lib/contract.ts';
 import { HttpError } from '../lib/errors.ts';
 import { loadBook } from './marketView.ts';
@@ -66,7 +67,7 @@ export async function marketStats(marketId: string): Promise<MarketStats> {
   const m = await marketRepo.byId(marketId);
   if (!m) throw new HttpError(404, 'Market not found');
 
-  const belief = new GaussianBelief(m.currentMu, m.currentSigma * m.currentSigma);
+  const belief = loadBelief(m);
   const book = await loadBook(marketId);
   const expLiab = round8(expectedLiability(book, belief));
   const nav = round8(m.cash - expLiab);
@@ -118,7 +119,7 @@ export async function marketStats(marketId: string): Promise<MarketStats> {
   return {
     marketId,
     status: m.status,
-    belief: { mu: m.currentMu, sigma: m.currentSigma, sigma2: belief.sigma2 },
+    belief: { mu: m.currentMu, sigma: m.currentSigma, sigma2: round8(belief.variance()) },
     impliedPrice: round8(price(LINEAR, belief)),
     volume: round8(volume),
     trades: tradeRows.length,
@@ -237,6 +238,7 @@ export async function portfolio(userId: string): Promise<Portfolio> {
       marketStatus: markets.status,
       currentMu: markets.currentMu,
       currentSigma: markets.currentSigma,
+      beliefState: markets.beliefState,
       cfg: markets.cfg,
       thetaStar: markets.thetaStar,
       openedAt: positions.createdAt,
@@ -260,7 +262,7 @@ export async function portfolio(userId: string): Promise<Portfolio> {
   const items: PortfolioPosition[] = [];
   for (const r of rows) {
     const spec = specFromRow(r.type, r.params);
-    const belief = new GaussianBelief(r.currentMu, r.currentSigma * r.currentSigma);
+    const belief = loadBelief(r);
     const cfg = r.cfg as unknown as EngineConfig;
     const fair = price(spec, belief);
     // Exit mark (bid): the price the trader would close into right now.
@@ -348,7 +350,7 @@ export async function positionDetail(userId: string, contractId: string): Promis
   if (!m) throw new HttpError(404, 'Market not found');
 
   const spec = specFromRow(c.type, c.params);
-  const belief = new GaussianBelief(m.currentMu, m.currentSigma * m.currentSigma);
+  const belief = loadBelief(m);
   const costBasis = round8(p.quantity * p.avgEntryPrice);
   const stats = positionStats({ spec, quantity: p.quantity, costBasis }, belief);
 

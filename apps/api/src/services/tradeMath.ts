@@ -10,9 +10,9 @@
 // signed (buy > 0 = user pays, sell < 0 = user receives); MM cash moves by +totalCost.
 
 import {
+  type BeliefModel,
   type BookEntry,
   type EngineConfig,
-  type GaussianBelief,
   type ReserveOpts,
   computeSpread,
   contractKey,
@@ -63,7 +63,7 @@ export interface FillSolveInput {
   targetSize: number; // |q| desired, > 0
   mmShort: number; // MM's current short in this contract
   book: BookEntry[]; // full book (this contract included if it exists)
-  belief: GaussianBelief;
+  belief: BeliefModel;
   cfg: EngineConfig;
   fair: number;
   cash: number; // MM cash before the trade

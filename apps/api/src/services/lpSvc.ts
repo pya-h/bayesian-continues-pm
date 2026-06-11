@@ -13,7 +13,6 @@
 import {
   type BookEntry,
   type EngineConfig,
-  GaussianBelief,
   type ReserveOpts,
   expectedLiability,
   requiredReserve,
@@ -24,6 +23,7 @@ import { config } from '../config.ts';
 import { db } from '../db/client.ts';
 import { type UserRow, marketRepo } from '../db/repos.ts';
 import { claims, contracts, lpLedger, lpPositions, markets, users } from '../db/schema.ts';
+import { loadBelief } from '../lib/belief.ts';
 import { specFromRow } from '../lib/contract.ts';
 import { HttpError } from '../lib/errors.ts';
 import { publish, topics } from '../realtime.ts';
@@ -75,7 +75,7 @@ export async function getLpView(marketId: string, userId?: string): Promise<LpVi
   const m = await marketRepo.byId(marketId);
   if (!m) throw new HttpError(404, 'Market not found');
 
-  const belief = new GaussianBelief(m.currentMu, m.currentSigma * m.currentSigma);
+  const belief = loadBelief(m);
   const rows = await db.select().from(contracts).where(eq(contracts.marketId, marketId));
   const book: BookEntry[] = rows.map((r) => ({
     spec: specFromRow(r.type, r.params),
@@ -149,7 +149,7 @@ export async function deposit(
         throw new HttpError(400, 'Insufficient balance to deposit');
       }
 
-      const belief = new GaussianBelief(m.currentMu, m.currentSigma * m.currentSigma);
+      const belief = loadBelief(m);
       const book = await loadBookTx(tx, marketId);
       const navBefore = round8(m.cash - expectedLiability(book, belief));
       if (navBefore <= 0) {
@@ -279,7 +279,7 @@ export async function withdraw(
         throw new HttpError(400, `Cannot withdraw ${shares} shares; you hold ${lp.shares}`);
       }
 
-      const belief = new GaussianBelief(m.currentMu, m.currentSigma * m.currentSigma);
+      const belief = loadBelief(m);
       const book = await loadBookTx(tx, marketId);
       const nav = round8(m.cash - expectedLiability(book, belief));
       if (nav <= 0) throw new HttpError(409, 'Pool NAV is non-positive; withdrawals are paused');

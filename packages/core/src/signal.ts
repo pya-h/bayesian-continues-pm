@@ -3,7 +3,6 @@
 // for SPREAD and GAUSSIAN, which the spec leaves unspecified).
 // Convention: q > 0 is a user BUY, q < 0 is a user SELL.
 
-import type { GaussianBelief } from './gaussian.ts';
 import type { BeliefModel, ContractSpec, EngineConfig } from './types.ts';
 
 export interface ExtractedSignal {
@@ -11,18 +10,18 @@ export interface ExtractedSignal {
   weight: number;
 }
 
+// Infer (signal, weight) from a trade. Belief-kind agnostic: it reads only the
+// belief's summary location (mean) and scale (stddev), so it works for Gaussian
+// and mixture alike. The per-component weight re-allocation that turns this scalar
+// into multi-modal movement happens in the Bayes update (bayes.ts), not here.
 export function extractSignal(
   spec: ContractSpec,
   q: number,
   belief: BeliefModel,
   cfg: EngineConfig,
 ): ExtractedSignal {
-  if (belief.kind !== 'gaussian') {
-    throw new Error(`extractSignal: v1 requires Gaussian belief, got ${belief.kind}`);
-  }
-  const g = belief as GaussianBelief;
-  const mu = g.mu;
-  const sigma = g.stddev();
+  const mu = belief.mean();
+  const sigma = belief.stddev();
   const absQ = Math.abs(q);
   const direction = q >= 0 ? 1 : -1;
   const intensity = absQ / cfg.qMax;

@@ -17,11 +17,12 @@
 // they appear in the rollup as `traderPayouts` / `lpClaimsPaid` for the full
 // economic picture.
 
-import { GaussianBelief, expectedLiability } from '@bmm/core';
+import { expectedLiability } from '@bmm/core';
 import { round8 } from '@bmm/shared';
 import { and, eq } from 'drizzle-orm';
 import { db } from '../db/client.ts';
 import { claims, contracts, lpLedger, markets, trades, transactions, users } from '../db/schema.ts';
+import { loadBelief } from '../lib/belief.ts';
 import { specFromRow } from '../lib/contract.ts';
 import { HttpError } from '../lib/errors.ts';
 
@@ -256,7 +257,7 @@ export async function getMarketLedger(marketId: string): Promise<MarketLedger> {
   const traderPayouts = sum(claimRows.map((r) => r.payout));
   const lpClaimsPaid = sum(events.filter((e) => e.kind === 'lp_claim').map((e) => -e.delta));
 
-  const belief = new GaussianBelief(m.currentMu, m.currentSigma * m.currentSigma);
+  const belief = loadBelief(m);
   const book = contractRows.map((r) => ({
     spec: specFromRow(r.type, r.params),
     mmShort: r.mmShort,

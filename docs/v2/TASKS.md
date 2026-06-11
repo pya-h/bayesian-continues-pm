@@ -12,17 +12,18 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 
 ---
 
-## Phase V2-1 — Multi-modal beliefs `[core, api, web]` (Workstream A)
+## Phase V2-1 — Multi-modal beliefs `[core, api, web]` (Workstream A) DONE (mixture-first, 2026-06-11)
 **Goal:** markets can run on Gaussian Mixture or Student-t, fully priced.
-- [ ] `core/mixture.ts`: `MixtureBelief implements BeliefModel` (sample/pdf/cdf/quantile/mean/variance/serialize).
-- [ ] `core/student_t.ts`: `StudentTBelief implements BeliefModel`.
-- [ ] `pricing.ts`: mixture price = Σ π_k·componentPrice (reuse V1 closed forms); t price via existing Gauss–Hermite fallback; generalize `dPrice_dMu`.
-- [ ] `bayes.ts` + new `mixture_ops.ts`: per-component update + weight update (`MODEL.md §5.4`); prune / merge / (optional) split.
-- [ ] `solvency.ts`: route mixture/t through seeded MC reserve (sampler per kind).
-- [ ] `api`: market creation accepts `belief_kind`, components/ν; persist + serialize via flexible jsonb; belief-update path is kind-agnostic.
-- [ ] `web`: belief chart renders general pdf (multi-bump / fat tail) + component legend; creation editor for modes.
-- [ ] **Tests:** mixture price = weighted component sum (vs MC); merge/prune conserve mass+mean; t price vs MC; weight concentrates on consistent-signal component.
-**Checkpoint:** create a bimodal-mixture market, trade it, watch component weights shift live and prices stay consistent with MC. **Math-doc:** add the Mixture/Student-t belief, `Σ π_k·componentPrice` pricing, generalized `dPrice_dMu`, per-component Bayes + weight update, and the per-kind MC sampler; new worked example for a bimodal price.
+- [x] `core/mixture.ts`: `MixtureBelief implements BeliefModel` (sample/pdf/cdf/quantile/mean/variance/serialize). 10 unit tests.
+- [x] `core/student_t.ts`: `StudentTBelief implements BeliefModel` (location-scale t; self-contained lgamma + incomplete-beta CDF + Marsaglia–Tsang gamma sampler). 13 tests.
+- [x] `pricing.ts`: mixture price = Σ π_k·componentPrice (reuses V1 closed forms, exact); t price via the existing Simpson quadrature fallback; `dPrice_dMu` generalized (mixture = Σ π_k·∂Price_k/∂μ_k, t via central difference); `expectF`/`signal`/`spread`/`stats` all made belief-kind-agnostic.
+- [x] `bayes.ts` + new `mixture_ops.ts`: `bayesUpdateMixture` (responsibility-weighted per-component update + tempered weight/membership update, log-space) + kind-agnostic `updateBelief` dispatcher; prune / moment-match merge / K-cap / (optional) split.
+- [x] `solvency.ts`: already MC; mixture/t route through `belief.sample()` automatically (sampler per kind). Confirmed by `solvencyMixture.test.ts`.
+- [x] `api`: `markets.belief_state` jsonb column (migration `0003_colorful_hedge_knight.sql`); `lib/belief.ts` (`loadBelief`/`beliefPersistFields`); market creation accepts `belief` (mixture components); trade path (`quote`/`executeTrade`/`sellAll`), `marketView`, `statsSvc`, `lpSvc`, `marketLedgerSvc` all kind-agnostic. `MarketView.belief` exposes components.
+- [x] `web`: belief chart renders the general multi-bump pdf (`mixturePdf`/`mixturePdfCurve`) + per-component mode markers with live weight %; admin creation editor for mixture modes (`buildCreateMarketBody`).
+- [x] **Tests:** mixture price = weighted component sum + vs MC; merge/prune conserve mass+mean; t price vs MC; weight concentrates on consistent-signal component; mixture create+trade API integration (`mixtureMarket.test.ts`); web `mixturePdf` + create-body tests. **Repo: core 178, shared 9, web 144, api 124 — all green; typecheck + biome clean.**
+- [~] *Deferred (fast-follow): Student-t **creation UI** (the kind exists end-to-end in core + API + persistence + rendering; only the admin editor control for ν is not yet surfaced — UI was scoped mixture-first).*
+**Checkpoint:** create a bimodal-mixture market, trade it, watch component weights shift live and prices stay consistent with MC. **Math-doc:** added the Mixture/Student-t belief, `Σ π_k·componentPrice` pricing, generalized `dPrice_dMu`, per-component Bayes + weight (membership) update + prune/merge, and the per-kind MC sampler; new worked bimodal `BINARY_CALL` example (0.4213 vs 0.327 moment-matched). 431 expressions render, 0 KaTeX errors.
 
 ---
 

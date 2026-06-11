@@ -96,6 +96,8 @@ const EMPTY_DRAFT: CreateMarketDraft = {
   initialMu: 0,
   initialSigma: 1,
   initialReserve: 10_000,
+  beliefKind: 'gaussian',
+  components: [],
   cfg: {},
 };
 
@@ -118,6 +120,35 @@ function CreateMarketForm() {
     setDraft((d) => ({ ...d, [k]: v }));
   const setCfg = (k: string, v: number | '') =>
     setDraft((d) => ({ ...d, cfg: { ...d.cfg, [k]: v } }));
+
+  // mixture-mode editor helpers ---
+  const setKind = (kind: 'gaussian' | 'mixture') =>
+    setDraft((d) => ({
+      ...d,
+      beliefKind: kind,
+      // Seed two modes straddling μ on first switch to mixture, so the chart is
+      // visibly bimodal out of the box.
+      components:
+        kind === 'mixture' && (d.components?.length ?? 0) < 2
+          ? [
+              { pi: 1, mu: d.initialMu - d.initialSigma, sigma: d.initialSigma },
+              { pi: 1, mu: d.initialMu + d.initialSigma, sigma: d.initialSigma },
+            ]
+          : (d.components ?? []),
+    }));
+  const setMode = (i: number, k: 'pi' | 'mu' | 'sigma', v: number | '') =>
+    setDraft((d) => {
+      const comps = [...(d.components ?? [])];
+      comps[i] = { ...(comps[i] ?? { pi: '', mu: '', sigma: '' }), [k]: v };
+      return { ...d, components: comps };
+    });
+  const addMode = () =>
+    setDraft((d) => ({
+      ...d,
+      components: [...(d.components ?? []), { pi: 1, mu: d.initialMu, sigma: d.initialSigma }],
+    }));
+  const removeMode = (i: number) =>
+    setDraft((d) => ({ ...d, components: (d.components ?? []).filter((_, j) => j !== i) }));
 
   const submit = () => {
     setFormError(null);
@@ -171,6 +202,67 @@ function CreateMarketForm() {
             onChange={(v) => set('initialReserve', v === '' ? 0 : v)}
           />
         </Field>
+      </div>
+
+      {/* Belief kind: Gaussian (default) or a multi-modal mixture (V2-1). */}
+      <div className="border-t border-edge px-4 py-3">
+        <div className="mb-2 flex items-center gap-2">
+          <span className="text-xs text-muted">Belief shape</span>
+          <div className="flex overflow-hidden rounded-lg border border-edge">
+            {(['gaussian', 'mixture'] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setKind(k)}
+                className={`px-3 py-1 text-xs ${
+                  (draft.beliefKind ?? 'gaussian') === k
+                    ? 'bg-accent text-ink'
+                    : 'bg-panel-2 text-muted hover:text-fg'
+                }`}
+              >
+                {k === 'gaussian' ? 'Gaussian' : 'Mixture (multi-modal)'}
+              </button>
+            ))}
+          </div>
+        </div>
+        {draft.beliefKind === 'mixture' && (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted">
+              Each mode is a Gaussian bump (weight π, center μ, spread σ). Weights are normalized
+              automatically; you need at least 2 modes.
+            </p>
+            {(draft.components ?? []).map((c, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: transient form rows, no stable id
+              <div key={`mode-${i}`} className="flex items-end gap-2">
+                <Field label={`π${i + 1}`} className="w-20">
+                  <Num value={c.pi} onChange={(v) => setMode(i, 'pi', v)} />
+                </Field>
+                <Field label="center μ" className="flex-1">
+                  <Num value={c.mu} onChange={(v) => setMode(i, 'mu', v)} />
+                </Field>
+                <Field label="σ" className="w-24">
+                  <Num value={c.sigma} onChange={(v) => setMode(i, 'sigma', v)} />
+                </Field>
+                <button
+                  type="button"
+                  onClick={() => removeMode(i)}
+                  disabled={(draft.components?.length ?? 0) <= 2}
+                  className="mb-1 rounded-md border border-edge px-2 py-1 text-xs text-muted hover:text-sell disabled:opacity-40"
+                  title="Remove mode"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addMode}
+              className="self-start rounded-md border border-edge px-3 py-1 text-xs text-muted hover:text-fg"
+            >
+              + Add mode
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="border-t border-edge px-4 py-2">

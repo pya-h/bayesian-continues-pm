@@ -227,6 +227,55 @@ describe('buildCreateMarketBody', () => {
       'below outcome max',
     );
   });
+
+  test('emits a mixture belief when beliefKind is mixture', () => {
+    const body = buildCreateMarketBody({
+      ...base,
+      beliefKind: 'mixture',
+      components: [
+        { pi: 1, mu: 10, sigma: 2 },
+        { pi: 2, mu: 18, sigma: 3 },
+      ],
+    });
+    expect(body.belief).toEqual({
+      kind: 'mixture',
+      components: [
+        { pi: 1, mu: 10, sigma: 2 },
+        { pi: 2, mu: 18, sigma: 3 },
+      ],
+    });
+  });
+
+  test('drops blank mixture rows and requires ≥ 2 complete modes', () => {
+    expect(() =>
+      buildCreateMarketBody({
+        ...base,
+        beliefKind: 'mixture',
+        components: [
+          { pi: 1, mu: 10, sigma: 2 },
+          { pi: '', mu: '', sigma: '' },
+        ],
+      }),
+    ).toThrow('at least 2 modes');
+  });
+
+  test('rejects a non-positive mixture weight or σ', () => {
+    expect(() =>
+      buildCreateMarketBody({
+        ...base,
+        beliefKind: 'mixture',
+        components: [
+          { pi: 0, mu: 10, sigma: 2 },
+          { pi: 1, mu: 18, sigma: 3 },
+        ],
+      }),
+    ).toThrow('weight must be positive');
+  });
+
+  test('gaussian beliefKind emits no belief field', () => {
+    const body = buildCreateMarketBody({ ...base, beliefKind: 'gaussian', components: [] });
+    expect('belief' in body).toBe(false);
+  });
 });
 
 describe('lifecycleActions', () => {

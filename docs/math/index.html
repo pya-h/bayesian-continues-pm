@@ -575,6 +575,44 @@
       <div class="dev"><span class="callout-title">Implementation</span>
       <code>GaussianBelief(mu, sigma2)</code> stores the variance and exposes <code>pdf/cdf/quantile/sample</code>.
       Sampling uses the inverse-CDF of a seeded PRNG so Monte-Carlo results are reproducible (§17).</div>
+
+      <details class="dev">
+        <summary><strong>V2 — multi-modal beliefs (Gaussian mixture &amp; Student-t)</strong></summary>
+        <p>The single Gaussian can only ever be one symmetric bump, so genuine disagreement
+        (“half the market expects 60, half expects 80”) collapses into an average nobody holds.
+        V2 keeps the same <code>BeliefModel</code> interface but adds two richer kinds; every pricing /
+        reserve / stats caller is unchanged because they only touch
+        <code>mean/variance/pdf/cdf/quantile/sample</code>.</p>
+
+        <p><strong>Gaussian mixture</strong> — a weighted sum of \(K\) Gaussian components,
+        \(\pi_k\ge 0,\ \sum_k\pi_k=1\):</p>
+        <div class="eqbox named">
+          <span>$$ p(\theta)=\sum_{k=1}^{K}\pi_k\,\mathcal N(\theta;\mu_k,\sigma_k^2),\qquad
+          \text{cdf}(\theta)=\sum_k \pi_k\,\Phi\!\left(\frac{\theta-\mu_k}{\sigma_k}\right) $$</span>
+          <span class="eqlabel">mixture.ts</span>
+        </div>
+        <p>Its moments follow from the <em>law of total variance</em> — a between-component spread
+        added to the average within-component spread:</p>
+        <div class="eqbox">$$ \mu=\mathbb E[\theta]=\sum_k\pi_k\mu_k,\qquad
+        \operatorname{Var}[\theta]=\underbrace{\sum_k\pi_k\sigma_k^2}_{\text{within}}
+        +\underbrace{\sum_k\pi_k\mu_k^2-\mu^2}_{\text{between}} $$</div>
+        <p>There is no closed-form quantile, so it is found by bisection on the (monotone) cdf; a draw
+        picks a component with probability \(\pi_k\) then samples that Gaussian.</p>
+
+        <p><strong>Student-t</strong> — same center \(\mu\) but <em>fat tails</em> set by the degrees of
+        freedom \(\nu\) (small \(\nu\) → heavy tails, \(\nu\to\infty\) → Gaussian). Location–scale form
+        with scale \(s\) (we require \(\nu&gt;2\) so the variance is finite):</p>
+        <div class="eqbox named">
+          <span>$$ p(\theta)=\frac{1}{s}\,t_\nu\!\Big(\tfrac{\theta-\mu}{s}\Big),\qquad
+          \operatorname{Var}[\theta]=s^2\,\frac{\nu}{\nu-2} $$</span>
+          <span class="eqlabel">student_t.ts</span>
+        </div>
+        <p>The cdf uses the regularized incomplete beta \(I_x(\tfrac{\nu}{2},\tfrac12)\) with
+        \(x=\tfrac{\nu}{\nu+t^2}\); a draw is \( \theta=\mu+s\,Z/\sqrt{W/\nu} \) with \(Z\sim\mathcal N(0,1)\),
+        \(W\sim\chi^2_\nu\) (a seeded gamma sampler).</p>
+        <p class="small">A market’s kind is fixed at creation (<code>belief_kind</code>); existing Gaussian
+        markets are byte-for-byte unchanged.</p>
+      </details>
     </section>
 
     <!-- =============================================================== -->
@@ -683,6 +721,32 @@
       </div>
       <p class="small">For arbitrary or custom payoffs without a closed form, the engine falls back to
       composite Simpson integration over \( \mu\pm10\sigma \) (<code>expectF</code>, 4000 nodes).</p>
+
+      <details class="dev">
+        <summary><strong>V2 — pricing a mixture or Student-t belief</strong></summary>
+        <p>Because expectation is <em>linear</em>, the fair price under a mixture is just the
+        weight-sum of the per-component prices — and each component is a Gaussian, so we reuse the
+        exact closed forms above with <strong>no new integration</strong>:</p>
+        <div class="eqbox named">
+          <span>$$ \text{Price}\Big(f,\ \textstyle\sum_k\pi_k\mathcal N_k\Big)=\sum_k \pi_k\,\text{Price}(f,\mathcal N_k) $$</span>
+          <span class="eqlabel">pricing.ts</span>
+        </div>
+        <p>The mean-sensitivity generalizes the same way — a rigid shift of all component means by
+        \(d\mu\) (which moves the belief mean by \(d\mu\)):
+        \( \partial\text{Price}/\partial\mu=\sum_k\pi_k\,\partial\text{Price}_k/\partial\mu_k \).
+        For a Student-t belief there is no general closed form, so the price uses the same Simpson
+        quadrature on the payoff and \( \partial\text{Price}/\partial\mu \) is a central difference in \(\mu\).</p>
+        <div class="ex"><span class="callout-title">Worked example — why multi-modal matters</span>
+        Take the bimodal belief \( \tfrac12\mathcal N(60,5^2)+\tfrac12\mathcal N(80,5^2) \) (mean 70).
+        A <code>BINARY_CALL</code> at \(K=75\) prices to
+        \( \tfrac12\Phi(\tfrac{60-75}{5})+\tfrac12\Phi(\tfrac{80-75}{5})=\tfrac12\Phi(-3)+\tfrac12\Phi(1)
+        =\tfrac12(0.00135)+\tfrac12(0.84134)=\mathbf{0.4213} \).
+        A <em>single</em> Gaussian with the same mean and variance
+        (\( \sigma^2=25+100=125,\ \sigma\approx11.18 \)) would price it at
+        \( \Phi(\tfrac{70-75}{11.18})=\Phi(-0.447)=\mathbf{0.327} \). The mixture knows a whole camp sits
+        above 75, so it rates “clears 75” far higher than the moment-matched bump — exactly the structure
+        v1 had to throw away.</div>
+      </details>
     </section>
 
     <!-- =============================================================== -->
@@ -833,6 +897,32 @@
         <p>When <code>useSimplifiedUpdate</code> is set, the engine instead uses
         \( \mu'=\mu+\text{lr}\,(s-\mu)\,w \) and \( \sigma'^2=\sigma^2(1-\text{decay}\cdot w) \).
         Cheaper, less principled; off by default.</p>
+      </details>
+
+      <details class="dev">
+        <summary><strong>V2 — updating a mixture belief</strong></summary>
+        <p>The same scalar \((s,w)\) drives a mixture, but two things happen at once. First a
+        <strong>membership</strong> update treats the component label as latent with prior \(\pi_k\):
+        the signal’s evidence under each component’s predictive
+        \( \mathcal N(s;\mu_k,\sigma_k^2+\sigma_\varepsilon^2) \) re-weights the mixture (tempered by the
+        reliability \(w\), then renormalized into responsibilities \(r_k\)):</p>
+        <div class="eqbox named">
+          <span>$$ r_k\ \propto\ \pi_k\,\Big[\mathcal N\!\big(s;\mu_k,\sigma_k^2+\sigma_\varepsilon^2\big)\Big]^{w},
+          \qquad \sum_k r_k=1,\qquad \pi_k'\leftarrow r_k $$</span>
+          <span class="eqlabel">bayes.ts</span>
+        </div>
+        <p>This is what makes a <em>consistent stream of signals concentrate weight on the nearest mode</em>
+        instead of averaging the modes together. Second, each component runs the ordinary Normal–Normal
+        update above, but with its signal precision scaled by its own responsibility, so the component that
+        <em>owns</em> the signal absorbs it while the others barely move:</p>
+        <div class="eqbox">$$ \tau_{s,k}=\frac{w\,r_k}{\sigma_\varepsilon^2},\qquad
+        \mu_k'=\frac{\tau_{0,k}\mu_k+\tau_{s,k}\,s}{\tau_{0,k}+\tau_{s,k}},\qquad
+        \sigma_k'^2=\frac{1}{\tau_{0,k}+\tau_{s,k}} $$</div>
+        <p>Finally the mixture is kept tractable by <strong>component management</strong>
+        (<code>mixture_ops.ts</code>): <em>prune</em> components with \(\pi_k&lt;\pi_\text{min}\),
+        <em>merge</em> near-duplicates \(|\mu_i-\mu_j|&lt;\tau(\sigma_i+\sigma_j)\) by moment-matching (which
+        preserves the pair’s combined weight, mean and variance exactly), and <em>cap</em> the count \(K\).
+        The whole step is computed in log-space so well-separated modes don’t underflow.</p>
       </details>
     </section>
 

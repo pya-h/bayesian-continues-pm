@@ -32,8 +32,44 @@ export const gaussianStateSchema = z.object({
   mu: finite,
   sigma2: positive,
 });
-export const beliefStateSchema = gaussianStateSchema; // v1
+// A persisted mixture component: weight π, mean μ, variance σ².
+export const mixtureComponentStateSchema = z.object({
+  pi: z.number().finite().nonnegative(),
+  mu: finite,
+  sigma2: positive,
+});
+export const mixtureStateSchema = z.object({
+  kind: z.literal('mixture'),
+  components: z.array(mixtureComponentStateSchema).min(1),
+});
+export const studentTStateSchema = z.object({
+  kind: z.literal('student_t'),
+  nu: z.number().finite().gt(2),
+  mu: finite,
+  scale2: positive,
+});
+export const beliefStateSchema = z.discriminatedUnion('kind', [
+  gaussianStateSchema,
+  mixtureStateSchema,
+  studentTStateSchema,
+]);
 export type BeliefStateDTO = z.infer<typeof beliefStateSchema>;
+
+// Belief config at market creation (input) --------------------------------
+
+export const createMixtureComponentSchema = z.object({
+  pi: positive,
+  mu: finite,
+  sigma: positive,
+});
+export const createBeliefSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('gaussian') }),
+  z.object({
+    kind: z.literal('mixture'),
+    components: z.array(createMixtureComponentSchema).min(2).max(6),
+  }),
+]);
+export type CreateBeliefDTO = z.infer<typeof createBeliefSchema>;
 
 // Engine config overrides ------------------------------------
 
@@ -89,6 +125,7 @@ export const createMarketSchema = z.object({
   initialMu: finite,
   initialSigma: positive,
   initialReserve: positive,
+  belief: createBeliefSchema.optional(),
   cfg: marketCfgSchema.optional(),
   opensAt: z.string().datetime().optional(),
   closesAt: z.string().datetime().optional(),

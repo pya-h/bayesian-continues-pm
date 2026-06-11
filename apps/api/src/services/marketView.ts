@@ -2,11 +2,12 @@
 // pool NAV = cash − E_p[L(θ)], and LP share price. NAV uses the live belief and
 // the MM's short book.
 
-import { type BookEntry, GaussianBelief, expectedLiability } from '@bmm/core';
+import { type BookEntry, MixtureBelief, expectedLiability } from '@bmm/core';
 import { round8 } from '@bmm/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.ts';
 import { contracts } from '../db/schema.ts';
+import { loadBelief } from '../lib/belief.ts';
 import { specFromRow } from '../lib/contract.ts';
 
 export type MarketRow = typeof import('../db/schema.ts').markets.$inferSelect;
@@ -20,7 +21,14 @@ export interface MarketView {
   outcomeMax: number | null;
   status: string;
   creatorId: string;
-  belief: { kind: 'gaussian'; mu: number; sigma: number; sigma2: number };
+  belief: {
+    kind: 'gaussian' | 'mixture' | 'student_t';
+    mu: number;
+    sigma: number;
+    sigma2: number;
+    // Present for mixture markets: per-component weight/mean/σ for the multi-bump chart.
+    components?: { pi: number; mu: number; sigma: number }[];
+  };
   cfg: Record<string, number | boolean>;
   cash: number;
   reserveRequired: number;
@@ -38,11 +46,20 @@ export async function loadBook(marketId: string): Promise<BookEntry[]> {
 }
 
 export async function buildMarketView(m: MarketRow): Promise<MarketView> {
-  const belief = new GaussianBelief(m.currentMu, m.currentSigma * m.currentSigma);
+  const belief = loadBelief(m);
   const book = await loadBook(m.marketId);
   const nav = round8(m.cash - expectedLiability(book, belief));
   const sharesTotal = m.lpSharesTotal;
   const sharePrice = sharesTotal > 0 ? round8(nav / sharesTotal) : 1;
+
+  const components =
+    belief instanceof MixtureBelief
+      ? belief.components.map((c) => ({
+          pi: round8(c.pi),
+          mu: round8(c.mu),
+          sigma: round8(Math.sqrt(c.sigma2)),
+        }))
+      : undefined;
 
   return {
     marketId: m.marketId,
@@ -53,7 +70,13 @@ export async function buildMarketView(m: MarketRow): Promise<MarketView> {
     outcomeMax: m.outcomeMax,
     status: m.status,
     creatorId: m.creatorId,
-    belief: { kind: 'gaussian', mu: m.currentMu, sigma: m.currentSigma, sigma2: belief.sigma2 },
+    belief: {
+      kind: belief.kind,
+      mu: round8(belief.mean()),
+      sigma: round8(belief.stddev()),
+      sigma2: round8(belief.variance()),
+      components,
+    },
     cfg: m.cfg,
     cash: m.cash,
     reserveRequired: m.reserveRequired,

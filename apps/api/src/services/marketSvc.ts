@@ -5,7 +5,13 @@
 // under the per-market lock with `FOR UPDATE` on the market row, then emits a
 // `market_status` WS event. Oracle (manual θ*) is recorded on resolve.
 
-import { type EngineConfig, makeEngineConfig } from '@bmm/core';
+import {
+  type BeliefModel,
+  type EngineConfig,
+  GaussianBelief,
+  MixtureBelief,
+  makeEngineConfig,
+} from '@bmm/core';
 import type { CreateMarketDTO, MarketStatus } from '@bmm/shared';
 import { TransactionKind, round8, subMoney } from '@bmm/shared';
 import { eq, sql } from 'drizzle-orm';
@@ -13,6 +19,7 @@ import { db } from '../db/client.ts';
 import { type MarketRow, type UserRow, marketRepo } from '../db/repos.ts';
 import { lpLedger, lpPositions, markets, oracles, users } from '../db/schema.ts';
 import { writeAudit } from '../lib/audit.ts';
+import { beliefPersistFields } from '../lib/belief.ts';
 import { HttpError } from '../lib/errors.ts';
 import { publish, topics } from '../realtime.ts';
 import { recordTx } from './ledgerSvc.ts';
@@ -38,6 +45,17 @@ function toDate(s: string | undefined): Date | null {
 export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Promise<MarketRow> {
   const cfg: EngineConfig = makeEngineConfig(dto.initialMu, dto.initialSigma, dto.cfg ?? {});
   const reserve = dto.initialReserve;
+
+  // Initial belief: mixture if authored, else Gaussian (v1). initialMu/initialSigma
+  // stay the market's reference scale (cfg seed); a mixture's shape comes from its
+  // components, and current_mu/current_sigma carry its summary mean/σ.
+  const initialBelief: BeliefModel =
+    dto.belief?.kind === 'mixture'
+      ? new MixtureBelief(
+          dto.belief.components.map((c) => ({ pi: c.pi, mu: c.mu, sigma2: c.sigma * c.sigma })),
+        )
+      : new GaussianBelief(dto.initialMu, dto.initialSigma * dto.initialSigma);
+  const beliefFields = beliefPersistFields(initialBelief);
 
   const market = await db.transaction(async (tx) => {
     // Non-infinite creators fund the reserve from their balance. Re-read the row
@@ -71,11 +89,12 @@ export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Prom
         outcomeMax: dto.outcomeMax ?? null,
         status: 'CREATED',
         creatorId: creator.userId,
-        beliefKind: 'gaussian',
+        beliefKind: initialBelief.kind,
         initialMu: dto.initialMu,
         initialSigma: dto.initialSigma,
-        currentMu: dto.initialMu,
-        currentSigma: dto.initialSigma,
+        currentMu: beliefFields.currentMu,
+        currentSigma: beliefFields.currentSigma,
+        beliefState: beliefFields.beliefState,
         cfg: cfg as unknown as Record<string, number | boolean>,
         cash: reserve,
         reserveRequired: 0,

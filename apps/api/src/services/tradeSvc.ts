@@ -12,15 +12,14 @@ import {
   type BookEntry,
   type ContractSpec,
   type EngineConfig,
-  GaussianBelief,
   type ReserveOpts,
-  bayesUpdate,
   computeSpread,
   contractKey,
   evalBreakers,
   extractSignal,
   price,
   requiredReserve,
+  updateBelief,
   validateContract,
   withMmShort,
 } from '@bmm/core';
@@ -32,6 +31,7 @@ import { db } from '../db/client.ts';
 import { type UserRow, marketRepo } from '../db/repos.ts';
 import { beliefUpdates, contracts, markets, positions, trades, users } from '../db/schema.ts';
 import { writeAudit } from '../lib/audit.ts';
+import { beliefPersistFields, loadBelief } from '../lib/belief.ts';
 import { paramsFromSpec, specFromRow } from '../lib/contract.ts';
 import { HttpError } from '../lib/errors.ts';
 import { publish, topics } from '../realtime.ts';
@@ -76,7 +76,7 @@ export async function quote(marketId: string, dto: QuoteDTO): Promise<QuoteResul
 
   const spec = validateContract(dto.spec);
   const cfg = m.cfg as unknown as EngineConfig;
-  const belief = new GaussianBelief(m.currentMu, m.currentSigma * m.currentSigma);
+  const belief = loadBelief(m);
   const q = dto.q;
   const side: Side = q >= 0 ? 'buy' : 'sell';
   const key = contractKey(spec);
@@ -91,7 +91,7 @@ export async function quote(marketId: string, dto: QuoteDTO): Promise<QuoteResul
   const totalCost = round8(execPrice * q);
 
   const sig = extractSignal(spec, q, belief, cfg);
-  const projected = bayesUpdate(belief, sig.signal, sig.weight, cfg);
+  const projected = updateBelief(belief, sig.signal, sig.weight, cfg);
   const nextBook = withMmShort(book, spec, key, contractKey, mmShort + q);
   const reserveOpts = reserveOptsFor(cfg);
   // Preview the live reserve mark at the POST-update belief — the same value
@@ -128,7 +128,7 @@ export async function quote(marketId: string, dto: QuoteDTO): Promise<QuoteResul
     },
     execPrice: round8(execPrice),
     totalCost,
-    projectedBelief: { mu: round8(projected.mu), sigma: round8(projected.stddev()) },
+    projectedBelief: { mu: round8(projected.mean()), sigma: round8(projected.stddev()) },
     projectedReserve,
     maxExecutable: round8(fillSize),
   };
@@ -147,6 +147,7 @@ export interface FillResult {
   totalCost: number; // signed
   beliefBefore: { mu: number; sigma: number };
   beliefAfter: { mu: number; sigma: number };
+  fairAfter: number; // fair price of THIS contract at the post-update belief
   reserveRequired: number;
   cash: number;
   balance: number | null; // null for infinite traders
@@ -178,7 +179,7 @@ export async function executeTrade(
 
       const cfg = m.cfg as unknown as EngineConfig;
       const reserveOpts = reserveOptsFor(cfg);
-      const belief = new GaussianBelief(m.currentMu, m.currentSigma * m.currentSigma);
+      const belief = loadBelief(m);
       const fair = price(spec, belief);
 
       const contractRows = await tx
@@ -262,7 +263,7 @@ export async function executeTrade(
 
       // Tentative apply: belief, inventory, cash.
       const sig = extractSignal(spec, filledQ, belief, cfg);
-      const newBelief = bayesUpdate(belief, sig.signal, sig.weight, cfg);
+      const newBelief = updateBelief(belief, sig.signal, sig.weight, cfg);
       const newMmShort = round8(mmShort + filledQ);
       const newBook = withMmShort(book, spec, key, contractKey, newMmShort);
 
@@ -320,9 +321,9 @@ export async function executeTrade(
           fairPrice: round8(fair),
           spreadTotal: round8(spread.total),
           totalCost,
-          beliefMuBefore: belief.mu,
+          beliefMuBefore: belief.mean(),
           beliefSigmaBefore: sigmaBefore,
-          beliefMuAfter: newBelief.mu,
+          beliefMuAfter: newBelief.mean(),
           beliefSigmaAfter: sigmaAfter,
         })
         .returning();
@@ -361,9 +362,9 @@ export async function executeTrade(
 
       await tx.insert(beliefUpdates).values({
         marketId,
-        prevMu: belief.mu,
+        prevMu: belief.mean(),
         prevSigma: sigmaBefore,
-        newMu: newBelief.mu,
+        newMu: newBelief.mean(),
         newSigma: sigmaAfter,
         signalExtracted: sig.signal,
         signalWeight: sig.weight,
@@ -373,8 +374,7 @@ export async function executeTrade(
       await tx
         .update(markets)
         .set({
-          currentMu: newBelief.mu,
-          currentSigma: sigmaAfter,
+          ...beliefPersistFields(newBelief),
           cash: cashAfter,
           reserveRequired: reserveAfter,
           updatedAt: new Date(),
@@ -420,8 +420,9 @@ export async function executeTrade(
         execPrice: round8(execPrice),
         spreadTotal: round8(spread.total),
         totalCost,
-        beliefBefore: { mu: round8(belief.mu), sigma: round8(sigmaBefore) },
-        beliefAfter: { mu: round8(newBelief.mu), sigma: round8(sigmaAfter) },
+        beliefBefore: { mu: round8(belief.mean()), sigma: round8(sigmaBefore) },
+        beliefAfter: { mu: round8(newBelief.mean()), sigma: round8(sigmaAfter) },
+        fairAfter: round8(markAfter),
         reserveRequired: reserveAfter,
         cash: cashAfter,
         balance: newBalance,
@@ -435,7 +436,7 @@ export async function executeTrade(
   );
 
   // Side effects (after commit) ---
-  const fairAfter = priceAtBelief(spec, result.beliefAfter.mu, result.beliefAfter.sigma);
+  const fairAfter = result.fairAfter; // true post-update fair (mixture-correct)
   publish(topics.market(marketId), {
     type: 'trade_executed',
     tradeId: result.tradeId,
@@ -499,10 +500,6 @@ export async function executeTrade(
   });
 
   return result;
-}
-
-function priceAtBelief(spec: ContractSpec, mu: number, sigma: number): number {
-  return price(spec, new GaussianBelief(mu, sigma * sigma));
 }
 
 export interface SellAllFill {
@@ -595,8 +592,7 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
       if (toClose.length === 0) throw new HttpError(400, 'No open positions to sell');
 
       // Live market state, evolved per close.
-      let liveMu = m.currentMu;
-      let liveSigma = m.currentSigma;
+      let liveBelief = loadBelief(m);
       let liveCash = m.cash;
       let runningBalance = u.balance;
       let reserveAfter = m.reserveRequired;
@@ -613,7 +609,7 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
       for (const p of toClose) {
         const spec = specFromRow(p.type, p.params as Record<string, number>);
         const key = p.contractKey;
-        const belief = new GaussianBelief(liveMu, liveSigma * liveSigma);
+        const belief = liveBelief;
         const fair = price(spec, belief);
         const mmShort = mmShortByKey.get(key) ?? 0;
         const book = buildBook();
@@ -640,7 +636,7 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
         const execPrice = execPriceFor('sell', fair, spread.total);
 
         const sig = extractSignal(spec, filledQ, belief, cfg);
-        const newBelief = bayesUpdate(belief, sig.signal, sig.weight, cfg);
+        const newBelief = updateBelief(belief, sig.signal, sig.weight, cfg);
         const newMmShort = round8(mmShort + filledQ);
         mmShortByKey.set(key, newMmShort);
         const newBook = buildBook();
@@ -669,9 +665,9 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
             fairPrice: round8(fair),
             spreadTotal: round8(spread.total),
             totalCost,
-            beliefMuBefore: belief.mu,
+            beliefMuBefore: belief.mean(),
             beliefSigmaBefore: sigmaBefore,
-            beliefMuAfter: newBelief.mu,
+            beliefMuAfter: newBelief.mean(),
             beliefSigmaAfter: sigmaAfter,
           })
           .returning();
@@ -698,9 +694,9 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
 
         await tx.insert(beliefUpdates).values({
           marketId,
-          prevMu: belief.mu,
+          prevMu: belief.mean(),
           prevSigma: sigmaBefore,
-          newMu: newBelief.mu,
+          newMu: newBelief.mean(),
           newSigma: sigmaAfter,
           signalExtracted: sig.signal,
           signalWeight: sig.weight,
@@ -731,8 +727,7 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
         const proceeds = round8(-totalCost);
         totalProceeds = round8(totalProceeds + proceeds);
         totalRealizedPnl = round8(totalRealizedPnl + closedRealized);
-        liveMu = newBelief.mu;
-        liveSigma = sigmaAfter;
+        liveBelief = newBelief;
 
         affected.set(key, { spec, fair: price(spec, newBelief) });
         fills.push({
@@ -755,8 +750,7 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
       await tx
         .update(markets)
         .set({
-          currentMu: liveMu,
-          currentSigma: liveSigma,
+          ...beliefPersistFields(liveBelief),
           cash: liveCash,
           reserveRequired: reserveAfter,
           updatedAt: new Date(),
@@ -781,7 +775,7 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
         cash: liveCash,
         reserveRequired: reserveAfter,
         balance: newBalance,
-        beliefAfter: { mu: round8(liveMu), sigma: round8(liveSigma) },
+        beliefAfter: { mu: round8(liveBelief.mean()), sigma: round8(liveBelief.stddev()) },
       };
     }),
   );

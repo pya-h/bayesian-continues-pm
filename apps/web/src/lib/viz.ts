@@ -52,6 +52,33 @@ export function pdfCurve(mu: number, sigma: number, domain: Domain, n = 160): Pt
   return out;
 }
 
+export interface PdfComponent {
+  pi: number;
+  mu: number;
+  sigma: number;
+}
+
+// Mixture density Σ π_k N(x; μ_k, σ_k²) — the multi-bump belief curve.
+export function mixturePdf(x: number, components: readonly PdfComponent[]): number {
+  let d = 0;
+  for (const c of components) d += c.pi * gaussianPdf(x, c.mu, c.sigma);
+  return d;
+}
+
+export function mixturePdfCurve(
+  components: readonly PdfComponent[],
+  domain: Domain,
+  n = 160,
+): Pt[] {
+  const [lo, hi] = domain;
+  const out: Pt[] = [];
+  for (let i = 0; i <= n; i++) {
+    const x = lo + ((hi - lo) * i) / n;
+    out.push({ x, y: mixturePdf(x, components) });
+  }
+  return out;
+}
+
 // Payoff polyline f(θ) over the domain. Contract kinks are injected as exact
 // sample points (doubled with a hair of ε on either side) so corners stay crisp
 // instead of being rounded off by the uniform grid.

@@ -104,6 +104,12 @@ export function cleanCfg(
   return Object.keys(out).length > 0 ? (out as MarketCfgInput) : undefined;
 }
 
+export interface MixtureModeDraft {
+  pi: number | '';
+  mu: number | '';
+  sigma: number | '';
+}
+
 export interface CreateMarketDraft {
   title: string;
   description: string;
@@ -113,6 +119,9 @@ export interface CreateMarketDraft {
   initialMu: number;
   initialSigma: number;
   initialReserve: number;
+  beliefKind?: 'gaussian' | 'mixture';
+  // Mixture modes (only used when beliefKind === 'mixture').
+  components?: MixtureModeDraft[];
   cfg: Record<string, number | boolean | '' | null | undefined>;
 }
 
@@ -145,6 +154,22 @@ export function buildCreateMarketBody(draft: CreateMarketDraft): CreateMarketInp
   if (description) body.description = description;
   if (draft.outcomeMin !== '') body.outcomeMin = Number(draft.outcomeMin);
   if (draft.outcomeMax !== '') body.outcomeMax = Number(draft.outcomeMax);
+
+  if (draft.beliefKind === 'mixture') {
+    const modes = (draft.components ?? [])
+      .filter((c) => c.pi !== '' && c.mu !== '' && c.sigma !== '')
+      .map((c) => ({ pi: Number(c.pi), mu: Number(c.mu), sigma: Number(c.sigma) }));
+    if (modes.length < 2) {
+      throw new Error('A mixture belief needs at least 2 modes (weight, center, σ each).');
+    }
+    for (const m of modes) {
+      if (!(m.pi > 0)) throw new Error('Each mixture mode weight must be positive.');
+      if (!(m.sigma > 0)) throw new Error('Each mixture mode σ must be positive.');
+      if (!Number.isFinite(m.mu)) throw new Error('Each mixture mode needs a finite center μ.');
+    }
+    body.belief = { kind: 'mixture', components: modes };
+  }
+
   const cfg = cleanCfg(draft.cfg);
   if (cfg) body.cfg = cfg;
   return body;

@@ -20,11 +20,19 @@ export interface AuthResponse {
   user: PublicUser;
 }
 
+export interface BeliefComponent {
+  pi: number;
+  mu: number;
+  sigma: number;
+}
+
 export interface Belief {
-  kind: 'gaussian';
+  kind: 'gaussian' | 'mixture' | 'student_t';
   mu: number;
   sigma: number;
   sigma2: number;
+  // Present for mixture markets: per-component weight/mean/σ for the multi-bump chart.
+  components?: BeliefComponent[];
 }
 
 export interface MarketView {
@@ -298,6 +306,10 @@ export interface MarketCfgInput {
   useSimplifiedUpdate?: boolean;
 }
 
+export type CreateBeliefInput =
+  | { kind: 'gaussian' }
+  | { kind: 'mixture'; components: { pi: number; mu: number; sigma: number }[] };
+
 export interface CreateMarketInput {
   title: string;
   description?: string;
@@ -307,6 +319,7 @@ export interface CreateMarketInput {
   initialMu: number;
   initialSigma: number;
   initialReserve: number;
+  belief?: CreateBeliefInput;
   cfg?: MarketCfgInput;
 }
 
