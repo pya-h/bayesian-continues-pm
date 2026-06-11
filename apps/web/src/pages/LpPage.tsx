@@ -41,7 +41,7 @@ export function LpPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 rounded-xl border border-edge bg-panel p-4 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-4 rounded-xl border border-edge bg-panel surface shadow-soft p-4 sm:grid-cols-3 lg:grid-cols-6">
         <Stat label="Pool NAV" value={fmt(v.pool.nav)} tone="accent" />
         <Stat label="Share price" value={fmt(v.pool.sharePrice, 4)} />
         <Stat label="Total shares" value={fmt(v.pool.sharesTotal)} />
@@ -280,7 +280,7 @@ function NumInput({
       placeholder={placeholder}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
-      className="tnum w-full rounded-lg border border-edge bg-panel-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent disabled:opacity-50"
+      className="tnum w-full rounded-lg border border-edge bg-panel-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent input-glow disabled:opacity-50"
     />
   );
 }

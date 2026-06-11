@@ -202,8 +202,8 @@ export function QuotePanel({
       <div className="relative grid grid-cols-2 overflow-hidden rounded-lg border border-edge bg-panel-2 text-sm font-semibold">
         <span
           aria-hidden="true"
-          className={`absolute inset-y-0 left-0 w-1/2 rounded-lg transition-transform duration-200 ${
-            isBuy ? 'translate-x-0 bg-buy' : 'translate-x-full bg-sell'
+          className={`absolute inset-y-0 left-0 w-1/2 rounded-lg transition-transform duration-300 [transition-timing-function:var(--ease-spring)] ${
+            isBuy ? 'translate-x-0 bg-buy glow-buy' : 'translate-x-full bg-sell glow-sell'
           }`}
         />
         {(['buy', 'sell'] as const).map((s) => (
@@ -231,7 +231,7 @@ export function QuotePanel({
           step={1}
           value={qty}
           onChange={(e) => setQty(Math.max(0, Number(e.target.value) || 0))}
-          className="tnum rounded-lg border border-edge bg-panel-2 px-3 py-2 text-sm outline-none focus:border-accent"
+          className="input-glow tnum rounded-lg border border-edge bg-panel-2 px-3 py-2 text-sm outline-none focus:border-accent"
         />
         {quote && (
           <button

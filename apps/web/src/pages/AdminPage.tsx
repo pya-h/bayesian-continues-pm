@@ -49,7 +49,7 @@ export function AdminPage() {
   return (
     <div className="flex flex-col gap-5">
       {/* hero header + tab bar */}
-      <div className="hero-glow relative flex flex-col gap-3 overflow-hidden rounded-2xl border border-edge bg-panel p-5">
+      <div className="hero-glow surface gradient-border relative flex flex-col gap-3 overflow-hidden rounded-2xl border border-edge bg-panel p-5">
         <div className="relative flex items-baseline gap-2">
           <h1 className="text-gradient text-2xl font-semibold tracking-tight">Admin</h1>
           <span className="text-sm text-muted">control room</span>
@@ -62,8 +62,8 @@ export function AdminPage() {
               onClick={() => setTab(t.key)}
               className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                 tab === t.key
-                  ? 'bg-accent-soft text-accent shadow-sm ring-1 ring-accent/30'
-                  : 'text-muted hover:text-fg'
+                  ? 'bg-grad-accent text-[var(--color-on-accent)] btn-glow-accent'
+                  : 'text-muted hover:text-fg hover:bg-panel-2/70'
               }`}
             >
               {t.label}
@@ -321,7 +321,7 @@ function MarketRow({ market: m }: { market: MarketView }) {
             value={theta}
             placeholder={`Outcome θ* (${m.outcomeUnit})`}
             onChange={(e) => setTheta(e.target.value)}
-            className="tnum w-48 rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-sm outline-none focus:border-accent"
+            className="input-glow tnum w-48 rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-sm outline-none focus:border-accent"
           />
           <Button
             variant="primary"
@@ -376,7 +376,7 @@ function SubTab({
       type="button"
       onClick={onClick}
       className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
-        active ? 'bg-accent-soft text-accent' : 'text-muted hover:text-fg'
+        active ? 'bg-grad-accent text-[var(--color-on-accent)]' : 'text-muted hover:text-fg'
       }`}
     >
       {children}
@@ -395,7 +395,7 @@ function Overview({ marketId }: { marketId: string }) {
   if (o.error || !o.data) return <p className="mt-3 text-xs text-sell">Failed to load overview.</p>;
   const d = o.data;
   return (
-    <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-edge bg-panel-2 p-3 sm:grid-cols-3 lg:grid-cols-4">
+    <div className="surface-2 mt-3 grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-edge bg-panel-2 p-3 sm:grid-cols-3 lg:grid-cols-4">
       <Stat
         label="Volume"
         value={fmtCompact(d.volume)}
@@ -485,7 +485,7 @@ function UserRow({ user: u }: { user: AdminUser }) {
               value={amount}
               placeholder="Top-up"
               onChange={(e) => setAmount(e.target.value)}
-              className="tnum w-28 rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-sm outline-none focus:border-accent"
+              className="input-glow tnum w-28 rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-sm outline-none focus:border-accent"
             />
             <Button
               variant="ghost"
@@ -527,7 +527,7 @@ function UserTransactions({ userId }: { userId: string }) {
 
   return (
     <div className="mt-3 flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-edge bg-panel-2 p-3 sm:grid-cols-4">
+      <div className="surface-2 grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-edge bg-panel-2 p-3 sm:grid-cols-4">
         <Stat label="Funded in" value={fmt(summary.funded)} tone="buy" />
         <Stat label="Claimed out" value={fmt(summary.claimed)} tone="accent" />
         <Stat label="Trade volume" value={fmt(summary.tradeBuy + summary.tradeSell)} />
@@ -538,7 +538,7 @@ function UserTransactions({ userId }: { userId: string }) {
           sub={`${summary.count} record${summary.count === 1 ? '' : 's'}`}
         />
       </div>
-      <div className="max-h-72 overflow-y-auto rounded-lg border border-edge">
+      <div className="surface-2 max-h-72 overflow-y-auto rounded-lg border border-edge">
         <table className="w-full text-xs tnum">
           <thead className="sticky top-0 border-b border-edge bg-panel text-muted">
             <tr className="text-left">
@@ -643,7 +643,7 @@ function Text({
       value={value}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
-      className="rounded-lg border border-edge bg-panel-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent"
+      className="input-glow rounded-lg border border-edge bg-panel-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent"
     />
   );
 }
@@ -664,7 +664,7 @@ function Num({
       value={value}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
-      className="tnum rounded-lg border border-edge bg-panel-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent"
+      className="input-glow tnum rounded-lg border border-edge bg-panel-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent"
     />
   );
 }

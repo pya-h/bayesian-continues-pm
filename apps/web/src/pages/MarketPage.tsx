@@ -89,15 +89,20 @@ export function MarketPage() {
       </Link>
 
       {/* hero: identity + live belief */}
-      <div className="hero-glow relative flex flex-col gap-4 overflow-hidden rounded-2xl border border-edge bg-panel p-5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="hero-glow gradient-border surface relative flex flex-col gap-4 overflow-hidden rounded-2xl border border-edge bg-panel p-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-xl font-semibold">{m.title}</h1>
             <StatusBadge status={m.status} />
             <span className="flex items-center gap-1.5 text-xs text-muted">
-              <span
-                className={`h-2 w-2 rounded-full ${connected ? 'animate-pulse bg-buy' : 'bg-muted'}`}
-              />
+              {connected ? (
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-buy/60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-buy" />
+                </span>
+              ) : (
+                <span className="h-2 w-2 rounded-full bg-muted" />
+              )}
               {connected ? 'live' : 'offline'}
             </span>
           </div>
@@ -107,9 +112,9 @@ export function MarketPage() {
               <div className="text-xs text-muted">
                 {m.thetaStar != null ? 'Resolved θ*' : 'Consensus μ'}
               </div>
-              <div className="text-3xl font-semibold tracking-tight text-accent">
+              <div className="text-3xl font-bold tracking-tight text-accent">
                 <FlashNumber value={m.thetaStar ?? mu}>
-                  {fmt(m.thetaStar ?? mu, 0)}
+                  <span className="text-gradient">{fmt(m.thetaStar ?? mu, 0)}</span>
                   <span className="ml-1 text-base font-normal text-muted">{m.outcomeUnit}</span>
                 </FlashNumber>
               </div>
@@ -148,7 +153,7 @@ export function MarketPage() {
       </div>
 
       {/* financial stat strip */}
-      <div className="grid grid-cols-2 gap-4 rounded-xl border border-edge bg-panel p-4 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="surface grid grid-cols-2 gap-4 rounded-xl border border-edge bg-panel p-4 shadow-soft sm:grid-cols-3 lg:grid-cols-6">
         <Stat label="Pool NAV" value={fmtCompact(m.pool.nav)} />
         <Stat label="Cash" value={fmtCompact(m.cash)} />
         <Stat

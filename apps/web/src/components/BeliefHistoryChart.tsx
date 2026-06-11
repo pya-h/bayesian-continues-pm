@@ -81,6 +81,16 @@ export function BeliefHistoryChart({ points }: { points: BeliefHistoryPoint[] })
     >
       <title>Belief μ ± σ over time</title>
 
+      <defs>
+        <filter id="bh-glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation={1.8} result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+
       {/* y gridlines + left-gutter labels */}
       {yTicks.map((t) => (
         <g key={`y-${t}`}>
@@ -132,7 +142,13 @@ export function BeliefHistoryChart({ points }: { points: BeliefHistoryPoint[] })
       ))}
 
       <path d={bandPath} fill="var(--color-accent)" opacity={0.12} />
-      <path d={toPath(muLine, sx, sy)} fill="none" stroke="var(--color-accent)" strokeWidth={2} />
+      <path
+        d={toPath(muLine, sx, sy)}
+        fill="none"
+        stroke="var(--color-accent)"
+        strokeWidth={2}
+        filter="url(#bh-glow)"
+      />
       <circle cx={sx(n - 1)} cy={sy(points[n - 1]?.mu ?? 0)} r={3} fill="var(--color-accent)" />
 
       {/* hover crosshair + readout */}

@@ -12,10 +12,10 @@ export function Layout() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const navCls = ({ isActive }: { isActive: boolean }) =>
-    `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+    `relative rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200 ${
       isActive
-        ? 'bg-accent-soft text-accent shadow-sm ring-1 ring-accent/30'
-        : 'text-muted hover:text-fg'
+        ? 'btn-glow-accent bg-grad-accent text-[var(--color-on-accent)]'
+        : 'text-muted hover:bg-panel-2/70 hover:text-fg'
     }`;
 
   // The route's first path segment keys the content so it re-mounts (and the
@@ -24,20 +24,31 @@ export function Layout() {
 
   return (
     <div className="min-h-full">
-      {/* ambient accent glow behind everything */}
+      {/* ambient accent mesh behind everything — two slow-drifting blobs */}
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-0 -z-10 animate-drift"
         style={{
           background:
-            'radial-gradient(46rem 28rem at 50% -6%, color-mix(in oklab, var(--color-accent) 11%, transparent), transparent 72%)',
+            'radial-gradient(48rem 30rem at 50% -8%, color-mix(in oklab, var(--color-accent) 15%, transparent), transparent 70%), radial-gradient(34rem 26rem at 96% 4%, color-mix(in oklab, var(--color-accent) 9%, transparent), transparent 64%)',
         }}
       />
-      <header className="sticky top-0 z-20 border-b border-edge bg-ink/85 backdrop-blur">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-x-0 bottom-0 -z-10 h-80 animate-drift"
+        style={{
+          animationDelay: '-4.5s',
+          background:
+            'radial-gradient(30rem 20rem at 8% 120%, color-mix(in oklab, var(--color-accent) 8%, transparent), transparent 66%)',
+        }}
+      />
+      <header className="sticky top-0 z-20 border-b border-edge/70 bg-ink/70 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-4">
-          <NavLink to="/" className="mr-3 flex items-center gap-2">
-            <span className="text-lg text-accent">◎</span>
-            <span className="text-gradient font-semibold tracking-tight">BMM</span>
+          <NavLink to="/" className="group mr-3 flex items-center gap-2">
+            <span className="text-lg text-accent transition-transform duration-300 [transition-timing-function:var(--ease-spring)] group-hover:rotate-90">
+              ◎
+            </span>
+            <span className="text-gradient text-[15px] font-bold tracking-tight">BMM</span>
             <span className="hidden text-xs text-muted sm:inline">prediction market</span>
           </NavLink>
           <nav className="flex items-center gap-1">
@@ -77,7 +88,7 @@ export function Layout() {
               onClick={() => setSettingsOpen(true)}
               aria-label="Preferences"
               title="Preferences"
-              className="rounded-lg border border-edge bg-panel-2 p-2 text-muted transition-colors hover:text-fg"
+              className="rounded-lg border border-edge bg-panel-2 p-2 text-muted transition-colors hover:border-accent/50 hover:text-accent"
             >
               <GearIcon />
             </button>
@@ -88,7 +99,7 @@ export function Layout() {
                   logout();
                   navigate('/login');
                 }}
-                className="rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-sm text-muted transition-colors hover:text-fg"
+                className="rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-sm text-muted transition-colors hover:border-accent/50 hover:text-fg"
               >
                 Sign out
               </button>

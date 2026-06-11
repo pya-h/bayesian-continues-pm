@@ -128,7 +128,7 @@ export function PositionPanel({
             <div
               key={p.contractId}
               style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}
-              className="animate-fade-up rounded-lg border border-edge bg-panel-2/30"
+              className="animate-fade-up rounded-lg border border-edge bg-panel-2/30 surface-2 lift"
             >
               <PositionRow pos={p} belief={belief} onSell={onSell} />
             </div>
@@ -236,7 +236,7 @@ export function PositionRow({
       </div>
 
       {belief && (
-        <div className="mt-3 rounded-lg border border-edge bg-panel-2/60 p-2">
+        <div className="mt-3 rounded-lg border border-edge bg-panel-2/60 surface-2 p-2">
           <div className="mb-1 flex items-center justify-between px-1 text-[10px] uppercase tracking-wide text-muted">
             <span>Payoff vs outcome</span>
             <span className="flex items-center gap-2">
@@ -260,7 +260,7 @@ export function PositionRow({
       )}
 
       {pos.final && (
-        <div className="mt-2 flex items-center justify-between rounded-lg border border-edge bg-panel-2 px-3 py-2 text-xs tnum">
+        <div className="mt-2 flex items-center justify-between rounded-lg border border-edge bg-panel-2 surface-2 px-3 py-2 text-xs tnum">
           <span className="text-muted">
             Resolved θ* {fmt(pos.final.thetaStar, 0)} · payout {fmt(pos.final.payout)} ·{' '}
             <span className={pos.final.finalPnl >= 0 ? 'text-buy' : 'text-sell'}>
@@ -293,7 +293,7 @@ export function PositionRow({
         // biome-ignore lint/a11y/useKeyWithClickEvents: not a control — only stops the parent row's sell from firing while reading the stats detail.
         <div
           onClick={(e) => e.stopPropagation()}
-          className="mt-3 rounded-lg border border-edge bg-panel-2 p-3 text-xs tnum"
+          className="mt-3 rounded-lg border border-edge bg-panel-2 surface-2 p-3 text-xs tnum"
         >
           {detail.isLoading ? (
             <Spinner label="Loading stats…" />

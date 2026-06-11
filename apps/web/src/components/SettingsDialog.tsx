@@ -24,7 +24,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
       onMouseDown={onClose}
     >
       <div
-        className="my-auto w-full max-w-md rounded-2xl border border-edge bg-panel shadow-2xl animate-pop"
+        className="my-auto w-full max-w-md rounded-2xl border border-edge bg-panel shadow-2xl animate-pop surface"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-edge px-5 py-3">
@@ -52,7 +52,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                     onClick={() => setPrefs({ theme: t.id })}
                     aria-pressed={active}
                     className={`flex flex-col items-center gap-1.5 rounded-xl border p-2 transition-colors ${
-                      active ? 'border-accent' : 'border-edge hover:border-muted'
+                      active ? 'border-accent btn-glow-accent' : 'border-edge hover:border-muted'
                     }`}
                   >
                     <span
@@ -105,7 +105,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           {/* precision */}
           <Section title="Number precision" hint="Decimal places shown on money & values.">
             <div className="flex items-center justify-between gap-3">
-              <div className="inline-flex items-center gap-1 rounded-lg border border-edge bg-panel-2 p-1">
+              <div className="inline-flex items-center gap-1 rounded-lg border border-edge bg-panel-2 p-1 surface-2">
                 <Stepper
                   label="−"
                   disabled={prefs.precision <= 0}

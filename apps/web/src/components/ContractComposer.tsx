@@ -57,7 +57,7 @@ function NumField({
           const v = Number(e.target.value);
           if (Number.isFinite(v)) onChange(v);
         }}
-        className="tnum w-full rounded-lg border border-edge bg-panel-2 px-2.5 py-1.5 text-sm outline-none focus:border-accent"
+        className="input-glow tnum w-full rounded-lg border border-edge bg-panel-2 px-2.5 py-1.5 text-sm outline-none focus:border-accent"
       />
     </label>
   );
@@ -84,10 +84,10 @@ export function ContractComposer({
             key={t.type}
             type="button"
             onClick={() => onSpecChange(defaultSpec(t.type, mu, sigma))}
-            className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+            className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-all duration-200 active:scale-[0.96] ${
               spec.type === t.type
-                ? 'border-accent bg-accent-soft text-accent'
-                : 'border-edge bg-panel-2 text-muted hover:text-fg'
+                ? 'btn-glow-accent border-transparent bg-grad-accent text-[var(--color-on-accent)]'
+                : 'border-edge bg-panel-2 text-muted hover:border-accent/40 hover:text-fg'
             }`}
           >
             {t.label}

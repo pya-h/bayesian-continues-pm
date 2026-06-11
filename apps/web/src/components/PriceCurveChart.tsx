@@ -130,6 +130,16 @@ export function PriceCurveChart({
     >
       <title>Model fair price across the strike/center parameter</title>
 
+      <defs>
+        <filter id="pc-glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation={1.8} result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+
       {/* y gridlines + left-gutter labels */}
       {yTicks.map((t) => (
         <g key={`y-${t}`}>
@@ -180,7 +190,13 @@ export function PriceCurveChart({
         </g>
       ))}
 
-      <path d={toPath(pts, sx, sy)} fill="none" stroke="var(--color-buy)" strokeWidth={2} />
+      <path
+        d={toPath(pts, sx, sy)}
+        fill="none"
+        stroke="var(--color-buy)"
+        strokeWidth={2}
+        filter="url(#pc-glow)"
+      />
       <line
         x1={sx(param)}
         x2={sx(param)}

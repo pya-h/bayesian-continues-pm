@@ -28,8 +28,39 @@
   --color-accent-soft: color-mix(in oklab, var(--color-accent) 20%, var(--color-panel));
   --color-warn-soft: color-mix(in oklab, var(--color-warn) 20%, var(--color-panel));
 
+  /* a brighter sibling for each accent, for two-stop vibrant gradients */
+  --color-accent-bright: color-mix(in oklab, var(--color-accent) 78%, #ffffff);
+
   /* motion timing */
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* layered surface gradients — a top-lit sheen so panels read as 3D, not flat.
+     Reads the live tokens, so a theme/accent swap re-tints them automatically. */
+  --grad-panel: linear-gradient(
+    160deg,
+    color-mix(in oklab, var(--color-fg) 5%, var(--color-panel)),
+    var(--color-panel) 46%,
+    color-mix(in oklab, var(--color-ink) 32%, var(--color-panel))
+  );
+  --grad-panel-2: linear-gradient(
+    160deg,
+    color-mix(in oklab, var(--color-fg) 6%, var(--color-panel-2)),
+    var(--color-panel-2) 55%
+  );
+  /* signature accent gradient — drives buttons, brand marks, active states */
+  --grad-accent: linear-gradient(
+    135deg,
+    var(--color-accent-bright),
+    var(--color-accent) 52%,
+    color-mix(in oklab, var(--color-accent) 70%, #6a3cff)
+  );
+
+  /* elevation + glow shadows */
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.25), 0 8px 24px -12px rgb(0 0 0 / 0.5);
+  --shadow-lift: 0 6px 16px -6px rgb(0 0 0 / 0.45), 0 18px 40px -18px rgb(0 0 0 / 0.55);
+  --glow-accent: 0 0 0 1px color-mix(in oklab, var(--color-accent) 38%, transparent), 0 8px 30px
+    -8px color-mix(in oklab, var(--color-accent) 55%, transparent);
 }
 
 /* ── alternate base themes ───────────────────────────────────────────────── */
@@ -264,27 +295,43 @@ select:not(:disabled) {
   animation: bmm-shimmer 1.4s infinite;
 }
 
-/* A reusable hover-lift for cards / interactive tiles. */
+/* A reusable hover-lift for cards / interactive tiles. Now lifts AND glows: on
+   hover the card rises, casts a deeper shadow, and picks up an accent-tinted
+   rim — the core "bold" card interaction, inherited everywhere `.lift` is used. */
 .lift {
-  transition: transform 0.18s var(--ease-out-soft), border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.22s var(--ease-spring), border-color 0.2s ease, box-shadow 0.25s ease;
 }
 .lift:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lift);
+  border-color: color-mix(in oklab, var(--color-accent) 45%, var(--color-edge));
 }
 
-/* Accent → foreground gradient text, for brand marks and hero headings. */
+/* Accent → foreground gradient text, for brand marks and hero headings. The
+   gradient is oversized and slowly pans so headings shimmer with life. */
 .text-gradient {
   background-image: linear-gradient(
     92deg,
-    var(--color-accent),
-    color-mix(in oklab, var(--color-accent) 35%, var(--color-fg))
+    var(--color-accent-bright),
+    var(--color-accent) 38%,
+    color-mix(in oklab, var(--color-accent) 30%, var(--color-fg)) 72%,
+    var(--color-accent-bright)
   );
+  background-size: 220% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  animation: bmm-gradient-pan 8s linear infinite;
+}
+@keyframes bmm-gradient-pan {
+  to {
+    background-position: 220% 0;
+  }
 }
 
-/* A soft accent halo for hero panels — pair with `position: relative`. */
+/* A soft accent halo for hero panels — pair with `position: relative`. Now a
+   richer dual-source glow (accent from the top-left, a violet-leaning kiss from
+   the right) so hero surfaces feel lit, not flat. */
 .hero-glow::before {
   content: "";
   position: absolute;
@@ -292,10 +339,127 @@ select:not(:disabled) {
   pointer-events: none;
   z-index: 0;
   background: radial-gradient(
-    32rem 16rem at 0% -30%,
-    color-mix(in oklab, var(--color-accent) 18%, transparent),
-    transparent 70%
+      34rem 17rem at 0% -34%,
+      color-mix(in oklab, var(--color-accent) 26%, transparent),
+      transparent 68%
+    ),
+    radial-gradient(
+      26rem 16rem at 108% 0%,
+      color-mix(in oklab, var(--color-accent) 16%, transparent),
+      transparent 62%
+    );
+}
+
+/* ── vibrant surface + glow utilities ────────────────────────────────────── */
+
+/* Top-lit gradient panel surface. Drop onto any `bg-panel` card to gain depth. */
+.surface {
+  background-image: var(--grad-panel);
+}
+.surface-2 {
+  background-image: var(--grad-panel-2);
+}
+
+/* The signature accent gradient as a background (buttons, active pills, marks). */
+.bg-grad-accent {
+  background-image: var(--grad-accent);
+}
+
+/* Coloured glow shadows for emphasis surfaces and primary actions. */
+.glow-accent {
+  box-shadow: var(--glow-accent);
+}
+.glow-buy {
+  box-shadow: 0 8px 26px -8px color-mix(in oklab, var(--color-buy) 60%, transparent);
+}
+.glow-sell {
+  box-shadow: 0 8px 26px -8px color-mix(in oklab, var(--color-sell) 60%, transparent);
+}
+
+/* Soft drop-glow for buttons/pills that deepens on hover. Three colour variants;
+   each reads the live token so themes/accents re-tint them. */
+.btn-glow-accent {
+  box-shadow: 0 4px 14px -4px color-mix(in oklab, var(--color-accent) 60%, transparent);
+}
+.btn-glow-accent:hover {
+  box-shadow: 0 7px 22px -4px color-mix(in oklab, var(--color-accent) 78%, transparent);
+}
+.btn-glow-buy {
+  box-shadow: 0 4px 14px -4px color-mix(in oklab, var(--color-buy) 55%, transparent);
+}
+.btn-glow-buy:hover {
+  box-shadow: 0 7px 22px -4px color-mix(in oklab, var(--color-buy) 72%, transparent);
+}
+.btn-glow-sell {
+  box-shadow: 0 4px 14px -4px color-mix(in oklab, var(--color-sell) 55%, transparent);
+}
+.btn-glow-sell:hover {
+  box-shadow: 0 7px 22px -4px color-mix(in oklab, var(--color-sell) 72%, transparent);
+}
+
+/* A gradient hairline border via a masked pseudo-element — for hero panels and
+   featured cards. Pair with `position: relative` (the rounded radius is matched
+   to `rounded-2xl`; override --gb-radius for other radii). */
+.gradient-border {
+  position: relative;
+}
+.gradient-border::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--gb-radius, 1rem);
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--color-accent) 70%, transparent),
+    transparent 42%,
+    color-mix(in oklab, var(--color-accent) 28%, transparent)
   );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+/* A one-shot diagonal light sweep — drop on hover targets (`.sheen` parent must
+   be `position: relative; overflow: hidden`). Used by buttons + featured tiles. */
+.sheen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    color-mix(in oklab, #ffffff 22%, transparent) 48%,
+    transparent 64%
+  );
+  transform: translateX(-130%);
+  transition: transform 0.7s var(--ease-out-soft);
+}
+.sheen:hover::before {
+  transform: translateX(130%);
+}
+
+/* Accent focus-glow for inputs/selects — pair with `focus:border-accent`. */
+.input-glow:focus,
+.input-glow:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 22%, transparent);
+  outline: none;
+}
+
+/* A live accent-glow pulse for "live"/active indicators. */
+.glow-pulse {
+  animation: bmm-glow-pulse 2.4s ease-in-out infinite;
+}
+@keyframes bmm-glow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-accent) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--color-accent) 0%, transparent);
+  }
 }
 
 /* Slow drift for ambient gradients so backgrounds feel alive, not static. */

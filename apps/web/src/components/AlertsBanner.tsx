@@ -21,7 +21,7 @@ export function AlertsBanner({ enabled = true }: { enabled?: boolean }) {
   if (alerts.length === 0) return null;
 
   return (
-    <section className="flex flex-col gap-2 rounded-xl border border-warn/40 bg-panel p-3">
+    <section className="flex flex-col gap-2 rounded-xl border border-warn/40 bg-panel surface p-3">
       <header className="flex items-center justify-between">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-warn">
           <span className="relative flex h-2 w-2">
@@ -42,7 +42,7 @@ export function AlertsBanner({ enabled = true }: { enabled?: boolean }) {
         {alerts.map((a) => (
           <li
             key={a.id}
-            className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-xs animate-slide-in ${SEVERITY[a.severity] ?? SEVERITY.info}`}
+            className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-xs shadow-soft animate-slide-in ${SEVERITY[a.severity] ?? SEVERITY.info}`}
           >
             <div className="flex flex-col gap-0.5">
               <span className="font-semibold">

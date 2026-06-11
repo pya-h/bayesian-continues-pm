@@ -62,7 +62,7 @@ export function TransactionsPage() {
   return (
     <div className="flex flex-col gap-5">
       {/* hero header */}
-      <div className="hero-glow relative flex flex-col gap-1 overflow-hidden rounded-2xl border border-edge bg-panel p-5">
+      <div className="hero-glow surface gradient-border relative flex flex-col gap-1 overflow-hidden rounded-2xl border border-edge bg-panel p-5">
         <div className="relative flex items-baseline gap-2">
           <h1 className="text-gradient text-2xl font-semibold tracking-tight">Transactions</h1>
           {summary && (
@@ -104,7 +104,7 @@ export function TransactionsPage() {
       )}
 
       {rows.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-edge bg-panel px-4 py-2.5">
+        <div className="surface flex flex-wrap items-center justify-between gap-3 rounded-xl border border-edge bg-panel px-4 py-2.5">
           <div className="flex flex-wrap items-center gap-1">
             {TX_CATEGORIES.map((c) => (
               <Chip key={c.key} active={category === c.key} onClick={() => setCategory(c.key)}>
@@ -122,13 +122,13 @@ export function TransactionsPage() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search market…"
-                className="w-40 rounded-lg border border-edge bg-panel-2 py-1 pr-2.5 pl-7 text-xs text-fg placeholder:text-muted outline-none transition-colors focus:border-accent"
+                className="input-glow w-40 rounded-lg border border-edge bg-panel-2 py-1 pr-2.5 pl-7 text-xs text-fg placeholder:text-muted outline-none transition-colors focus:border-accent"
               />
             </div>
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as TxSortKey)}
-              className="rounded-lg border border-edge bg-panel-2 px-2 py-1 text-xs text-fg outline-none transition-colors focus:border-accent"
+              className="input-glow rounded-lg border border-edge bg-panel-2 px-2 py-1 text-xs text-fg outline-none transition-colors focus:border-accent"
             >
               {TX_SORTS.map((s) => (
                 <option key={s.key} value={s.key}>
@@ -205,7 +205,7 @@ function Row({ t, index }: { t: Transaction; index: number }) {
   return (
     <tr
       style={{ animationDelay: `${Math.min(index, 14) * 22}ms` }}
-      className="animate-fade-up border-t border-edge/60 transition-colors hover:bg-panel-2/40"
+      className="animate-fade-up border-t border-edge/60 transition-colors hover:bg-accent-soft/40"
     >
       <td className="py-2 pr-2 pl-0">
         <div className="flex items-center">
@@ -249,7 +249,7 @@ function KindBadge({ kind }: { kind: string }) {
   const meta = CAT_META[txCategory(kind)] ?? CAT_FALLBACK;
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${meta.chip}`}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold shadow-soft ${meta.chip}`}
     >
       <span aria-hidden="true" className="text-[10px] leading-none opacity-80">
         {KIND_GLYPH[kind] ?? '•'}
@@ -285,7 +285,7 @@ function SummaryCard({
     warn: 'border-warn/40 bg-warn-soft text-warn',
   }[tone];
   return (
-    <div className="lift group flex flex-col gap-1.5 rounded-xl border border-edge bg-panel p-3.5 hover:border-accent/40">
+    <div className="lift surface group flex flex-col gap-1.5 rounded-xl border border-edge bg-panel p-3.5 hover:border-accent/40">
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted">{label}</span>
         <span
@@ -315,8 +315,8 @@ function Chip({
       onClick={onClick}
       className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
         active
-          ? 'border-accent/50 bg-accent-soft text-accent'
-          : 'border-edge bg-panel-2 text-muted hover:text-fg'
+          ? 'bg-grad-accent text-[var(--color-on-accent)] btn-glow-accent border-transparent'
+          : 'border-edge bg-panel-2 text-muted hover:border-accent/40 hover:text-fg'
       }`}
     >
       {children}

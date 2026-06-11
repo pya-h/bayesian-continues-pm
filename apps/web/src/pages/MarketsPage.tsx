@@ -60,7 +60,7 @@ export function MarketsPage() {
   return (
     <div className="flex flex-col gap-5">
       {/* heading + search + sort */}
-      <div className="hero-glow relative flex flex-col gap-3 overflow-hidden rounded-2xl border border-edge bg-panel p-5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="hero-glow gradient-border surface relative flex flex-col gap-3 overflow-hidden rounded-2xl border border-edge bg-panel p-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex flex-col gap-1">
           <div className="flex items-baseline gap-2">
             <h1 className="text-gradient text-2xl font-semibold tracking-tight">Markets</h1>
@@ -79,7 +79,7 @@ export function MarketsPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search markets…"
-              className="w-44 rounded-lg border border-edge bg-panel-2 py-1.5 pr-3 pl-7 text-sm outline-none transition-colors focus:border-accent sm:w-56"
+              className="input-glow w-44 rounded-lg border border-edge bg-panel-2 py-1.5 pr-3 pl-7 text-sm outline-none transition-colors focus:border-accent sm:w-56"
             />
           </div>
           <label className="flex items-center gap-1.5 text-xs text-muted">
@@ -87,7 +87,7 @@ export function MarketsPage() {
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as MarketSort)}
-              className="rounded-lg border border-edge bg-panel-2 px-2 py-1.5 text-sm text-fg outline-none focus:border-accent"
+              className="input-glow rounded-lg border border-edge bg-panel-2 px-2 py-1.5 text-sm text-fg outline-none focus:border-accent"
             >
               {MARKET_SORTS.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -109,14 +109,18 @@ export function MarketsPage() {
               key={s}
               type="button"
               onClick={() => setStatus(s)}
-              className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors ${
+              className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium capitalize transition-all duration-200 ${
                 active
-                  ? 'border-accent bg-accent-soft text-accent'
-                  : 'border-edge bg-panel-2 text-muted hover:text-fg'
+                  ? 'btn-glow-accent border-transparent bg-grad-accent text-[var(--color-on-accent)]'
+                  : 'border-edge bg-panel-2 text-muted hover:border-accent/40 hover:text-fg'
               }`}
             >
               {s === 'ALL' ? 'All' : s.toLowerCase()}
-              <span className={`tnum ${active ? 'text-accent/80' : 'text-muted/70'}`}>{n}</span>
+              <span
+                className={`tnum ${active ? 'text-[var(--color-on-accent)]/80' : 'text-muted/70'}`}
+              >
+                {n}
+              </span>
             </button>
           );
         })}
@@ -155,16 +159,23 @@ function MarketCard({
     <Link
       to={`/markets/${m.marketId}`}
       style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
-      className="lift group flex flex-col gap-3 rounded-xl border border-edge bg-panel p-4 animate-fade-up hover:border-accent/60 hover:shadow-lg hover:shadow-black/20"
+      className="lift surface group relative flex flex-col gap-3 overflow-hidden rounded-xl border border-edge bg-panel p-4 animate-fade-up"
     >
+      {/* accent wash that blooms on hover */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-grad-accent opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+      />
       <div className="flex items-start justify-between gap-2">
-        <h3 className="font-semibold leading-snug group-hover:text-accent">{m.title}</h3>
+        <h3 className="font-semibold leading-snug transition-colors group-hover:text-accent">
+          {m.title}
+        </h3>
         <StatusBadge status={m.status} />
       </div>
       {m.description && <p className="line-clamp-1 text-sm text-muted">{m.description}</p>}
 
       {/* belief-density signature */}
-      <div className="h-14 w-full overflow-hidden rounded-lg bg-panel-2/50">
+      <div className="h-14 w-full overflow-hidden rounded-lg border border-edge/40 bg-panel-2/50">
         <MiniBelief
           mu={mu}
           sigma={sigma}

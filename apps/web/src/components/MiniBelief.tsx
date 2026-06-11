@@ -2,6 +2,7 @@
 // Shows the N(μ, σ²) curve with its mean tick; reads the live belief so it
 // breathes as the consensus moves. Pure geometry from lib/viz.ts.
 
+import { useId } from 'react';
 import { type Domain, niceDomain, pdfCurve, scale, toPath } from '../lib/viz.ts';
 
 const W = 240;
@@ -20,6 +21,7 @@ export function MiniBelief({
   outcomeMax?: number | null;
   thetaStar?: number | null;
 }) {
+  const fillId = useId();
   const domain: Domain = niceDomain(mu, sigma, {
     sigmas: 3.2,
     min: outcomeMin,
@@ -44,7 +46,13 @@ export function MiniBelief({
       aria-label="Belief density"
     >
       <title>Consensus belief density</title>
-      <path d={area} fill="var(--color-accent)" opacity={0.15} />
+      <defs>
+        <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--color-accent)" stopOpacity={0.32} />
+          <stop offset="100%" stopColor="var(--color-accent)" stopOpacity={0.02} />
+        </linearGradient>
+      </defs>
+      <path d={area} fill={`url(#${fillId})`} />
       <path d={line} fill="none" stroke="var(--color-accent)" strokeWidth={1.5} />
       <line
         x1={muX}

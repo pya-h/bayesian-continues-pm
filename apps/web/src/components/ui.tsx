@@ -60,17 +60,26 @@ export function Panel({
   className = '',
   title,
   right,
+  glow = false,
 }: {
   children: ReactNode;
   className?: string;
   title?: ReactNode;
   right?: ReactNode;
+  glow?: boolean;
 }) {
   return (
-    <section className={`rounded-xl border border-edge bg-panel ${className}`}>
+    <section
+      className={`surface rounded-xl border border-edge bg-panel shadow-soft ${
+        glow ? 'glow-accent' : ''
+      } ${className}`}
+    >
       {(title || right) && (
         <header className="flex items-center justify-between border-b border-edge px-4 py-2.5">
-          <h2 className="text-sm font-semibold text-fg">{title}</h2>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-fg">
+            {title && <span className="h-3.5 w-1 rounded-full bg-grad-accent" aria-hidden="true" />}
+            {title}
+          </h2>
           {right}
         </header>
       )}
@@ -82,7 +91,7 @@ export function Panel({
 export function StatusBadge({ status }: { status: string }) {
   return (
     <span
-      className={`rounded px-2 py-0.5 text-xs font-semibold tracking-wide ${statusTone(status)}`}
+      className={`rounded-md px-2 py-0.5 text-xs font-semibold tracking-wide ring-1 ring-inset ring-current/25 ${statusTone(status)}`}
     >
       {status}
     </span>
@@ -124,12 +133,13 @@ export function Button({
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
   const base =
-    'inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold transition-[transform,background-color,border-color,filter] duration-150 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-45 disabled:active:scale-100';
+    'sheen relative overflow-hidden inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold transition-[transform,box-shadow,filter] duration-150 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-45 disabled:active:scale-100 disabled:shadow-none';
   const variants: Record<Variant, string> = {
-    primary: 'bg-accent text-[var(--color-on-accent)] hover:brightness-110 active:brightness-95',
-    buy: 'bg-buy text-white hover:brightness-110 active:brightness-95',
-    sell: 'bg-sell text-white hover:brightness-110 active:brightness-95',
-    ghost: 'border border-edge bg-panel-2 text-fg hover:border-muted hover:bg-edge/40',
+    primary:
+      'btn-glow-accent bg-grad-accent text-[var(--color-on-accent)] hover:brightness-110 active:brightness-95',
+    buy: 'btn-glow-buy bg-buy text-white hover:brightness-110 active:brightness-95',
+    sell: 'btn-glow-sell bg-sell text-white hover:brightness-110 active:brightness-95',
+    ghost: 'border border-edge bg-panel-2 text-fg hover:border-accent/50 hover:bg-edge/40',
   };
   return <button className={`${base} ${variants[variant]} ${className}`} {...props} />;
 }
@@ -216,8 +226,9 @@ export function Modal({
       <div
         role="dialog"
         aria-modal="true"
-        className="relative my-12 flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-edge bg-panel shadow-2xl animate-fade-up"
+        className="surface relative my-12 flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-edge bg-panel shadow-2xl animate-pop"
       >
+        <span aria-hidden="true" className="h-0.5 w-full shrink-0 bg-grad-accent" />
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-edge px-5 py-3">
           <h2 className="text-sm font-semibold text-fg">{title}</h2>
           <div className="flex items-center gap-2">
@@ -255,12 +266,12 @@ export function Toggle({
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors ${
-        checked ? 'border-accent bg-accent' : 'border-edge bg-panel-2'
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-all duration-200 ${
+        checked ? 'border-accent bg-grad-accent glow-accent' : 'border-edge bg-panel-2'
       }`}
     >
       <span
-        className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
+        className={`inline-block h-4 w-4 rounded-full bg-white shadow-md transition-transform duration-300 [transition-timing-function:var(--ease-spring)] ${
           checked ? 'translate-x-6' : 'translate-x-1'
         }`}
       />

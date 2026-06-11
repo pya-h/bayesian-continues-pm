@@ -8,7 +8,7 @@ export function TradesTape({ tape }: { tape: TapeEntry[] }) {
   return (
     <div className="max-h-64 overflow-y-auto">
       <table className="w-full text-xs tnum">
-        <thead className="sticky top-0 bg-panel text-muted">
+        <thead className="sticky top-0 bg-panel surface text-muted">
           <tr className="text-left">
             <th className="px-4 py-1.5 font-medium">Side</th>
             <th className="px-2 py-1.5 text-right font-medium">Qty</th>
@@ -20,7 +20,7 @@ export function TradesTape({ tape }: { tape: TapeEntry[] }) {
           {tape.map((t, i) => (
             <tr
               key={t.tradeId}
-              className={`border-t border-edge/60 ${i === 0 ? 'animate-slide-in' : ''}`}
+              className={`border-t border-edge/60 transition-colors hover:bg-panel-2/40 ${i === 0 ? 'animate-slide-in' : ''}`}
             >
               <td
                 className={`px-4 py-1.5 font-semibold ${t.side === 'buy' ? 'text-buy' : 'text-sell'}`}

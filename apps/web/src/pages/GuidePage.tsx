@@ -23,7 +23,7 @@ export function GuidePage() {
   return (
     <div className="flex flex-col gap-5">
       {/* hero */}
-      <div className="relative overflow-hidden rounded-2xl border border-edge bg-panel p-6">
+      <div className="relative overflow-hidden rounded-2xl border border-edge bg-panel surface gradient-border p-6">
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 -z-0 opacity-70"
@@ -58,13 +58,15 @@ export function GuidePage() {
                 onClick={() => setTab(t.id)}
                 className={`group flex shrink-0 items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-200 ${
                   active
-                    ? 'border-accent/40 bg-accent-soft text-fg shadow-sm'
-                    : 'border-edge bg-panel text-muted hover:border-muted hover:text-fg'
+                    ? 'border-transparent bg-grad-accent text-[var(--color-on-accent)] btn-glow-accent'
+                    : 'border-edge bg-panel text-muted hover:border-accent/40 hover:text-fg'
                 }`}
               >
                 <span
                   className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base transition-colors ${
-                    active ? 'bg-accent text-[var(--color-on-accent)]' : 'bg-panel-2 text-muted'
+                    active
+                      ? 'bg-grad-accent text-[var(--color-on-accent)]'
+                      : 'bg-panel-2 text-muted'
                   }`}
                 >
                   {t.icon}
@@ -93,7 +95,7 @@ export function GuidePage() {
 
 function Card({ title, icon, children }: { title: string; icon?: string; children: ReactNode }) {
   return (
-    <section className="rounded-2xl border border-edge bg-panel p-5">
+    <section className="rounded-2xl border border-edge bg-panel surface p-5">
       <h2 className="flex items-center gap-2 text-base font-semibold">
         {icon && <span className="text-accent">{icon}</span>}
         {title}
@@ -105,7 +107,7 @@ function Card({ title, icon, children }: { title: string; icon?: string; childre
 
 function Term({ name, children }: { name: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-1 gap-0.5 rounded-lg border border-edge bg-panel-2/40 p-3 sm:grid-cols-[10rem_1fr] sm:gap-3">
+    <div className="grid grid-cols-1 gap-0.5 rounded-lg border border-edge bg-panel-2/40 surface-2 p-3 sm:grid-cols-[10rem_1fr] sm:gap-3">
       <span className="font-semibold text-fg">{name}</span>
       <span>{children}</span>
     </div>
@@ -115,7 +117,7 @@ function Term({ name, children }: { name: string; children: ReactNode }) {
 function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
   return (
     <div className="flex gap-3">
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-sm font-semibold text-accent">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-grad-accent text-sm font-semibold text-[var(--color-on-accent)]">
         {n}
       </span>
       <div className="flex flex-col gap-0.5 pt-0.5">
@@ -128,7 +130,7 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 
 function Callout({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-fg">
+    <div className="rounded-lg border border-accent/30 bg-accent-soft glow-accent px-3 py-2 text-sm text-fg">
       💡 {children}
     </div>
   );
@@ -140,7 +142,9 @@ function Figure({
   className = '',
 }: { children: ReactNode; caption?: string; className?: string }) {
   return (
-    <figure className={`overflow-hidden rounded-xl border border-edge bg-panel-2/40 ${className}`}>
+    <figure
+      className={`overflow-hidden rounded-xl border border-edge bg-panel-2/40 surface-2 ${className}`}
+    >
       <div className="px-3 pt-3">{children}</div>
       {caption && (
         <figcaption className="px-3 pb-2.5 pt-1.5 text-center text-[11px] text-muted">
@@ -170,7 +174,7 @@ function ContractGallery() {
       {CONTRACTS.map((c) => (
         <div
           key={c.name}
-          className="lift flex items-center gap-3 rounded-xl border border-edge bg-panel-2/40 p-3 transition-colors hover:border-accent/50"
+          className="lift flex items-center gap-3 rounded-xl border border-edge bg-panel-2/40 surface-2 p-3 transition-colors hover:border-accent/50"
         >
           <div className="h-14 w-20 shrink-0 rounded-lg bg-panel/60 p-1">
             <PayoffArt kind={c.kind} />

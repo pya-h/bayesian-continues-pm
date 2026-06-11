@@ -68,7 +68,7 @@ export function MarketLedgerView({ marketId }: { marketId: string }) {
   return (
     <div className="mt-3 flex flex-col gap-3">
       {/* rollups */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-edge bg-panel-2 p-3 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-edge bg-panel-2 surface-2 p-3 sm:grid-cols-3 lg:grid-cols-4">
         <Stat label="Genesis reserve" value={fmt(r.genesisReserve)} />
         <Stat label="Premium in" value={fmt(r.premiumIn)} tone="buy" />
         <Stat label="Premium out" value={fmt(r.premiumOut)} tone="sell" />
@@ -146,7 +146,7 @@ export function MarketLedgerView({ marketId }: { marketId: string }) {
           No events match this filter.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-edge">
+        <div className="overflow-x-auto rounded-lg border border-edge surface-2">
           <table className="w-full text-xs tnum">
             <thead className="border-b border-edge text-muted">
               <tr className="text-left">
@@ -231,8 +231,8 @@ function Chip({
       onClick={onClick}
       className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
         active
-          ? 'border-accent/50 bg-accent-soft text-accent'
-          : 'border-edge bg-panel-2 text-muted hover:text-fg'
+          ? 'bg-grad-accent text-[var(--color-on-accent)] btn-glow-accent border-transparent'
+          : 'border-edge bg-panel-2 text-muted hover:text-fg hover:border-accent/40'
       }`}
     >
       {children}

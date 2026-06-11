@@ -50,7 +50,7 @@ export function LoginPage() {
         type="button"
         onClick={() => setSettingsOpen(true)}
         aria-label="Preferences"
-        className="absolute right-4 top-4 rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-xs text-muted transition-colors hover:text-fg"
+        className="absolute right-4 top-4 rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-xs text-muted transition-colors hover:border-accent/50 hover:text-fg"
       >
         ⚙ Theme
       </button>
@@ -73,7 +73,9 @@ export function LoginPage() {
                 setError(null);
               }}
               className={`flex-1 rounded-md py-1.5 font-medium capitalize transition-colors ${
-                mode === m ? 'bg-panel-2 text-fg' : 'text-muted hover:text-fg'
+                mode === m
+                  ? 'bg-grad-accent text-[var(--color-on-accent)] btn-glow-accent'
+                  : 'text-muted hover:text-fg'
               }`}
             >
               {m === 'login' ? 'Sign in' : 'Register'}
@@ -83,7 +85,7 @@ export function LoginPage() {
 
         <form
           onSubmit={onSubmit}
-          className="flex flex-col gap-3 rounded-xl border border-edge bg-panel p-5"
+          className="flex flex-col gap-3 rounded-xl border border-edge bg-panel p-5 surface shadow-soft"
         >
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-muted">Username</span>
@@ -91,7 +93,7 @@ export function LoginPage() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
-              className="rounded-lg border border-edge bg-panel-2 px-3 py-2 outline-none focus:border-accent"
+              className="rounded-lg border border-edge bg-panel-2 px-3 py-2 outline-none focus:border-accent input-glow"
               placeholder="alice"
             />
           </label>
@@ -102,7 +104,7 @@ export function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              className="rounded-lg border border-edge bg-panel-2 px-3 py-2 outline-none focus:border-accent"
+              className="rounded-lg border border-edge bg-panel-2 px-3 py-2 outline-none focus:border-accent input-glow"
               placeholder="••••••"
             />
           </label>

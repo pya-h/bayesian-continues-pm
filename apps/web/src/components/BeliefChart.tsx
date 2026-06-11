@@ -254,6 +254,23 @@ export function BeliefChart({
     >
       <title>Belief PDF and payoff overlay</title>
 
+      <defs>
+        {/* vertical glow gradient for the belief area fill */}
+        <linearGradient id="bc-belief-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--color-accent)" stopOpacity={0.34} />
+          <stop offset="55%" stopColor="var(--color-accent)" stopOpacity={0.12} />
+          <stop offset="100%" stopColor="var(--color-accent)" stopOpacity={0.02} />
+        </linearGradient>
+        {/* soft neon glow for the curve strokes */}
+        <filter id="bc-glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation={2.4} result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+
       {/* framed plot area */}
       <rect
         x={PLOT.l}
@@ -422,10 +439,15 @@ export function BeliefChart({
       {/* belief PDF: filled area + outline */}
       <path
         d={`${toPath(pdf, sx, syPdf)} L${sx(hi).toFixed(2)} ${syPdf(0).toFixed(2)} L${sx(lo).toFixed(2)} ${syPdf(0).toFixed(2)} Z`}
-        fill="var(--color-accent)"
-        opacity={0.16}
+        fill="url(#bc-belief-fill)"
       />
-      <path d={toPath(pdf, sx, syPdf)} fill="none" stroke="var(--color-accent)" strokeWidth={2} />
+      <path
+        d={toPath(pdf, sx, syPdf)}
+        fill="none"
+        stroke="var(--color-accent)"
+        strokeWidth={2}
+        filter="url(#bc-glow)"
+      />
 
       {/* mean line */}
       <line
@@ -442,7 +464,13 @@ export function BeliefChart({
       </text>
 
       {/* payoff overlay */}
-      <path d={toPath(pay, sx, syPay)} fill="none" stroke="var(--color-buy)" strokeWidth={2} />
+      <path
+        d={toPath(pay, sx, syPay)}
+        fill="none"
+        stroke="var(--color-buy)"
+        strokeWidth={2}
+        filter="url(#bc-glow)"
+      />
 
       {/* resolution marker */}
       {thetaStar != null && thetaStar >= lo && thetaStar <= hi && (
