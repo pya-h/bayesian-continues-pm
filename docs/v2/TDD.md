@@ -1,6 +1,8 @@
 # Technical Design Document — BMM Continuous Prediction Market **V2**
 
-> Builds on **V1** (`TDD.md`, `TASKS.md`) and the spec (`MODEL.md`). V1 must be shipped and in use first. V2 adds the parts intentionally deferred from V1: richer beliefs, leverage/margin/shorting, adaptive parameters, hedging, robust oracles/disputes, real compliance, and horizontal scale. Where this doc disagrees with `MODEL.md`, this doc wins; deviations are called out.
+> Builds on **V1** (`TDD.md`, `TASKS.md`) and the spec (`MODEL.md`). V1 must be shipped and in use first. V2 adds the parts intentionally deferred from V1: richer beliefs, adaptive parameters, hedging, robust oracles/disputes, real compliance, and horizontal scale. Where this doc disagrees with `MODEL.md`, this doc wins; deviations are called out.
+>
+> **Scope boundary (V2 ↔ V3):** V2 stays **1× cash-collateralized**, exactly like V1, on the collateral axis. **Leverage, margin, shorting, the liquidation engine, and the full insurance fund moved to V3** (`docs/v3/TDD.md`). They were originally V2 Workstreams **B** and **H**; this doc no longer covers them. Nothing in V2 lets a user owe more than the premium they paid.
 
 ---
 
@@ -11,15 +13,13 @@ V1 is a correct, runnable, **Gaussian, 1×-cash-collateralized, single-instance*
 | # | V2 Workstream | V1 extension point it plugs into | `MODEL.md` ref |
 |---|---|---|---|
 | A | **Multi-modal beliefs** (Gaussian Mixture, Student-t) | `BeliefModel` interface (already abstract in V1 core) | §2.3.2, §2.3.3, §5.4 |
-| B | **Leverage, margin, shorting, liquidation** | trade engine, positions, solvency | §9.2, §9.3 |
 | C | **Adaptive parameters** (EWMA σ_ε, regime spreads) | per-market `cfg`, spread/signal modules | §14.2 |
 | D | **Hedging** (internal + external) | inventory/solvency, `TradeEngine` | §6.4 |
 | E | **Robust oracles & dispute resolution** | `OracleSvc`, resolve flow | §11 |
 | F | **Compliance** (KYC tiers, geofencing, limits, audit) | auth/user, position limits | §9.3, §19 |
 | G | **Scale & ops** (Redis, read replicas, shard by market) | api topology | §18.2 |
-| H | **Insurance fund** (full mechanics) | settlement, bankruptcy path | §15.2 |
 
-Each workstream is independently shippable; A and B are the headline features.
+Each workstream is independently shippable; **A (multi-modal beliefs)** is the headline feature. *(The original Workstreams **B** — leverage/margin/shorting/liquidation — and **H** — insurance fund — are now **V3**; see `docs/v3/TDD.md`. Workstream letters C–G are kept as-is to avoid churn against earlier references.)*
 
 ---
 
@@ -62,42 +62,11 @@ Mixture price = weighted sum of component prices (cross-check vs MC); merge/prun
 
 ---
 
-## 3. Workstream B — Leverage, Margin, Shorting, Liquidation
+## 3. ~~Workstream B — Leverage, Margin, Shorting, Liquidation~~ → **moved to V3**
 
-This is the realization of `MODEL.md §9.2/§9.3` (the section the user asked about). V1 was 1× cash-collateralized; V2 introduces borrowed exposure and the machinery to keep it safe.
+Leverage, margin, shorting, the liquidation engine, and the insurance-fund backstop that pairs with them are **no longer part of V2**. They are designed in full in **`docs/v3/TDD.md`** (with the build plan in `docs/v3/TASKS.md` and a concepts explainer in `docs/v3/shorting-and-leverage.md`).
 
-### 3.1 Concepts
-- **Leverage L (tier-based):** an account may hold notional up to `L × equity`.
-- **Margin:** collateral locked against open positions. `margin_required = Σ_C |position[C]| × margin_rate[C] × price[C]` (`§9.2`). `margin_rate` is per-contract-type (riskier payoffs ⇒ higher rate; e.g. linear/call higher than capped binary).
-- **Equity:** `balance + Σ unrealized_pnl`. **Free margin:** `equity − margin_used`.
-- **Shorting:** V2 allows selling contracts you don't hold (negative position). The MM takes the other side; the short poster owes `f(θ*)` at settlement, collateralized by margin.
-
-### 3.2 Position & account model changes
-- `positions.quantity` may now be **negative** (short).
-- New per-user, per-market **margin account**: `margin_used`, `equity`, `maintenance_margin`, `liquidation_price/region`.
-- Two margin levels: **initial margin** (to open) and **maintenance margin** (to stay open); maintenance < initial.
-
-### 3.3 Trade engine changes
-On open/increase:
-1. Compute post-trade `margin_required` and `equity`.
-2. Reject if `margin_required > equity × tierLeverage` or `free_margin < 0` (`§9.2`).
-3. Position limit check vs tier max (`§9.3`).
-4. Existing BMM belief-update + **MM solvency** still apply (the MM's reserve must still cover net `L(θ)` including shorts — shorts reduce `mmShort`, longs increase it; net book risk drives reserve as in V1 `TDD.md §2.1`).
-
-### 3.4 Liquidation engine (new service `LiquidationSvc`)
-- Runs on every belief/price update for a market (event-driven) + a periodic sweep.
-- For each leveraged account: recompute `equity` (mark positions at current bid/ask). If `equity < maintenance_margin` → **margin call → liquidate**:
-  - Close positions (market-sell/buy-to-cover at current quote) until `equity ≥ maintenance_margin` or flat.
-  - Liquidation penalty fee → **insurance fund** (Workstream H).
-  - If liquidation can't restore solvency (gap risk, e.g. a huge jump in μ), the residual loss is absorbed by the **insurance fund**, else socialized (`§8.2`, `§15.2`).
-- Emit `margin_call`, `liquidation` WS events; show in portfolio + admin.
-
-### 3.5 Risk display
-- Portfolio shows per-position: leverage, margin used, liquidation price/region, distance-to-liquidation, health ratio `equity/maintenance`.
-- Pre-trade panel shows resulting leverage and liquidation point so the user sees the risk before confirming.
-
-### 3.6 Tests
-Margin gates open/close correctly; a price move into the liquidation region triggers liquidation; insurance fund absorbs gap loss; shorts settle correctly (short of a call that finishes ITM pays out); no account can exceed tier leverage; flat accounts have zero margin.
+Why the split: V2's other workstreams (richer beliefs, adaptive params, hedging, oracles, compliance, scale) are all orthogonal to the collateral model and ship fine at 1×. Borrowed exposure, by contrast, drags in a whole safety subsystem — maintenance margin, an event-driven liquidation engine, and an insurance fund to absorb gap loss and bankruptcy. Bundling that into V2 would have made the headline belief work wait on it. So V2 stays **1× cash-collateralized** (a user can never owe more than the premium paid), and the entire borrowed-exposure stack — including the **insurance fund** (was Workstream H) — lands together in V3 where it has a coherent job.
 
 ---
 
@@ -134,9 +103,9 @@ V1 oracle = manual admin entry. V2 adds:
 ## 7. Workstream F — Compliance & Tiers (`MODEL.md §9.3, §19`)
 
 Real (but still play-money) account tiers and limits.
-- **KYC tiers:** Anonymous → Verified → Advanced → Institutional. Mock KYC flow (upload stub / admin approval) advances tiers; each tier unlocks deposit/withdraw limits, position limits, and leverage (§9.3 table) consumed by Workstream B.
+- **KYC tiers:** Anonymous → Verified → Advanced → Institutional. Mock KYC flow (upload stub / admin approval) advances tiers; each tier unlocks deposit/withdraw limits and position limits (§9.3 table). *(The same tier table also carries a per-tier **leverage cap**, but leverage itself is a **V3** feature — the cap column and its enforcement land in `docs/v3/` alongside margin. V2 leaves every account at 1×.)*
 - **Geofencing:** IP-based country check + blocklist (`§19.2`); configurable, mockable for local dev.
-- **Audit log:** immutable append-only `audit_events` for admin actions, top-ups, tier changes, liquidations, disputes.
+- **Audit log:** immutable append-only `audit_events` for admin actions, top-ups, tier changes, disputes.
 - Position/deposit/withdraw limits enforced centrally in a `LimitsSvc` keyed on tier.
 
 ---
@@ -148,70 +117,62 @@ V1 is single-instance with an in-process per-market queue. V2 makes it horizonta
 - **Trade engine = single leader per market:** market ownership assigned to one API node (consistent-hash on `market_id`) so the BMM stays sequentially consistent under multi-node; others proxy/forward writes. Reads served anywhere.
 - **Postgres read replicas** for `GET` endpoints + history/stats; **shard by `market_id`** when needed.
 - **Rate limiting** at gateway (`§18.1`).
-- Observability: structured logs, metrics (trade latency, reserve utilization, liquidation count), health/readiness probes.
+- Observability: structured logs, metrics (trade latency, reserve utilization, trade throughput), health/readiness probes.
 
 ---
 
-## 9. Workstream H — Insurance Fund (`MODEL.md §15.2`)
+## 9. ~~Workstream H — Insurance Fund~~ → **moved to V3**
 
-- A protocol-level fund account: `insurance_fund += fee_pct × volume` (0.1–0.5% of trade volume) + liquidation penalties.
-- Drawn on for: user bankruptcy on negative-payoff custom contracts (`§8.2`), liquidation gap losses (Workstream B), unresolved socialized losses.
-- Admin dashboard: fund balance, inflows/outflows, coverage ratio vs aggregate at-risk exposure. Alert if coverage < threshold.
+The full insurance-fund mechanics (`MODEL.md §15.2`) are deferred to **V3** and designed in `docs/v3/TDD.md`. Its draw paths — user bankruptcy on negative-payoff exposure, liquidation **gap loss**, socialized loss — only become reachable once **shorting and leverage** exist (in 1× cash-collateralized V2 a holder can never owe more than the premium already paid, so there is nothing for the fund to absorb). It therefore ships with the leverage stack in V3 rather than standing alone in V2.
+
+*(V1 already carries a stub protocol account as a pure safety net; V3 turns it into the full fund with a ledger, fee accrual, and a coverage dashboard.)*
 
 ---
 
 ## 10. Data Model Deltas (vs V1 `TDD.md §9`)
 ```
-users           + kyc_tier, kyc_status, country, leverage_cap
-markets.cfg     + belief_kind, adaptive flags, dispute_window, margin_rates, hedge_enabled
+users           + kyc_tier, kyc_status, country          -- (leverage_cap → V3)
+markets.cfg     + belief_kind, adaptive flags, dispute_window, hedge_enabled
 beliefs         positions/serialization generalized to mixture/student_t (jsonb already flexible)
-positions       quantity may be negative (short); + margin_used, liquidation_ref
-margin_accounts (user_id, market_id, margin_used, equity_snapshot, maintenance, health, updated_at)
-liquidations    (id, user_id, market_id, trigger, closed_qty, penalty, gap_loss, created_at)
 hedges          (id, market_id, contract_ref, qty, reserve_before, reserve_after, created_at)
 oracle_sources  (id, market_id, kind, config jsonb, weight)
 oracle_reports  (id, market_id, source_id, value, confidence, reported_at)
 disputes        (id, market_id, user_id, reason, status, resolution, created_at, resolved_at)
-insurance_fund  (single row: balance) + insurance_ledger(kind, amount, ref, created_at)
 audit_events    (id, actor_id, action, target, payload jsonb, created_at)
 market_cfg_history (market_id, cfg jsonb, created_at)   -- adaptive params over time
 ```
+*(Moved to V3: `positions.quantity` going negative, `margin_accounts`, `liquidations`, `insurance_fund`/`insurance_ledger`, `markets.cfg.margin_rates`, and `users.leverage_cap` — see `docs/v3/TDD.md §`Data Model.)*
 
 ## 11. API Deltas
 ```
 # beliefs
 POST /admin/markets            + belief_kind, components[], nu, adaptive cfg
-# margin / leverage
-GET  /users/me/margin/:marketId           margin account, health, liquidation point
-POST /markets/:id/trades                   now accepts leverage/short (negative q), margin-gated
-# liquidations (system) -> WS margin_call / liquidation; GET /users/me/liquidations
 # oracles / disputes
 POST /admin/markets/:id/oracle-sources     configure sources
 POST /markets/:id/dispute                  open dispute (in window)
 POST /admin/markets/:id/disputes/:d/resolve
 # compliance
 POST /users/me/kyc                         submit (mock); POST /admin/users/:id/kyc/approve
-# insurance / ops
-GET  /admin/insurance                      fund + ledger
 ```
-New WS events: `margin_call`, `liquidation`, `belief_components_update`, `oracle_report`, `dispute_opened`, `param_adapted`, `insurance_update`.
+New WS events: `belief_components_update`, `oracle_report`, `dispute_opened`, `param_adapted`.
+*(The margin/leverage/liquidation and insurance endpoints + `margin_call`/`liquidation`/`insurance_update` WS events move to V3 — see `docs/v3/TDD.md §`API.)*
 
 ## 12. Frontend Deltas
 - **Belief chart:** general multi-modal PDF, component legend, fat-tail rendering.
-- **Trade panel:** leverage selector, margin/liquidation preview, short toggle.
-- **Portfolio:** margin health bars, liquidation distance, short positions, liquidation history.
-- **Admin:** belief-kind + component editor at creation; oracle-source config; dispute queue; insurance-fund dashboard; adaptive-param charts; hedge book.
+- **Admin:** belief-kind + component editor at creation; oracle-source config; dispute queue; adaptive-param charts; hedge book.
 - **KYC:** mock tier-upgrade flow.
+
+*(The trade-panel leverage selector / margin / liquidation preview / short toggle, the portfolio margin-health / liquidation-distance / short views, and the insurance-fund dashboard are **V3** — see `docs/v3/TDD.md §`Frontend.)*
 
 ## 13. Testing (additions)
 - Mixture/t pricing vs MC; component merge/prune/split invariants.
-- Margin gates, liquidation triggers, gap-loss → insurance, short settlement.
 - Adaptive params stay in `§14.1` rails; regime detection sane.
 - Oracle aggregation/median, missing-feed suspend, dispute window blocks claims.
 - Multi-node consistency: concurrent trades across 2 API nodes via Redis lock stay sequentially consistent (no double-spend of reserve).
-- Insurance accounting balances (inflows − outflows = balance).
+
+*(Margin-gate / liquidation-trigger / gap-loss→insurance / short-settlement / insurance-accounting tests live in V3.)*
 
 ## 14. Migration / Rollout from V1
-- All V1 markets keep working (`belief_kind='gaussian'`, leverage cap 1× ⇒ behaves exactly as V1). New features are opt-in per market via `cfg`.
-- Ship order: **A (beliefs)** and **F (tiers, needed by B)** → **B (leverage/margin/liquidation)** → **H (insurance, needed by B gap loss)** → **C, D, E** → **G (scale)** last. (See `V2-TASKS.md`.)
+- All V1 markets keep working (`belief_kind='gaussian'`, 1× cash-collateralized ⇒ behaves exactly as V1). New features are opt-in per market via `cfg`.
+- Ship order: **A (beliefs)** and **F (tiers)** → **C, D, E** (adaptive, hedging, oracles) → **G (scale)** last. (See `V2-TASKS.md`.) Leverage/margin/liquidation + insurance are a separate **V3** track that builds on shipped V2 (it needs the V2-2 tier table for leverage caps).
 - DB migrations are additive (new columns nullable/defaulted, new tables); no destructive changes to V1 data.
