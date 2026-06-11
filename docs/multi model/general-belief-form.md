@@ -152,9 +152,54 @@ demo of "one formula, many shapes" (it's the **General ** option in the sandbox,
   excite its degrees of freedom. Flexibility of the *form* and richness of the *input* are two
   halves of the same lever — a general belief is only as expressive as the trades allowed to sculpt it.
 
+## What each general mode subsumes — precisely (and what it doesn't)
+
+This is the analysis that drives the admin refactor (see [`TASKS.md`](./TASKS.md)). Be exact here —
+the whole "demote the other three" decision rests on it.
+
+**Gen·basis (finite Gaussian mixture)** is a **universal approximator**: finite Gaussian mixtures
+are *dense* in the space of distributions, so it can match **any** density to arbitrary accuracy over
+any finite outcome range.
+
+| Old model | Covered by Gen·basis? |
+|---|---|
+| Gaussian | **Exactly** (one component) |
+| Mixture | **Exactly** — it *is* the general mixture; the old `mixture` kind is a strict subset |
+| Student-t | **To arbitrary accuracy over any finite range** (a t is a continuous scale-mixture of Gaussians). The *only* gap is the **infinite-tail asymptotic** — a finite mixture decays Gaussian-fast (`e^{-x²}`) where a true t decays polynomially (`x^{-(ν+1)}`). **This never affects a real contract**, which is priced over a finite outcome window. |
+
+So for every *practical* purpose Gen·basis subsumes all three. The one thing it can't do *exactly*
+in closed form is the **true polynomial tail** of a Student-t — and that only matters for tail mass
+beyond any traded outcome.
+
+**Gen·exact (max-entropy `exp(−poly)`)** covers a different slice:
+
+| Shape | Covered by Gen·exact? |
+|---|---|
+| Gaussian | **Exactly** (λ₂=1) |
+| Skew / peaked / flat-top | **Yes** (λ₃, λ₄) |
+| Bimodal | **Yes** (λ₂<0) |
+| 3+ modes | only with higher-degree, finely-balanced wells (fiddly) |
+| **Fat tails (Student-t)** | **No.** A polynomial exponent gives Gaussian-or-*thinner* tails; fatter-than-Gaussian tails need a *logarithmic* exponent (which is literally the Student-t), not a polynomial. **This is its real limitation.** |
+
+### Consequence for the model menu
+
+| Model | Keep? | Why |
+|---|---|---|
+| **Gen·basis ** | **primary, default** | universal, closed-form, on-chain-feasible, placement-friendly |
+| **Gen·exact ** | **primary** | few-parameter smooth analytic shapes (skew/peak/flat/bimodal), exact |
+| Gaussian | extra | the cheapest exact unimodal special case (2 params, closed-form) — keep as a fast path |
+| Student-t | extra | **the one capability the generals don't do exactly/cheaply: a true heavy (polynomial) tail in 3 params** — genuinely worth keeping |
+| Mixture | extra (alias) | strictly redundant with Gen·basis; keep only as a "few explicit camps" preset, or alias it to Gen·basis |
+
+So the two generals cover **almost everything**; the honest exception is **exact heavy tails**, which
+is exactly why **Student-t earns its place** as an extra. The refactor demotes — not deletes — the
+three, with Student-t the most defensible to retain.
+
 ## Verdict
 
 **Yes — a single general parametric belief is achievable, and it's a Gaussian mixture.** Ship an
 **adaptive-mixture `general` kind** (universal, closed-form, on-chain-feasible, self-adapting its
 parameter count); keep the **max-entropy polynomial** as the analytical "moments dial" that makes
-the flexibility legible. The creator picks *general*; the order flow does the rest.
+the flexibility legible. The creator picks *general*; the order flow does the rest. The detailed,
+step-by-step build is in [`TASKS.md`](./TASKS.md); contract-shape extensions in
+[`contract-extensions.md`](./contract-extensions.md).

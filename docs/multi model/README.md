@@ -52,13 +52,32 @@ Two such forms exist — and [`general-belief-form.md`](./general-belief-form.md
   dial (skew → fat tails → bimodal as you add terms); always valid, but quadrature-priced and
   off-chain only. The vivid "one formula, many shapes" demo (**General ** in the sandbox).
 
+## Findings that drive the refactor
+
+- **Gen·basis is a universal approximator** — it covers Gaussian and Mixture **exactly**, and
+  Student-t **to arbitrary accuracy over any finite outcome range** (the only gap is the infinite-tail
+  asymptotic, which never prices a real contract). Closed-form, on-chain-feasible, placement-friendly.
+- **Gen·exact ** covers Gaussian + skew + peak/flat + **bimodal** exactly in few parameters — but
+  **cannot do heavy (polynomial) tails** (a polynomial exponent gives Gaussian-or-thinner tails).
+- **So the two generals cover almost everything.** The honest exception is **exact heavy tails**, which
+  is precisely why **Student-t earns its keep** as an extra. → Decision: **Gen·basis (default)** and
+  **Gen·exact** become the two primary models; **Gaussian / Student-t / Mixture** demote to a
+  "More models" group (demoted, not deleted). Full subsumption table in `general-belief-form.md`.
+- **Contracts can be widened too** — bounded smooth shapes (skew-bell, tent, trapezoid, sigmoid) drop in
+  cleanly (closed-form under Gaussian/mixture); polynomial/exponential work on bounded-outcome markets
+  but **diverge on Student-t** and need a compatibility guard. See `contract-extensions.md`.
+
 ## Files
 
 - [`parametric-belief-families.md`](./parametric-belief-families.md) — the full study: each
   family, what shapes it makes, how it fits our `BeliefModel` interface (pdf/cdf/mean/var/sample +
   pricing + update + solvency), and **off-chain vs on-chain** implementation difficulty.
 - [`general-belief-form.md`](./general-belief-form.md) — the **single general form**: the adaptive
-  mixture (ship this) vs the max-entropy moments dial, how each works, and their effects.
+  mixture (ship this) vs the max-entropy moments dial, the **precise subsumption analysis**, and effects.
+- [`contract-extensions.md`](./contract-extensions.md) — which **contract shapes** are compatible with a
+  continuous belief-priced market (and why exp/poly diverge on heavy-tailed beliefs).
+- [`TASKS.md`](./TASKS.md) — the **step-by-step implementation plan** (Gen·basis default + Gen·exact,
+  admin refactor, contract extensions), bottom-up and MC-verified, with a risk register.
 - Interactive companion: the math doc's **§19 "Flexible parametric beliefs (design study)"**
   ([`docs/math/index.html`](../math/index.html)) — a live sandbox to morph each family and
   read its flexibility-vs-difficulty scorecard.
