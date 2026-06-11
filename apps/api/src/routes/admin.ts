@@ -8,6 +8,7 @@ import { userRepo } from '../db/repos.ts';
 import { users } from '../db/schema.ts';
 import { writeAudit } from '../lib/audit.ts';
 import { publicUser } from '../lib/user.ts';
+import { getAuditEvents } from '../services/auditView.ts';
 import { adminTopup } from '../services/fundingSvc.ts';
 import { getUserTransactions } from '../services/ledgerView.ts';
 
@@ -61,4 +62,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       return { error: 'User not found' };
     }
     return await getUserTransactions(target.userId);
+  })
+  // The append-only audit log (admin top-ups, market lifecycle, trades), newest
+  // first, joined to actor + target names. Read-only viewer over `audit_events`.
+  .get('/audit', async () => {
+    return { events: await getAuditEvents() };
   });

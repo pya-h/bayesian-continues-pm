@@ -5,6 +5,7 @@
 import type {
   AdminMarketOverview,
   AdminUser,
+  AuditEvent,
   AuthResponse,
   CreateMarketInput,
   Fill,
@@ -144,4 +145,5 @@ export const api = {
     request<{ user: PublicUser }>(`/admin/users/${userId}/topup`, { body: { amount } }),
   adminUserTransactions: (userId: string) =>
     request<UserTransactions>(`/admin/users/${userId}/transactions`),
+  adminAudit: () => request<{ events: AuditEvent[] }>('/admin/audit'),
 };

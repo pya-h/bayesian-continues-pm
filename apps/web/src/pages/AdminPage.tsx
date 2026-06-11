@@ -11,6 +11,7 @@ import { type ReactNode, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.tsx';
 import { AlertsBanner } from '../components/AlertsBanner.tsx';
+import { AuditLogView } from '../components/AuditLogView.tsx';
 import { MarketLedgerView } from '../components/MarketLedgerView.tsx';
 import { Button, ErrorNote, Panel, Spinner, Stat, StatusBadge } from '../components/ui.tsx';
 import {
@@ -27,12 +28,13 @@ import { txLabel } from '../lib/txView.ts';
 import type { AdminUser, MarketView } from '../lib/types.ts';
 import { oneOf, usePersistentState } from '../lib/usePersistentState.ts';
 
-type AdminTab = 'markets' | 'users' | 'create' | 'system';
+type AdminTab = 'markets' | 'users' | 'create' | 'system' | 'audit';
 const TABS: { key: AdminTab; label: string }[] = [
   { key: 'markets', label: 'Markets' },
   { key: 'users', label: 'Users' },
   { key: 'create', label: 'Create market' },
   { key: 'system', label: 'System' },
+  { key: 'audit', label: 'Audit' },
 ];
 
 export function AdminPage() {
@@ -77,6 +79,7 @@ export function AdminPage() {
         {tab === 'users' && <UsersSection />}
         {tab === 'create' && <CreateMarketForm />}
         {tab === 'system' && <SystemSection />}
+        {tab === 'audit' && <AuditLogView />}
       </div>
     </div>
   );

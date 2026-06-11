@@ -250,6 +250,18 @@ export interface AdminUser {
   createdAt: string;
 }
 
+export interface AuditEvent {
+  eventId: string;
+  actorId: string | null;
+  actor: string | null;
+  action: string;
+  targetId: string | null;
+  targetType: 'market' | 'user' | null;
+  targetLabel: string | null;
+  payload: Record<string, unknown> | null;
+  createdAt: string;
+}
+
 export interface AdminMarketOverview {
   marketId: string;
   status: MarketStatus;
