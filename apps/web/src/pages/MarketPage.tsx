@@ -171,10 +171,15 @@ export function MarketPage() {
         <div className="flex flex-col gap-4 lg:col-span-2">
           <Panel
             title="Belief & payoff"
-            right={<span className="text-xs text-muted">drag the handles ↔</span>}
+            right={
+              <span className="text-xs text-muted">
+                handles ↔ · drag plot to pan · drag axes to zoom · dbl-click resets
+              </span>
+            }
           >
             <div className="p-3">
               <BeliefChart
+                key={id}
                 mu={mu}
                 sigma={sigma}
                 spec={spec}

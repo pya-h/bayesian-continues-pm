@@ -110,6 +110,80 @@ export function scale(domainLo: number, domainHi: number, rangeLo: number, range
   return (x: number) => rangeLo + ((x - domainLo) / span) * (rangeHi - rangeLo);
 }
 
+// interactive view: pan / zoom math (pure, so it can be unit-tested) -----
+
+export const VIEW_MUL_MIN = 0.2;
+export const VIEW_MUL_MAX = 8;
+export const clampViewMul = (m: number): number =>
+  Math.min(VIEW_MUL_MAX, Math.max(VIEW_MUL_MIN, m));
+
+// Apply a user view transform to an auto-derived base domain
+// `xMul` scales the visible RANGE about its centre (>1 widens, <1 tightens)
+// `xOff` slides the window without changing its span.
+// The result is kept inside [min, max] (slide the window in first, then clamp the
+// span if it is wider than the bounds) and is never degenerate.
+export function viewDomain(
+  base: Domain,
+  view: { xMul: number; xOff: number },
+  min: number | null = null,
+  max: number | null = null,
+): Domain {
+  const [lo0, hi0] = base;
+  const c = (lo0 + hi0) / 2;
+  const half = ((hi0 - lo0) / 2) * view.xMul;
+  let lo = c + view.xOff - half;
+  let hi = c + view.xOff + half;
+  if (min != null && lo < min) {
+    const d = min - lo;
+    lo += d;
+    hi += d;
+  }
+  if (max != null && hi > max) {
+    const d = hi - max;
+    lo -= d;
+    hi -= d;
+  }
+  if (min != null) lo = Math.max(lo, min);
+  if (max != null) hi = Math.min(hi, max);
+  if (!(hi > lo)) hi = lo + Math.max(1, Math.abs(lo) * 1e-3);
+  return [lo, hi];
+}
+
+// New range-multiplier after an exp-scaled pixel drag (so zooming feels uniform), clamped.
+export function zoomMul(baseMul: number, exponent: number): number {
+  return clampViewMul(baseMul * Math.exp(exponent));
+}
+
+// New x-offset (data units) after dragging the plot `dxPx` pixels: the content
+// follows the finger, so dragging left (dxPx < 0) slides the window to higher θ.
+export function panOffset(
+  baseOff: number,
+  dxPx: number,
+  dataSpan: number,
+  plotPxWidth: number,
+): number {
+  return baseOff - (dxPx * dataSpan) / Math.max(1, plotPxWidth);
+}
+
+// Which handle a plot-interior press grabs: the index of the nearest handle whose
+// pixel x is within `radiusPx`, or -1 for none. Ties resolve to the LAST handle
+// (it is drawn on top — e.g. a GAUSSIAN's width handle when it coincides with the
+// centre handle at minimum width), so an overlapping handle is always grabbable.
+export function pickHandle(handleXs: number[], pressX: number, radiusPx: number): number {
+  let best = -1;
+  let bestDist = radiusPx;
+  for (let i = 0; i < handleXs.length; i++) {
+    const xi = handleXs[i];
+    if (xi === undefined) continue;
+    const d = Math.abs(xi - pressX);
+    if (d <= bestDist) {
+      bestDist = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
 export function niceTicks(lo: number, hi: number, target = 5): number[] {
   const span = hi - lo;
   if (!(span > 0)) return [lo];

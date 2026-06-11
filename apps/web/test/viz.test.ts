@@ -2,16 +2,23 @@ import { describe, expect, test } from 'bun:test';
 import { Phi, payoff } from '@bmm/core';
 import type { ContractSpec } from '../src/lib/types.ts';
 import {
+  VIEW_MUL_MAX,
+  VIEW_MUL_MIN,
+  clampViewMul,
   gaussianPdf,
   niceDomain,
   niceTicks,
+  panOffset,
   payoffCurve,
   pdfCurve,
+  pickHandle,
   pnlCurve,
   probInRegions,
   scale,
+  viewDomain,
   winningRegions,
   zeroCrossings,
+  zoomMul,
 } from '../src/lib/viz.ts';
 
 const close = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) <= tol;
@@ -182,5 +189,92 @@ describe('zeroCrossings', () => {
         { x: 2, y: 3 },
       ]).length,
     ).toBe(0);
+  });
+});
+
+// interactive view: pan / zoom math --------------------------------------
+
+describe('clampViewMul', () => {
+  test('clamps to the per-axis multiplier bounds', () => {
+    expect(clampViewMul(1)).toBe(1);
+    expect(clampViewMul(0.01)).toBe(VIEW_MUL_MIN);
+    expect(clampViewMul(1000)).toBe(VIEW_MUL_MAX);
+  });
+});
+
+describe('zoomMul', () => {
+  test('a zero exponent leaves the multiplier unchanged', () => {
+    expect(close(zoomMul(1, 0), 1)).toBe(true);
+    expect(close(zoomMul(2.5, 0), 2.5)).toBe(true);
+  });
+  test('positive exponent widens, negative tightens', () => {
+    expect(zoomMul(1, 0.5)).toBeGreaterThan(1);
+    expect(zoomMul(1, -0.5)).toBeLessThan(1);
+  });
+  test('result is clamped to the multiplier bounds', () => {
+    expect(zoomMul(1, 100)).toBe(VIEW_MUL_MAX);
+    expect(zoomMul(1, -100)).toBe(VIEW_MUL_MIN);
+  });
+});
+
+describe('viewDomain', () => {
+  test('the identity view returns the base domain', () => {
+    expect(viewDomain([300, 400], { xMul: 1, xOff: 0 })).toEqual([300, 400]);
+  });
+  test('scaling up widens the range about its centre (300–400 → 200–500)', () => {
+    expect(viewDomain([300, 400], { xMul: 3, xOff: 0 })).toEqual([200, 500]);
+  });
+  test('scaling down tightens the range about its centre', () => {
+    expect(viewDomain([300, 400], { xMul: 0.5, xOff: 0 })).toEqual([325, 375]);
+  });
+  test('offset slides the window without changing its span', () => {
+    const [lo, hi] = viewDomain([300, 400], { xMul: 1, xOff: 100 });
+    expect([lo, hi]).toEqual([400, 500]);
+    expect(hi - lo).toBe(100); // span preserved
+  });
+  test('a pan is slid back inside the outcome bounds, keeping its span', () => {
+    // window [2,4] pushed far right, bounds [0,10] → slides to [8,10] (span 2).
+    expect(viewDomain([2, 4], { xMul: 1, xOff: 100 }, 0, 10)).toEqual([8, 10]);
+  });
+  test('a window wider than the bounds is clamped to the full bounds', () => {
+    expect(viewDomain([0, 10], { xMul: 2, xOff: 0 }, 0, 10)).toEqual([0, 10]);
+  });
+  test('a degenerate base domain is never returned as zero-width', () => {
+    const [lo, hi] = viewDomain([5, 5], { xMul: 1, xOff: 0 });
+    expect(hi).toBeGreaterThan(lo);
+  });
+});
+
+describe('panOffset', () => {
+  test('dragging left (dx < 0) increases the offset → window slides to higher θ', () => {
+    expect(panOffset(0, -50, 100, 500)).toBe(10);
+  });
+  test('dragging right (dx > 0) decreases the offset', () => {
+    expect(panOffset(0, 50, 100, 500)).toBe(-10);
+  });
+  test('accumulates from the base offset', () => {
+    expect(panOffset(10, -50, 100, 500)).toBe(20);
+  });
+  test('never divides by zero on a zero-width plot', () => {
+    expect(Number.isFinite(panOffset(0, 50, 100, 0))).toBe(true);
+  });
+});
+
+describe('pickHandle', () => {
+  test('grabs the nearest handle within the radius', () => {
+    expect(pickHandle([100, 200], 105, 16)).toBe(0);
+    expect(pickHandle([100, 200], 190, 16)).toBe(1);
+  });
+  test('returns -1 when the press is beyond every handle', () => {
+    expect(pickHandle([100, 200], 150, 16)).toBe(-1);
+    expect(pickHandle([], 50, 16)).toBe(-1);
+  });
+  test('the radius is inclusive', () => {
+    expect(pickHandle([100], 116, 16)).toBe(0);
+    expect(pickHandle([100], 117, 16)).toBe(-1);
+  });
+  test('coincident handles resolve to the last (top-drawn) one — the min-width bell', () => {
+    // center & width handles both at x=100: a press grabs width (index 1).
+    expect(pickHandle([100, 100], 100, 16)).toBe(1);
   });
 });

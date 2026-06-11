@@ -14,7 +14,7 @@
 // (θ, belief-likelihood, payoff) under the cursor, with a dot on each curve.
 
 import { payoff } from '@bmm/core';
-import { useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fmt, fmtCompact } from '../lib/format.ts';
 import type { ContractSpec } from '../lib/types.ts';
 import {
@@ -22,11 +22,15 @@ import {
   gaussianPdf,
   niceDomain,
   niceTicks,
+  panOffset,
   payoffCurve,
   pdfCurve,
+  pickHandle,
   scale,
   toPath,
+  viewDomain,
   winningRegions,
+  zoomMul,
 } from '../lib/viz.ts';
 
 const W = 720;
@@ -35,6 +39,10 @@ const M = { top: 30, right: 56, bottom: 34, left: 52 };
 const PLOT = { l: M.left, r: W - M.right, t: M.top, b: H - M.bottom };
 
 const LIKE_TICKS = [0, 0.25, 0.5, 0.75, 1] as const;
+
+// Press-to-handle grab radius (viewBox px): a press this close to a handle grabs
+// it instead of starting a plot pan — keeps overlapping/narrow handles reachable.
+const GRAB_PX = 16;
 
 interface Handle {
   id: string;
@@ -110,10 +118,10 @@ function LegendItem({
   );
 }
 
-export function BeliefChart({
+function BeliefChartImpl({
   mu,
   sigma,
-  spec,
+  spec: specProp,
   onSpecChange,
   outcomeUnit,
   outcomeMin,
@@ -133,33 +141,61 @@ export function BeliefChart({
   const dragId = useRef<string | null>(null);
   const [hover, setHover] = useState<{ theta: number; vy: number } | null>(null);
 
+  // User view transform layered on the auto-derived domain. xMul/yMul widen (>1)
+  // or tighten (<1) the visible value RANGE of each axis; xOff slides the x-window
+  // without changing its span. Defaults are the identity view; double-click resets.
+  const [view, setView] = useState({ xMul: 1, xOff: 0, yMul: 1 });
+  // True while any drag (handle OR axis pan/scale) is live — used to shed the
+  // costly glow filter and coarsen the curves so dragging stays smooth.
+  const [dragging, setDragging] = useState(false);
+  // While a handle is dragged we render from this LOCAL spec and only push the
+  // result to the parent on release — so a drag re-renders the chart, not the
+  // whole market page (which is what made dragging lag).
+  const [dragSpec, setDragSpec] = useState<ContractSpec | null>(null);
+  const spec = dragSpec ?? specProp;
+
   const handles = handlesFor(spec);
   const kinks = handles.map((h) => h.value);
-  const domain: Domain = niceDomain(mu, sigma, {
-    kinks,
-    min: outcomeMin,
-    max: outcomeMax,
-  });
+  const kinkKey = kinks.join(',');
+
+  // Auto domain from the belief (+ contract kinks), then the user view transform.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: kinkKey encodes kinks
+  const base = useMemo(
+    () => niceDomain(mu, sigma, { kinks, min: outcomeMin, max: outcomeMax }),
+    [mu, sigma, kinkKey, outcomeMin, outcomeMax],
+  );
+  const domain = useMemo<Domain>(
+    () => viewDomain(base, view, outcomeMin, outcomeMax),
+    [base, view, outcomeMin, outcomeMax],
+  );
   const [lo, hi] = domain;
   const sx = scale(lo, hi, PLOT.l, PLOT.r);
 
-  // Belief PDF scale (unitless density, scaled to its own peak).
-  const pdf = pdfCurve(mu, sigma, domain);
-  const pdfMax = Math.max(...pdf.map((p) => p.y), 1e-12);
-  const syPdf = scale(0, pdfMax * 1.12, PLOT.b, PLOT.t);
+  // Coarser sampling mid-drag keeps re-renders cheap; full detail at rest.
+  const samples = dragging ? 96 : 160;
 
-  // Payoff scale (its own min/max across the visible domain).
-  const pay = payoffCurve(spec, domain);
+  // Belief PDF scale (unitless density, scaled to its own peak × yMul).
+  const pdf = useMemo(() => pdfCurve(mu, sigma, domain, samples), [mu, sigma, domain, samples]);
+  const pdfMax = Math.max(...pdf.map((p) => p.y), 1e-12);
+  const syPdf = scale(0, pdfMax * 1.12 * view.yMul, PLOT.b, PLOT.t);
+
+  // Payoff scale (its own min/max across the visible domain, scaled by yMul about
+  // its midpoint so the zero baseline keeps its position as you scale).
+  const pay = useMemo(() => payoffCurve(spec, domain, samples), [spec, domain, samples]);
   const payMin = Math.min(...pay.map((p) => p.y));
   let payMax = Math.max(...pay.map((p) => p.y));
   if (payMax - payMin < 1e-9) payMax = payMin + 1; // flat payoff guard
   const pad = (payMax - payMin) * 0.08;
-  const syPay = scale(payMin - pad, payMax + pad, PLOT.b, PLOT.t);
+  const payMid = (payMin + payMax) / 2;
+  const payHalf = ((payMax - payMin) / 2 + pad) * view.yMul;
+  const payAxisLo = payMid - payHalf;
+  const payAxisHi = payMid + payHalf;
+  const syPay = scale(payAxisLo, payAxisHi, PLOT.b, PLOT.t);
 
   const regions = winningRegions(spec, domain);
   const xTicks = niceTicks(lo, hi, 6);
-  const payTicks = niceTicks(payMin - pad, payMax + pad, 5);
-  const payZeroInRange = 0 >= payMin - pad && 0 <= payMax + pad;
+  const payTicks = niceTicks(payAxisLo, payAxisHi, 5);
+  const payZeroInRange = 0 >= payAxisLo && 0 <= payAxisHi;
 
   // viewBox-space pointer position (so we can map both x→θ and keep the cursor y).
   const pointerToView = useCallback((clientX: number, clientY: number) => {
@@ -182,18 +218,62 @@ export function BeliefChart({
     [lo, hi, pointerToView],
   );
 
-  const onPointerDown = (id: string) => (e: React.PointerEvent) => {
+  // gestures: handle drag, plus pan / scale on the axes and plot ----------
+  // A pan/scale gesture captures the view + geometry at press time and is applied
+  // as an absolute delta from there, so coalesced (rAF-batched) moves stay correct.
+  const gesture = useRef<{
+    kind: 'panx' | 'scalex' | 'scaley';
+    startX: number;
+    startY: number;
+    base: { xMul: number; xOff: number; yMul: number };
+    dataSpan: number;
+    plotPxW: number;
+  } | null>(null);
+  // A handle drag is absolute too: apply the pointer-x to the spec captured at
+  // press time. `dragLatest` is what we commit to the parent on release.
+  const dragBaseSpec = useRef<ContractSpec | null>(null);
+  const dragLatest = useRef<ContractSpec | null>(null);
+  const raf = useRef<number | null>(null);
+  const lastPt = useRef<{ x: number; y: number } | null>(null);
+
+  const beginGesture = (kind: 'panx' | 'scalex' | 'scaley', e: React.PointerEvent) => {
+    const svg = svgRef.current;
+    if (!svg) return;
     e.preventDefault();
-    dragId.current = id;
+    e.stopPropagation();
+    const rect = svg.getBoundingClientRect();
+    gesture.current = {
+      kind,
+      startX: e.clientX,
+      startY: e.clientY,
+      base: { ...view },
+      dataSpan: hi - lo,
+      plotPxW: (rect.width * (PLOT.r - PLOT.l)) / W,
+    };
     setHover(null);
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+    setDragging(true);
+    svg.setPointerCapture?.(e.pointerId);
   };
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (dragId.current) {
-      onSpecChange(applyHandle(spec, dragId.current, pointerToData(e.clientX)));
-      return;
+
+  const applyGesture = (clientX: number, clientY: number) => {
+    const g = gesture.current;
+    if (!g) return;
+    const dx = clientX - g.startX;
+    const dy = clientY - g.startY;
+    if (g.kind === 'panx') {
+      // Content follows the finger: drag left → the window slides to higher θ.
+      setView({ ...g.base, xOff: panOffset(g.base.xOff, dx, g.dataSpan, g.plotPxW) });
+    } else if (g.kind === 'scalex') {
+      // Drag right → tighten the x range (zoom in); drag left → widen it.
+      setView({ ...g.base, xMul: zoomMul(g.base.xMul, -dx / 220) });
+    } else {
+      // Drag up → tighten the y range (curve grows); drag down → widen it.
+      setView({ ...g.base, yMul: zoomMul(g.base.yMul, dy / 200) });
     }
-    const v = pointerToView(e.clientX, e.clientY);
+  };
+
+  const updateHover = (clientX: number, clientY: number) => {
+    const v = pointerToView(clientX, clientY);
     if (!v || v.vx < PLOT.l - 2 || v.vx > PLOT.r + 2 || v.vy < PLOT.t - 2 || v.vy > PLOT.b + 2) {
       setHover((h) => (h ? null : h));
       return;
@@ -204,13 +284,78 @@ export function BeliefChart({
     );
     setHover({ theta, vy: v.vy });
   };
-  const onPointerUp = () => {
-    dragId.current = null;
+
+  // Begin dragging a contract handle. The drag stays local (dragSpec) until release.
+  const startHandleDrag = (id: string, e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragId.current = id;
+    dragBaseSpec.current = spec;
+    dragLatest.current = null;
+    setHover(null);
+    setDragging(true);
+    svgRef.current?.setPointerCapture?.(e.pointerId);
   };
-  const onLeave = () => {
+  const onPointerDown = (id: string) => (e: React.PointerEvent) => startHandleDrag(id, e);
+
+  // A press on the plot interior (handles and axis zones stop propagation, so they
+  // never reach here). If it lands near a handle, grab that handle — this keeps
+  // overlapping/narrow handles (e.g. a min-width bell) reachable instead of the
+  // press falling through to a pan. Otherwise start an x-pan.
+  const onBackgroundDown = (e: React.PointerEvent) => {
+    const v = pointerToView(e.clientX, e.clientY);
+    if (!v || v.vx < PLOT.l || v.vx > PLOT.r || v.vy < PLOT.t || v.vy > PLOT.b) return;
+    const idx = pickHandle(
+      handles.map((h) => sx(Math.min(hi, Math.max(lo, h.value)))),
+      v.vx,
+      GRAB_PX,
+    );
+    const picked = handles[idx];
+    if (picked) startHandleDrag(picked.id, e);
+    else beginGesture('panx', e);
+  };
+
+  // All movement is coalesced to at most one update per animation frame.
+  const onPointerMove = (e: React.PointerEvent) => {
+    lastPt.current = { x: e.clientX, y: e.clientY };
+    if (raf.current != null) return;
+    raf.current = requestAnimationFrame(() => {
+      raf.current = null;
+      const p = lastPt.current;
+      if (!p) return;
+      if (dragId.current && dragBaseSpec.current) {
+        const next = applyHandle(dragBaseSpec.current, dragId.current, pointerToData(p.x));
+        dragLatest.current = next;
+        setDragSpec(next);
+      } else if (gesture.current) applyGesture(p.x, p.y);
+      else updateHover(p.x, p.y);
+    });
+  };
+
+  const endDrag = () => {
+    // Commit a handle drag to the parent once, on release.
+    if (dragId.current && dragLatest.current) onSpecChange(dragLatest.current);
     dragId.current = null;
+    dragBaseSpec.current = null;
+    dragLatest.current = null;
+    gesture.current = null;
+    setDragging(false);
+    setDragSpec(null);
+  };
+  const onPointerUp = () => endDrag();
+  const onLeave = () => {
+    endDrag();
     setHover(null);
   };
+  const resetView = () => setView({ xMul: 1, xOff: 0, yMul: 1 });
+
+  // Drop any pending frame on unmount.
+  useEffect(
+    () => () => {
+      if (raf.current != null) cancelAnimationFrame(raf.current);
+    },
+    [],
+  );
 
   // Crosshair / readout geometry, derived from the hovered θ.
   const cross = (() => {
@@ -245,12 +390,14 @@ export function BeliefChart({
     <svg
       ref={svgRef}
       viewBox={`0 0 ${W} ${H}`}
-      className="w-full touch-none select-none"
+      className={`w-full touch-none select-none ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
       role="img"
       aria-label="Belief density and contract payoff"
+      onPointerDown={onBackgroundDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerLeave={onLeave}
+      onDoubleClick={resetView}
     >
       <title>Belief PDF and payoff overlay</title>
 
@@ -446,7 +593,7 @@ export function BeliefChart({
         fill="none"
         stroke="var(--color-accent)"
         strokeWidth={2}
-        filter="url(#bc-glow)"
+        filter={dragging ? undefined : 'url(#bc-glow)'}
       />
 
       {/* mean line */}
@@ -469,7 +616,7 @@ export function BeliefChart({
         fill="none"
         stroke="var(--color-buy)"
         strokeWidth={2}
-        filter="url(#bc-glow)"
+        filter={dragging ? undefined : 'url(#bc-glow)'}
       />
 
       {/* resolution marker */}
@@ -493,6 +640,37 @@ export function BeliefChart({
           </text>
         </g>
       )}
+
+      {/* axis pan/scale hit-zones — transparent; the cursor hints the gesture.
+          Left/right gutters scale Y (vertical drag); the bottom axis scales X
+          (horizontal drag). They stop propagation so the plot-pan never fires. */}
+      <rect
+        x={0}
+        y={PLOT.t}
+        width={PLOT.l}
+        height={PLOT.b - PLOT.t}
+        fill="transparent"
+        className="cursor-ns-resize"
+        onPointerDown={(e) => beginGesture('scaley', e)}
+      />
+      <rect
+        x={PLOT.r}
+        y={PLOT.t}
+        width={W - PLOT.r}
+        height={PLOT.b - PLOT.t}
+        fill="transparent"
+        className="cursor-ns-resize"
+        onPointerDown={(e) => beginGesture('scaley', e)}
+      />
+      <rect
+        x={PLOT.l}
+        y={PLOT.b}
+        width={PLOT.r - PLOT.l}
+        height={H - PLOT.b}
+        fill="transparent"
+        className="cursor-ew-resize"
+        onPointerDown={(e) => beginGesture('scalex', e)}
+      />
 
       {/* draggable handles */}
       {handles.map((h) => {
@@ -676,3 +854,7 @@ export function BeliefChart({
     </svg>
   );
 }
+
+// Memoised so the live trades tape / stats refreshing the parent don't re-render
+// the (heavy) chart unless its own inputs — belief, spec, or bounds — change.
+export const BeliefChart = memo(BeliefChartImpl);
