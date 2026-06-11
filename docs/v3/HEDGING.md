@@ -1,7 +1,12 @@
-# Phase V2-3 — Hedging, explained
+# Phase V3-4 — Hedging, explained
 
-> Plain-language companion to [`docs/v2/TASKS.md`](./v2/TASKS.md) Phase V2-3. What hedging is,
+> Plain-language companion to [`docs/v3/TASKS.md`](./TASKS.md) Phase V3-4. What hedging is,
 > why our market would want it, how necessary it is, and which phases it touches.
+>
+> **Note on the V2 → V3 move.** Hedging was originally scoped for V2 (Workstream D). It has been **deferred to
+> V3**, where it sits beside the other MM/protocol risk machinery (the leverage stack, the
+> liquidation engine, and the insurance fund). Its one hard prerequisite — multi-modal beliefs and
+> the reserve machinery — already shipped in **V2-1**, so V3 can pick it up directly.
 
 ## What hedging is (plain terms)
 
@@ -57,24 +62,31 @@ frees capital; admin sees the hedge book."*
 Nothing is *wrong* without it: the reserve gate (§10, already shipped) keeps the MM solvent no
 matter what. The cost of skipping it is that **popular, lopsided markets hit capacity early** and
 either stop accepting trades or demand more LP cash than strictly necessary. So it matters most once
-markets get real volume; for a v1 / early-v2 system it is deferrable.
+markets get real volume — which is exactly why it travels with the V3 risk machinery rather than
+gating the V2 belief work. For a V1 / V2 system it is deferrable, and the
+[soft-cap](../capacity/soft-cap.md) ramp already softens the same capacity wall from the price side.
 
-> **Important boundary:** in our model hedging only **reduces existing** reserve — it does **not**
-> enable leverage or shorting. Trading stays **1× cash-collateralized**. Leverage, margin,
-> liquidation, and the insurance fund are explicitly **V3** (`docs/v3/`).
+> **Important boundary — hedging is *not* leverage, even though both now live in V3.** Hedging only
+> **reduces the MM's existing** reserve by offsetting its own book; it does **not** let a *user*
+> borrow exposure. User trading stays **1× cash-collateralized** under hedging alone. Leverage,
+> margin, shorting, and liquidation are the *separate* V3 workstreams (V3-1/V3-3), and the insurance
+> fund (V3-2) absorbs *their* gap losses. Hedging is the MM-side, payout-neutral risk tool; the
+> leverage stack is the user-side, collateral-changing one. They share the V3 release but are
+> independent — hedging has no dependency on leverage and could ship at 1×.
 
 ## Which phases relate to it
 
 | Phase | Relationship |
 |---|---|
-| **V2-1 Multi-modal beliefs** | **Hard blocker** (`[blocked-by: V2-1]`, done). Hedging reasons over `L(θ)` and the reserve, both computed from the belief — it needs the multi-belief reserve machinery first. |
-| **V2-2 Adaptive parameters** | **Sibling** — also built on V2-1; the recommended order runs V2-2 and V2-3 together. Both shape the MM's risk / cost behavior. |
-| **V2-5 Scale & ops**, **V2-8 Hardening** | **Downstream beneficiaries** — hedging is part of what lets markets scale without freezing capital, and it needs hardening before production. |
+| **V2-1 Multi-modal beliefs** ( done, in V2) | **Hard blocker** (`[blocked-by: V2-1]`). Hedging reasons over `L(θ)` and the reserve, both computed from the belief — it needs the multi-belief reserve machinery, which already shipped in V2. |
+| **V3-2 Insurance fund** | **Closest sibling** — the other protocol-risk tool. Hedging *prevents* reserve blow-up on the MM book; the insurance fund *absorbs* residual gap/bankruptcy losses from the leverage stack. Complementary, not overlapping. |
+| **V3-1 Leverage/shorting core**, **V3-3 Liquidation engine** | **Release-mates, not dependencies** — hedging ships in the same V3 track but is independent of borrowed exposure (it works at 1×). |
+| **V2-4 Scale & ops**, **V3-6 Hardening** | **Downstream beneficiaries** — hedging is part of what lets markets scale without freezing capital, and it needs hardening before production. |
 | **Math doc §10 — Reserve & solvency** | **Conceptual parent** — hedging exists purely to lower the reserve that §10 defines. The phase calls for a math-doc addition with a before/after reserve worked example. |
-| **V3 (leverage / shorting / liquidation / insurance fund)** | **The boundary** — hedging is internal risk-reduction *within* 1× collateralization; it is deliberately **not** leverage. |
 
 ## One natural follow-on
 
-Phase V2-3 also asks for a **math-doc section** showing how an offsetting basis position lowers
+Phase V3-4 also asks for a **math-doc section** showing how an offsetting basis position lowers
 `L(θ)` variance and the reserve, with a **before/after reserve worked example** — which would pair
 naturally with the existing §10 (Reserve & solvency) and the §19 (Price impact) widgets.
+</content>

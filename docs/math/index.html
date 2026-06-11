@@ -1337,7 +1337,7 @@ losses.sort();
           <tr><td><strong>Soft cap</strong> ★</td><td>price the crowded side up steeply so demand chokes off — cliff → ramp</td><td>none (the price bears it); preserves every guarantee</td></tr>
           <tr><td>Solvency-factor haircut</td><td>let exposure exceed cash; scale payouts by \( s=\min(1,\,\text{cash}/\text{owed}) \)</td><td>winning traders (payouts become contingent)</td></tr>
           <tr><td>Insurance fund (V2-H)</td><td>shared pre-funded backstop tops up shortfalls</td><td>the fund (mutualized across markets)</td></tr>
-          <tr><td>Hedging / reinsurance (V2-D)</td><td>offload tail risk → lower reserve per unit of exposure</td><td>external counterparty; basis risk</td></tr>
+          <tr><td>Hedging / reinsurance (V3-D)</td><td>offload tail risk → lower reserve per unit of exposure</td><td>external counterparty; basis risk</td></tr>
           <tr><td>Auto-deleverage</td><td>force-close opposing positions to reclaim capacity</td><td>opposing traders (forced)</td></tr>
           <tr><td>Bounded contracts</td><td>cap payoff types so tails are known / smaller</td><td>narrower product menu</td></tr>
           <tr><td>Parimutuel</td><td>winners split losers' stakes (endogenous payouts)</td><td>redefines the product entirely</td></tr>
@@ -1670,10 +1670,14 @@ losses.sort();
         </tbody>
       </table></div>
 
-      <p>Drag <strong>liquidity</strong> and watch every curve flatten together; drag <strong>trade size</strong>
-      to read each mechanism at a chosen order. All start at the same mid (\(0.5\)) on a binary, matched to a
-      common liquidity budget so the comparison is apples-to-apples (calibration is approximate — the
-      <em>shapes</em> and the \(1/\text{liquidity}\) scaling are the real lesson):</p>
+      <p>Drag <strong>liquidity</strong> — now <em>log-scaled all the way to the billions</em>, so you can watch
+      every curve collapse toward dead-flat as LP capital grows — and drag <strong>trade size</strong> to read each
+      mechanism at a chosen order. Flip the <strong>soft-cap fix</strong> switch (off by default) to overlay the
+      capacity-congestion premium from <a href="../capacity/soft-cap.md">the soft-cap design</a> onto the BMM line:
+      the faint line is BMM <em>today</em>, the bold line is BMM <em>with the fix</em>, and the dashed marker is the
+      pool's capacity. All start at the same mid (\(0.5\)) on a binary, matched to a common liquidity budget so the
+      comparison is apples-to-apples (calibration is approximate — the <em>shapes</em> and the
+      \(1/\text{liquidity}\) scaling are the real lesson):</p>
 
       <div class="viz" id="viz-mech">
         <div class="viz-head">
@@ -1683,6 +1687,7 @@ losses.sort();
         <div class="impact-controls controls"></div>
         <div class="legend" style="margin:0 0 0.8rem">
           <span><i style="background:var(--accent)"></i>BMM (ours)</span>
+          <span><i style="background:var(--muted)"></i>BMM today <span class="small">(soft-cap baseline)</span></span>
           <span><i style="background:var(--warn)"></i>LMSR</span>
           <span><i style="background:var(--buy)"></i>CPMM</span>
           <span><i style="background:var(--sell)"></i>Order book</span>
@@ -1730,6 +1735,19 @@ losses.sort();
       standard AMM, <em>minus</em> the order-book’s thin-market / no-exit risk, <em>plus</em> a known spread fee
       instead of unknown curve-walking. Initial liquidity is the single dial that makes all of it acceptable —
       exactly as the left chart shows every curve collapsing toward flat as LP capital grows.</div>
+
+      <div class="dev"><span class="callout-title">The soft-cap switch — cliff → ramp at the capacity frontier</span>
+      Today, BMM's cost drifts gently and then a <strong>separate, binary gate</strong> (\(\text{cash}\ge 1.2\times\)
+      reserve) slams shut: a market can look open and still refuse <em>every</em> buy. Turn the switch <strong>on</strong>
+      and the BMM line picks up a fifth spread term — the <em>capacity-congestion premium</em>
+      \( \kappa\,|\text{fair}|\;u^{a}/(1-u) \), where utilisation \( u=mR_1/C \) rises toward \(1\) as the pool nears
+      its solvency frontier (capacity \(\propto\) liquidity). Watch what changes: with headroom the bold line sits
+      <strong>right on top of</strong> the faint "today" baseline (healthy markets are untouched), but as the order
+      approaches the dashed <em>capacity</em> marker the price <strong>ramps up convexly</strong> instead of hitting a
+      wall — demand prices itself out smoothly and the market <em>never has to issue a hard rejection</em>. Drag
+      liquidity up and the capacity marker shoots off the chart: with deep books the premium is invisible. This is a
+      <em>UX-at-the-limit</em> fix, not a bigger ceiling — it converts the cliff into a ramp without touching the
+      solvency guarantee or any payout (see <a href="../capacity/soft-cap.md">soft-cap.md</a>).</div>
     </section>
 
     <!-- =============================================================== -->

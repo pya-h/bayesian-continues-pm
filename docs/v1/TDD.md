@@ -407,5 +407,5 @@ Implemented: insolvency gate (`cash<1.2×Reserve` ⇒ reject opening trades), be
 ---
 
 ## 16. v2 / v3 Backlog (designed-for, not built)
-**V2** (`docs/v2/`): Mixture & Student-t beliefs (`BeliefModel` already abstracts this; numerical pricing path already present), component merge/split, multi-modal UI, external hedging, dispute resolution, adaptive parameters (EWMA `σ_ε`, regime-scaled spread, `MODEL.md §14.2`), sharding/read-replicas.
-**V3** (`docs/v3/`): leverage/margin, shorting, the liquidation engine, and the full insurance fund — the borrowed-exposure stack (originally slated for V2, now its own version). V1 stays 1× cash-collateralized.
+**V2** (`docs/v2/`): Mixture & Student-t beliefs (`BeliefModel` already abstracts this; numerical pricing path already present), component merge/split, multi-modal UI, dispute resolution, adaptive parameters (EWMA `σ_ε`, regime-scaled spread, `MODEL.md §14.2`), sharding/read-replicas.
+**V3** (`docs/v3/`): leverage/margin, shorting, the liquidation engine, the full insurance fund — the borrowed-exposure stack (originally slated for V2, now its own version) — plus **hedging** (MM reserve reduction, internal + external; originally a V2 workstream, now V3-4). V1 stays 1× cash-collateralized.

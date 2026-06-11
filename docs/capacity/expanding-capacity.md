@@ -190,7 +190,7 @@ path.
 
 ---
 
-### F. Hedging / reinsurance (→ V2-D)
+### F. Hedging / reinsurance (→ V3-D)
 
 **How.** The pool offloads tail exposure to an external counterparty/instrument,
 lowering the *required reserve* for the same book — so the same cash backs more
@@ -203,7 +203,7 @@ guarantee broken.
 **basis risk** (the hedge doesn't track the liability perfectly) and counterparty
 risk. Operationally heavy.
 
-**Fit.** V2 hedging workstream. Powerful but the most infrastructure.
+**Fit.** V3 hedging workstream (Phase V3-4; originally scoped for V2). Powerful but the most infrastructure.
 
 ---
 
@@ -267,7 +267,7 @@ binds by design). A big architectural pivot, not a tweak.
 | **C. Soft cap (inventory skew)** | medium | **no** | the price | low–med | |
 | **D. Solvency-factor haircut** | large | **yes** (contingent payout) | **winning traders** | med (policy-heavy) | (policy) |
 | E. Insurance fund | large | no | shared fund (pre-funded) | high | V2 |
-| F. Hedging/reinsurance | large | no | external counterparty | high | V2 |
+| F. Hedging/reinsurance | large | no | external counterparty | high | V3 |
 | G. Auto-deleverage | large | no | opposing traders (forced) | high | |
 | H. Bounded contracts | small–med | no | nobody (menu shrinks) | low | |
 | I. Parimutuel | unlimited | n/a (redefines payout) | nobody (endogenous) | very high | |

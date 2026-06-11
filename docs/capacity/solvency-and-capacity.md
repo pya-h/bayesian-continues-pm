@@ -160,11 +160,13 @@ confirming the gate was working exactly as designed, **not a bug**.
 
 ## 7. Relationship to LP NAV
 
-The same reserve drives LP accounting: **NAV = cash − reserve** (the LP's
-claimable equity), so the reserve is simultaneously *the LP's locked risk
-backing* and *the trader's capacity ceiling*. Growing one (more LP deposits)
-grows the other (more buy capacity) — they are two views of the same capital.
-See [MODEL.md](../MODEL.md) §8 (LP/NAV) and
+The same reserve drives LP capacity: LP **NAV = cash − E_p[L(θ)]** (cash minus the
+*expected* liability — the LP's claimable equity), while the **reserve** is the 99%
+VaR the pool must hold back. They are different cuts of `L(θ)` (mean vs 99th
+percentile), but both grow with the book, so the reserve is simultaneously *the LP's
+locked risk backing* and *the trader's capacity ceiling*. Growing one (more LP
+deposits) grows the other (more buy capacity) — two views of the same capital.
+See [v1/TDD.md](../v1/TDD.md) §6 (LP/NAV) and
 [`packages/core/src/solvency.ts`](../../packages/core/src/solvency.ts).
 
 ---

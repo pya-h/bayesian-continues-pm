@@ -24,7 +24,7 @@ shapes. Companion to [`general-belief-form.md`](./general-belief-form.md),
    assertion. New columns are nullable with legacy inference.
 4. **One concern per PR/commit.** Never mix a math change with a UI change. Each checkpoint is
    independently shippable and revertible.
-5. **Math-doc sync.** Any phase that changes the math updates `docs/math/index.html` (the §19 sandbox
+5. **Math-doc sync.** Any phase that changes the math updates `docs/math/index.html` (the §21 sandbox
    already prototypes both general forms — keep it the source of intuition) and re-verifies 0 KaTeX
    errors. Phases that touch no math note "math-doc: n/a".
 
@@ -245,7 +245,7 @@ Goal: wider user-trade curves. Math/compat analysis in [`contract-extensions.md`
   consistent; circuit breakers and stats kind-agnostic.
 - [ ] **Perf:** Gen·exact quadrature caching (improvement I3); reuse the `PriceCurveChart` drag-coarsening
   lesson for any quadrature-priced preview.
-- [ ] **Math-doc consolidating pass:** §19 sandbox ↔ shipped code parity; re-verify 0 KaTeX errors.
+- [ ] **Math-doc consolidating pass:** §21 sandbox ↔ shipped code parity; re-verify 0 KaTeX errors.
 - **Checkpoint:** green suites; migration golden-master passes; demo exercises both generals + extras +
   new contracts.
 

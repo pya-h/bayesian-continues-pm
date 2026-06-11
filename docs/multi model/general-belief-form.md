@@ -121,7 +121,7 @@ the practical universal form** — it places as many bumps as you like, directly
 
 The two are complementary: the **mixture** is what you run; the **max-ent** is the cleanest way to
 *think about* "how many shape degrees of freedom does this belief have," and it's the more vivid
-demo of "one formula, many shapes" (it's the **General ** option in the sandbox, §19).
+demo of "one formula, many shapes" (it's the **General ** option in the sandbox, §21).
 
 ---
 

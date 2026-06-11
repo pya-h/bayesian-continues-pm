@@ -201,5 +201,5 @@ keep, because our trades arrive as a noisy point-observation `(s, w)`, not as di
 4. Keep **Gaussian / mixture / Student-t** as the staples; **enable mixture split** to make the
    existing mixture track genuine multi-camp sentiment.
 
-The interactive scorecard in the math doc (§19) lets you feel each of these and read its
+The interactive scorecard in the math doc (§21) lets you feel each of these and read its
 flexibility-vs-difficulty tradeoff live.

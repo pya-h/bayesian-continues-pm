@@ -78,6 +78,6 @@ Two such forms exist — and [`general-belief-form.md`](./general-belief-form.md
   continuous belief-priced market (and why exp/poly diverge on heavy-tailed beliefs).
 - [`TASKS.md`](./TASKS.md) — the **step-by-step implementation plan** (Gen·basis default + Gen·exact,
   admin refactor, contract extensions), bottom-up and MC-verified, with a risk register.
-- Interactive companion: the math doc's **§19 "Flexible parametric beliefs (design study)"**
+- Interactive companion: the math doc's **§21 "Flexible parametric beliefs (design study)"**
   ([`docs/math/index.html`](../math/index.html)) — a live sandbox to morph each family and
   read its flexibility-vs-difficulty scorecard.

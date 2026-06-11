@@ -678,10 +678,20 @@
     const base = () => new M.Belief(MU, SG);
     const XMAX = 1200;                              // fixed x-axis so liquidity-flattening is visible
     const sig = (z) => 1 / (1 + Math.exp(-z));
+    // compact money label so the log slider can span $400 → billions legibly
+    const fmtL = (v) => v >= 1e9 ? fmt(v / 1e9, 2) + 'B' : v >= 1e6 ? fmt(v / 1e6, 2) + 'M' : v >= 1e3 ? fmt(v / 1e3, 1) + 'k' : fmt(v, 0);
 
     const ctrls = $('.impact-controls', root);
-    const sLiq = slider(ctrls, { label: 'Liquidity — LP capital (scales every mechanism)', min: 400, max: 4000, step: 50, value: 1500, fmt: (v) => fmt(v, 0) });
+    // Liquidity is LOG-scaled: the slider carries log10(L) so one drag sweeps
+    // $400 → ~$2B. Lval exponentiates back to real LP capital.
+    const LMIN = Math.log10(400), LMAX = Math.log10(2e9);
+    const sLiq = slider(ctrls, { label: 'Liquidity — LP capital (log scale, scales every mechanism)', min: LMIN, max: LMAX, step: 0.01, value: Math.log10(1500), fmt: (e) => '$' + fmtL(Math.pow(10, e)) });
+    const Lval = () => Math.pow(10, sLiq.get());
     const sQ = slider(ctrls, { label: 'Trade size — reference order (shares)', min: 50, max: XMAX, step: 10, value: 400, fmt: (v) => fmt(v, 0) });
+    // Soft-cap fix (default OFF): the capacity-aware congestion premium from
+    // .md, folded into the BMM curves so you can A/B the
+    // "gentle drift then a hard wall" of today against the smooth price ramp.
+    const softSeg = seg(ctrls, { label: 'Soft-cap fix — capacity congestion premium', value: 'off', options: [{ label: 'Off · today', value: 'off' }, { label: 'On · soft cap', value: 'on' }] });
 
     const POPT = { w: 360, h: 300, pad: { l: 40, r: 12, t: 14, b: 30 } };
     const PI = Plot($('#mech-impact canvas', root), POPT), oI = $('#mech-impact .readout', root);
@@ -702,9 +712,24 @@
     const cpmmSlip = (x, R) => (x < 1 ? 0 : cpmmT(x, R) / x - 0.5);
     const bookSlip = (x, rho) => Math.min(0.5, x / (2 * rho));
 
+    // soft-cap congestion premium ---------
+    // u = utilisation toward the solvency frontier; capacity (in shares) ∝ L.
+    // congestion = κ·|fair|·u^a /(1−min(u,1−ε)), ≈0 with headroom, →∞ at the wall.
+    const CAP_C = 0.7;                              // capacity ≈ CAP_C · L (stylised: shares the pool can underwrite)
+    const capacityOf = (L) => CAP_C * L;
+    function congestion(x, L) {
+      const u = x / capacityOf(L);
+      if (u <= 0.02) return 0;
+      const a = 2.2, eps = 0.02, kappa = 0.16, fairAbs = 0.5;
+      return kappa * fairAbs * Math.pow(u, a) / (1 - Math.min(u, 1 - eps));
+    }
+    const bmmImpactEff = (x, p, L, soft) => soft ? Math.min(1, bmmImpact(x, p.Q) + congestion(x, L)) : bmmImpact(x, p.Q);
+    const bmmSlipEff = (x, p, L, soft) => soft ? bmmSlip(x, p.Q) + congestion(x, L) : bmmSlip(x, p.Q);
+
     function draw() {
-      const L = sLiq.get(), p = params(L), qm = sQ.get();
-      const cA = PI.COL.accent, cW = PI.COL.warn, cB = PI.COL.buy, cS = PI.COL.sell;
+      const L = Lval(), p = params(L), qm = sQ.get(), soft = softSeg.get() === 'on';
+      const cA = PI.COL.accent, cW = PI.COL.warn, cB = PI.COL.buy, cS = PI.COL.sell, cM = PI.COL.muted;
+      const xcap = capacityOf(L);
 
       PI.clear().domain(0, XMAX, 0, 1);
       PI.grid([0, 400, 800, 1200], YT, { xfmt: (v) => fmt(v, 0), yfmt: (v) => fmt(v, 2) });
@@ -712,31 +737,40 @@
       PI.curve((x) => bookImpact(x, p.rho), cS, 2, 90);
       PI.curve((x) => lmsrImpact(x, p.b), cW, 2, 90);
       PI.curve((x) => cpmmImpact(x, p.R), cB, 2, 90);
-      PI.curve((x) => bmmImpact(x, p.Q), cA, 2.6, 90);
+      if (soft) {
+        PI.curve((x) => bmmImpact(x, p.Q), cM, 1.4, 90);          // faint "BMM today" baseline
+        if (xcap < XMAX) PI.vline(xcap, cA, 'capacity', true);
+      }
+      PI.curve((x) => bmmImpactEff(x, p, L, soft), cA, 2.6, 90);
       PI.vline(qm, PI.COL.faint, '', true);
       oI.innerHTML =
-        cell('BMM @' + fmt(qm, 0), fmt(bmmImpact(qm, p.Q), 3), 'accent') +
+        cell(soft ? 'BMM+cap @' + fmt(qm, 0) : 'BMM @' + fmt(qm, 0), fmt(bmmImpactEff(qm, p, L, soft), 3), 'accent') +
         cell('LMSR', fmt(lmsrImpact(qm, p.b), 3)) +
         cell('CPMM', fmt(cpmmImpact(qm, p.R), 3), 'buy') +
         cell('Order book', fmt(bookImpact(qm, p.rho), 3), 'sell');
 
       let smax = 1e-3;
-      for (let i = 1; i <= 60; i++) { const x = (i / 60) * XMAX; smax = Math.max(smax, bmmSlip(x, p.Q), lmsrSlip(x, p.b), cpmmSlip(x, p.R), bookSlip(x, p.rho)); }
+      for (let i = 1; i <= 60; i++) { const x = (i / 60) * XMAX; smax = Math.max(smax, bmmSlipEff(x, p, L, soft), lmsrSlip(x, p.b), cpmmSlip(x, p.R), bookSlip(x, p.rho)); }
       smax = Math.min(0.5, smax) * 1.12;
+      const clampS = (v) => Math.min(v, smax);
       PS.clear().domain(0, XMAX, 0, smax);
       PS.grid([0, 400, 800, 1200], [0, smax / 2, smax], { xfmt: (v) => fmt(v, 0), yfmt: (v) => fmt(v, 3) });
       PS.curve((x) => bookSlip(x, p.rho), cS, 2, 90);
       PS.curve((x) => lmsrSlip(x, p.b), cW, 2, 90);
       PS.curve((x) => cpmmSlip(x, p.R), cB, 2, 90);
-      PS.curve((x) => bmmSlip(x, p.Q), cA, 2.6, 90);
+      if (soft) {
+        PS.curve((x) => bmmSlip(x, p.Q), cM, 1.4, 90);            // faint "BMM today" baseline
+        if (xcap < XMAX) PS.vline(xcap, cA, 'capacity', true);
+      }
+      PS.curve((x) => clampS(bmmSlipEff(x, p, L, soft)), cA, 2.6, 90);
       PS.vline(qm, PS.COL.faint, '', true);
       oS.innerHTML =
-        cell('BMM spread', fmt(bmmSlip(qm, p.Q), 4), 'accent') +
+        cell(soft ? 'BMM+cap spread' : 'BMM spread', fmt(bmmSlipEff(qm, p, L, soft), 4), 'accent') +
         cell('LMSR', fmt(lmsrSlip(qm, p.b), 4)) +
         cell('CPMM', fmt(cpmmSlip(qm, p.R), 4), 'buy') +
         cell('Order book', fmt(bookSlip(qm, p.rho), 4), 'sell');
     }
-    [sLiq, sQ].forEach((c) => c.on(draw)); redraws.push(draw); draw();
+    [sLiq, sQ, softSeg].forEach((c) => c.on(draw)); redraws.push(draw); draw();
   }
 
   function vizUserPrice() {
