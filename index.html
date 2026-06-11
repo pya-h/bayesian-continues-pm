@@ -3,55 +3,448 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>BMM — The Mathematics</title>
+  <title>BMM — How it works &amp; the mathematics</title>
   <link rel="stylesheet" href="vendor/katex/katex.min.css" />
   <link rel="stylesheet" href="styles.css" />
   <script>
-    /* Apply the saved/system theme before first paint to avoid a flash. */
+    /* Apply the saved/system theme + saved reading mode before first paint to
+       avoid a flash of the wrong palette or the wrong content set. */
     (function () {
       try {
         var saved = localStorage.getItem('bmm-theme');
         var theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
         if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
       } catch (e) {}
+      try {
+        var mode = localStorage.getItem('bmm-mode');
+        if (mode !== 'dev' && mode !== 'user') mode = 'user';
+        document.documentElement.setAttribute('data-mode', mode);
+      } catch (e) {
+        document.documentElement.setAttribute('data-mode', 'user');
+      }
     })();
   </script>
 </head>
 <body>
 <div class="progress" id="progress"></div>
+
+<!-- mode switch: flips the whole page between the plain-language trader guide
+     and the full developer/math reference. Persisted, like the theme. -->
+<div class="mode-switch" id="mode-switch" role="tablist" aria-label="Reading mode">
+  <button class="ms-btn" data-mode="user" role="tab"><span class="ms-i" aria-hidden="true">◎</span>Trader</button>
+  <button class="ms-btn" data-mode="dev" role="tab"><span class="ms-i" aria-hidden="true">∑</span>Developer</button>
+</div>
+
 <button class="theme-toggle" id="theme-toggle" aria-label="Toggle light / dark theme" title="Toggle light / dark theme">
   <span class="glyph" aria-hidden="true">◑</span>
   <span class="lbl"><span class="to-dark">Dark</span><span class="to-light">Light</span></span>
 </button>
+
 <div class="layout">
   <nav class="toc">
-    <div class="brand"><span>BMM</span> · The Math</div>
-    <div class="sub">Interactive engine internals</div>
-    <div class="group">Foundations</div>
-    <a href="#idea">0 · The big idea</a>
-    <a href="#concepts">1 · Core concepts &amp; notation</a>
-    <a href="#belief">2 · The belief model</a>
-    <div class="group">The pricing engine</div>
-    <a href="#payoffs">3 · Contracts &amp; payoffs</a>
-    <a href="#pricing">4 · Fair price = E[payoff]</a>
-    <a href="#sensitivity">5 · Price sensitivity ∂P/∂μ</a>
-    <a href="#signal">6 · Signal extraction</a>
-    <a href="#bayes">7 · The Bayesian update</a>
-    <a href="#spread">8 · The bid–ask spread</a>
-    <a href="#exec">9 · Execution &amp; position math</a>
-    <div class="group">Risk &amp; capital</div>
-    <a href="#reserve">10 · Reserve &amp; solvency</a>
-    <a href="#settlement">11 · Settlement</a>
-    <a href="#lp">12 · Liquidity providers</a>
-    <a href="#stats">13 · Stats &amp; metrics</a>
-    <a href="#breakers">14 · Circuit breakers</a>
-    <div class="group">Reference</div>
-    <a href="#config">15 · Config parameters</a>
-    <a href="#numerics">16 · Numerics &amp; rounding</a>
-    <a href="#users">17 · For users (traders &amp; creators)</a>
+    <div class="brand"><span>BMM</span> · <span class="brand-dev">The Math</span><span class="brand-user">How it works</span></div>
+    <div class="sub brand-dev">Interactive engine internals</div>
+    <div class="sub brand-user">A plain-language trader's guide</div>
+
+    <!-- developer TOC -->
+    <div class="toc-dev">
+      <div class="group">Foundations</div>
+      <a href="#idea">0 · The big idea</a>
+      <a href="#concepts">1 · Core concepts &amp; notation</a>
+      <a href="#belief">2 · The belief model</a>
+      <div class="group">The pricing engine</div>
+      <a href="#payoffs">3 · Contracts &amp; payoffs</a>
+      <a href="#pricing">4 · Fair price = E[payoff]</a>
+      <a href="#sensitivity">5 · Price sensitivity ∂P/∂μ</a>
+      <a href="#signal">6 · Signal extraction</a>
+      <a href="#bayes">7 · The Bayesian update</a>
+      <a href="#spread">8 · The bid–ask spread</a>
+      <a href="#exec">9 · Execution &amp; position math</a>
+      <div class="group">Risk &amp; capital</div>
+      <a href="#reserve">10 · Reserve &amp; solvency</a>
+      <a href="#settlement">11 · Settlement</a>
+      <a href="#lp">12 · Liquidity providers</a>
+      <a href="#stats">13 · Stats &amp; metrics</a>
+      <a href="#breakers">14 · Circuit breakers</a>
+      <a href="#capacity">15 · Capacity &amp; the gate</a>
+      <div class="group">Reference</div>
+      <a href="#config">16 · Config parameters</a>
+      <a href="#numerics">17 · Numerics &amp; rounding</a>
+      <div class="group">Validation</div>
+      <a href="#sim">18 · Model validation (Monte-Carlo)</a>
+    </div>
+
+    <!-- trader TOC -->
+    <div class="toc-user">
+      <div class="group">Start here</div>
+      <a href="#u-what">1 · What is this?</a>
+      <a href="#u-belief">2 · The market's best guess</a>
+      <a href="#u-bets">3 · What you can bet on</a>
+      <a href="#u-price">4 · Reading the price</a>
+      <div class="group">Trading</div>
+      <a href="#u-trade">5 · Making a trade</a>
+      <a href="#u-impact">6 · You move the price</a>
+      <a href="#u-positions">7 · Your positions &amp; profit</a>
+      <a href="#u-end">8 · When the market ends</a>
+      <div class="group">Going further</div>
+      <a href="#u-provide">9 · Funding a market (LPs &amp; creators)</a>
+      <a href="#u-risks">10 · Risks &amp; smart habits</a>
+      <a href="#u-capacity">11 · Capacity — when a market fills up</a>
+      <a href="#u-glossary">12 · Glossary</a>
+    </div>
   </nav>
 
   <main>
+    <!-- ================================================================= -->
+    <!-- ============================ TRADER ============================== -->
+    <!-- ================================================================= -->
+    <div class="mode-user">
+      <div class="hero">
+        <h1>How this market <span class="grad">works</span></h1>
+        <p>A plain-language guide to trading on BMM — a prediction market where you bet on
+        an unknown number, the price tells you the crowd's best estimate, and the market gets
+        smarter every time someone trades. No maths required. If you'd like the formulas and
+        the engine internals instead, flip the switch to <strong>Developer</strong>.</p>
+        <div class="pills">
+          <span class="pill">bet on a number</span>
+          <span class="pill">price = the estimate</span>
+          <span class="pill">you move the market</span>
+          <span class="pill">paid out at the end</span>
+        </div>
+      </div>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-what">
+        <h2><span class="section-num">1</span>What is this?<a class="anchor" href="#u-what">#</a></h2>
+        <p class="lead">A place to bet on “what number will it be?” — and a price that turns the
+        whole crowd's opinion into a single, readable estimate.</p>
+
+        <p>Every market is about one unknown number that will be settled later — call it the
+        <strong>outcome</strong>. It could be “the price of BTC at month-end”, “the winning
+        vote share”, “Friday's high temperature”. Nobody knows it yet.</p>
+
+        <p>You don't trade against other people directly. You trade against the
+        <strong>market maker</strong> — an automated counterparty that's always willing to take
+        the other side of your bet at a price it quotes. That price reflects what the market
+        currently believes about the outcome. When you think the maker's estimate is wrong, you
+        trade — and if you're right, you profit when the outcome is revealed.</p>
+
+        <div class="idea">
+          <span class="callout-title">The whole idea in five lines</span>
+          <ol style="margin:.3rem 0">
+            <li>The market holds a <strong>best guess</strong> about the outcome (a centre, and how unsure it is).</li>
+            <li>It <strong>quotes a price</strong> for any bet — that price <em>is</em> its estimate.</li>
+            <li>You <strong>buy</strong> if you think the real answer is higher/more likely, <strong>sell</strong> if lower/less likely.</li>
+            <li>Your trade <strong>nudges the estimate</strong> toward your view — bigger trades nudge it more.</li>
+            <li>When the outcome is known, every bet <strong>pays out</strong> based on what actually happened.</li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-belief">
+        <h2><span class="section-num">2</span>The market's best guess<a class="anchor" href="#u-belief">#</a></h2>
+        <p>At any moment the market summarises everything it “thinks” with two simple ideas:</p>
+        <div class="cards">
+          <div class="card">
+            <div class="card-h">The centre</div>
+            <p>Its single best guess for the outcome — the most likely value right now. If a market's
+            centre is 100, the crowd's consensus is “around 100”.</p>
+          </div>
+          <div class="card">
+            <div class="card-h">The uncertainty</div>
+            <p>How sure it is. A <em>narrow</em> market is confident the answer is close to the centre;
+            a <em>wide</em> one is still very unsure and could land far away.</p>
+          </div>
+        </div>
+        <p>Picture a bell-shaped hill of probability sitting over the number line: tall and narrow
+        when the market is confident, low and spread-out when it isn't. As people trade, that hill
+        slides toward the value informed traders are backing, and it gets taller and tighter as more
+        information arrives. <strong>The market literally learns.</strong></p>
+        <p class="small">You never have to think about the shape of that hill to trade — but it's why
+        the price moves the way it does, and why a brand-new market reacts more than a mature one.</p>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-bets">
+        <h2><span class="section-num">3</span>What you can bet on<a class="anchor" href="#u-bets">#</a></h2>
+        <p>A market offers a few kinds of bet (“contracts”) on the same underlying outcome. You don't
+        need any formulas — here's what each one means and when it pays:</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Bet</th><th>In plain words</th><th>You win when…</th></tr></thead>
+          <tbody>
+            <tr><td><strong>The number itself</strong></td><td>Direct exposure to the value — buy it to bet the outcome ends up high (it pays out the final number)</td><td>the outcome settles above what you paid (to bet on a fall, buy a Put instead)</td></tr>
+            <tr><td><strong>Above a line (Call)</strong></td><td>“It'll finish above <em>K</em>” — and the more above, the more you make</td><td>the outcome ends above your line; payout grows with how far above</td></tr>
+            <tr><td><strong>Below a line (Put)</strong></td><td>“It'll finish below <em>K</em>”</td><td>the outcome ends below your line; payout grows with how far below</td></tr>
+            <tr><td><strong>Yes / No (Binary)</strong></td><td>A simple “will it clear <em>K</em>, yes or no?”</td><td>the condition is true at the end — pays a fixed 1, else 0</td></tr>
+            <tr><td><strong>In a range</strong></td><td>“It'll land between <em>a</em> and <em>b</em>”</td><td>the outcome falls inside your range — pays 1, else 0</td></tr>
+            <tr><td><strong>Close to a target</strong></td><td>“It'll be near <em>c</em>” — a precision bet</td><td>the outcome is close to your target; the closer, the bigger the payout</td></tr>
+          </tbody>
+        </table></div>
+        <div class="user"><span class="callout-title">Yes/No and range bets are just probabilities</span>
+        For these, the price is the market's estimated <em>chance</em> of the event. A price of
+        <strong>0.62</strong> means “about a 62% chance”. Buy below what you think the real chance is,
+        sell above it.</div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-price">
+        <h2><span class="section-num">4</span>Reading the price<a class="anchor" href="#u-price">#</a></h2>
+        <p>The price of a bet is simply <strong>its average payout under the market's current best
+        guess</strong> — what it's worth if the market is right. That single number is the most
+        useful thing on the screen:</p>
+        <ul>
+          <li>For a <strong>Yes/No</strong> or <strong>range</strong> bet, the price <em>is</em> the
+          probability — 0.30 means “≈30% likely”.</li>
+          <li>For an <strong>above/below</strong> bet, it's the expected payout — bigger when the line
+          is easy to clear, near zero when it's far out of reach.</li>
+          <li>For the <strong>number-itself</strong> bet, it's just the market's centre — its best
+          guess for the number.</li>
+        </ul>
+        <p>Try it: drag the market's best guess and the line. The shaded area is the chance the outcome
+        lands above the line — and that's exactly the Yes price.</p>
+
+        <div class="viz" id="u-viz-price">
+          <div class="viz-head"><div class="viz-title">“Will it finish above the line?”<span class="tag">live</span></div><div class="viz-hint">the shaded chance is the Yes price</div></div>
+          <div class="viz-grid">
+            <div>
+              <canvas></canvas>
+              <div class="legend"><span><i style="background:var(--accent)"></i>the market's view</span><span><i style="background:var(--buy)"></i>your line</span><span><i style="background:var(--tint-buy-strong)"></i>chance above</span></div>
+            </div>
+            <div><div class="controls"></div><div class="readout"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-trade">
+        <h2><span class="section-num">5</span>Making a trade<a class="anchor" href="#u-trade">#</a></h2>
+        <p>Trading is two buttons: <strong>buy</strong> if you think the bet is underpriced,
+        <strong>sell</strong> if you think it's overpriced (or to close something you hold). You choose
+        a size, and the maker quotes you an exec price.</p>
+
+        <h3>The spread is the cost of trading</h3>
+        <p>The maker never trades at exactly the fair estimate. It charges a small margin: you
+        <strong>buy a touch above</strong> the fair price and <strong>sell a touch below</strong> it.
+        That gap is the <em>spread</em> — the maker's only profit, and effectively your trading fee. It
+        gets a little wider when:</p>
+        <div class="cards">
+          <div class="card"><div class="card-h">Your order is large</div><p>Big orders move the market more, so they cost a bit more per unit.</p></div>
+          <div class="card"><div class="card-h">The maker is already loaded</div><p>If lots of people are on one side, the maker charges more to take even more of that risk.</p></div>
+          <div class="card"><div class="card-h">The market is jumpy</div><p>More uncertainty → a wider spread, to protect the maker.</p></div>
+        </div>
+
+        <h3>See it for yourself</h3>
+        <p>This is a live market (best guess 100, betting on “above 100”). Pick a side and size and
+        watch the price you'd get, the small spread you'd pay, and how your trade shifts the market's
+        estimate:</p>
+
+        <div class="viz" id="u-viz-trade">
+          <div class="viz-head"><div class="viz-title">Place a trade<span class="tag">live</span></div><div class="viz-hint">real engine — same maths the server runs</div></div>
+          <div class="viz-grid">
+            <div><div class="u-trade-panel"></div></div>
+            <div><div class="controls"></div><div class="readout"></div></div>
+          </div>
+        </div>
+        <p class="small">“Sell all” in the real app liquidates every position you hold in a market at
+        once. Because each sale nudges the price down a little, later units fill a touch lower than the
+        first — the estimate you see before confirming is at current prices.</p>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-impact">
+        <h2><span class="section-num">6</span>You move the price<a class="anchor" href="#u-impact">#</a></h2>
+        <p>This is the heart of a prediction market: <strong>your trade is information</strong>. When you
+        buy, you're telling the market “I think this is more likely / higher than you do” — so the maker
+        shifts its best guess toward you. Sellers push it the other way.</p>
+        <div class="cards">
+          <div class="card"><div class="card-h">Bigger = stronger</div><p>A large order signals more conviction, so it moves the estimate more. A tiny one barely registers — the market treats it as noise.</p></div>
+          <div class="card"><div class="card-h">New markets move most</div><p>An uncertain, young market shifts a lot per trade. A mature, confident one barely budges — it already “knows” a lot.</p></div>
+          <div class="card"><div class="card-h">The crowd converges</div><p>As informed traders pile in, the price homes in on the true answer. The final price is the crowd's best collective estimate.</p></div>
+        </div>
+        <div class="user"><span class="callout-title">What this means for you</span>
+        If you trade big in a thin market, you'll push the price against yourself as you go — your last
+        units fill at a worse price than your first. Sizing sensibly keeps your average price close to
+        where you started.</div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-positions">
+        <h2><span class="section-num">7</span>Your positions &amp; profit<a class="anchor" href="#u-positions">#</a></h2>
+        <p>When you buy, you open (or add to) a <strong>position</strong>. The app tracks your
+        <strong>average entry price</strong> — the typical price you paid across all your buys.</p>
+        <ul>
+          <li><strong>Selling closes a position.</strong> In v1 you can only hold the “bought” side, so
+          a sell reduces something you already hold and books your profit or loss against your average
+          entry.</li>
+          <li><strong>Profit = exit − entry.</strong> If your average entry was 4.00 and you sell at
+          5.20, you've made 1.20 per unit on the units you sold.</li>
+          <li><strong>Unrealised vs realised.</strong> Before you sell, your profit is “on paper” and
+          moves with the price. Once you sell (or the market settles), it's locked in.</li>
+        </ul>
+        <p>You can hold until the market settles instead of selling — at settlement every position pays
+        out automatically based on the real outcome (next section).</p>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-end">
+        <h2><span class="section-num">8</span>When the market ends<a class="anchor" href="#u-end">#</a></h2>
+        <p>Eventually the true outcome becomes known and an administrator <strong>settles</strong> the
+        market. Each open bet pays its payoff for the real outcome:</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Your bet</th><th>What you're paid at the end</th></tr></thead>
+          <tbody>
+            <tr><td>The number itself</td><td>the outcome value itself, per unit</td></tr>
+            <tr><td>Above a line (Call)</td><td>how far the outcome finished above your line (0 if it didn't)</td></tr>
+            <tr><td>Below a line (Put)</td><td>how far it finished below your line (0 if it didn't)</td></tr>
+            <tr><td>Yes / No</td><td>1 if the condition came true, 0 if not</td></tr>
+            <tr><td>In a range</td><td>1 if the outcome landed in your range, 0 if not</td></tr>
+            <tr><td>Close to a target</td><td>more the closer it landed; e.g. with a tolerance of 1000, being 500 off pays ≈0.88, being 2000 off pays ≈0.14</td></tr>
+          </tbody>
+        </table></div>
+        <p>Your final profit is what you're paid minus what the position cost you. Range and
+        “close-to” bets reward being <em>accurate</em>, not just directionally right — handy when you
+        have a strong view on roughly where the answer will land.</p>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-provide">
+        <h2><span class="section-num">9</span>Funding a market — LPs &amp; creators<a class="anchor" href="#u-provide">#</a></h2>
+        <p>Someone has to put up the cash the maker pays out from. Those people are
+        <strong>liquidity providers (LPs)</strong>, and the person who opens a market is its first one.</p>
+        <div class="cards">
+          <div class="card">
+            <div class="card-h">You set the opening view</div>
+            <p>As creator you pick the starting best guess and how uncertain it is. A wider opening makes
+            a more forgiving market that needs more trading to sharpen up.</p>
+          </div>
+          <div class="card">
+            <div class="card-h">You fund the reserve</div>
+            <p>You put up starting cash — the <em>reserve</em> — that backs the maker's worst-case
+            payouts. This makes you the market's first liquidity provider.</p>
+          </div>
+          <div class="card">
+            <div class="card-h">You earn the spread</div>
+            <p>Every trade pays the maker a small spread. As an LP you own a share of the pool, so that
+            income accrues to you — your stake grows as the market does business.</p>
+          </div>
+          <div class="card">
+            <div class="card-h">You carry the risk</div>
+            <p>In exchange, you're on the hook for payouts if the outcome goes against the maker's book.
+            More reserve = the market can safely take bigger trades before it has to shrink them.</p>
+          </div>
+        </div>
+        <p>LPs hold <strong>shares</strong> of the pool, priced at the pool's value per share. Deposits
+        buy in at the current value and withdrawals cash out at it — so nobody dilutes anyone. If the
+        maker earns more in spread than it pays out, the pool's value rises and every LP's share is
+        worth more.</p>
+        <div class="user"><span class="callout-title">Two ways to play</span>
+        <strong>Trade</strong> if you have a view on the outcome and want to bet on it.
+        <strong>Provide liquidity</strong> if you'd rather earn the spread from others' trading and are
+        comfortable carrying the market's risk in return.</div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-risks">
+        <h2><span class="section-num">10</span>Risks &amp; smart habits<a class="anchor" href="#u-risks">#</a></h2>
+        <ul>
+          <li><strong>You can lose.</strong> If the outcome goes against your bet, your position can be
+          worth far less than you paid — or nothing.</li>
+          <li><strong>The spread is a real cost.</strong> You buy above and sell below fair, so a quick
+          in-and-out round-trip loses the spread even if the price doesn't move. Trade when you have an
+          edge, not for the sake of it.</li>
+          <li><strong>Big orders move the price against you.</strong> Split large trades or accept that
+          your average price will drift as you fill.</li>
+          <li><strong>Orders can be partially filled.</strong> If a trade would push the maker past what
+          its reserve can safely cover, it fills only as much as is safe and tells you. That protects
+          the pool — and you — from a market that can't pay out.</li>
+          <li><strong>Settlement timing is set by the market.</strong> Know when a market resolves and
+          on what source before you put money in.</li>
+        </ul>
+        <div class="user"><span class="callout-title">One sentence</span>
+        You're trading against an automated maker that prices every bet as its expected payout, charges
+        a small spread, and learns from the order flow — so over time the price becomes the crowd's best
+        estimate of the outcome, and your job is to spot when it's wrong.</div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-capacity">
+        <h2><span class="section-num">11</span>Capacity — when a market fills up<a class="anchor" href="#u-capacity">#</a></h2>
+        <p>Every market is backed by a pool of cash (the reserve you fund in §9). That cash is what pays
+        winners when the market resolves, so a market can only take on as much betting as its cash can
+        safely cover — its <strong>capacity</strong>. Think of it like an insurer: it can write only as
+        many policies as its capital can pay claims on.</p>
+
+        <p>Here is the part that surprises people: <strong>buying is not just money flowing in.</strong>
+        When you buy, you pay a small premium now — but the maker takes on the obligation to pay you a
+        possibly much larger amount if your bet wins. A few cents in, potentially many dollars owed later.
+        As more people pile onto the same side, the pool's worst-case bill grows far faster than the
+        premiums it collects.</p>
+
+        <p>To guarantee winners always get paid, the maker holds back a <strong>reserve</strong> — enough
+        cash to cover the worst realistic outcome — and only takes on new risk while it still has a
+        comfortable buffer of cash above that reserve. When a market gets crowded on one side, the reserve
+        climbs toward the cash, the buffer shrinks, and:</p>
+        <ul>
+          <li><strong>Buys get smaller, then pause.</strong> A new bet that would add risk is trimmed to
+          what's safe (a partial fill) or, once the buffer is gone, declined — even though the market still
+          looks open.</li>
+          <li><strong>Selling and the other side still work.</strong> Closing a position, or betting the
+          opposite way, <em>reduces</em> the maker's risk, so those are never blocked — and they free up
+          capacity for everyone.</li>
+        </ul>
+
+        <p>If you hit “this market won't let me buy,” it isn't a glitch — the market is simply
+        <strong>full</strong> on that risk, like an insurer that has hit its book limit. Two things open it
+        back up:</p>
+        <ul>
+          <li><strong>Add liquidity.</strong> Anyone can fund the pool (the Manage-liquidity page). More
+          cash → more capacity → buying reopens.</li>
+          <li><strong>Let it unwind.</strong> As holders sell or bet the other way, the reserve falls and
+          capacity returns on its own.</li>
+        </ul>
+
+        <div class="user"><span class="callout-title">Why it exists</span>
+        Without this limit, a market could keep selling cheap bets it can't actually pay out, and winners
+        would be left short at settlement. Capacity is the rule that keeps the pool always able to pay — it
+        protects you, not the house.</div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <section id="u-glossary">
+        <h2><span class="section-num">12</span>Glossary<a class="anchor" href="#u-glossary">#</a></h2>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Term</th><th>What it means for you</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Outcome</strong></td><td>The unknown number the market settles to.</td></tr>
+            <tr><td><strong>Market maker</strong></td><td>The automated counterparty you trade against; always quotes a price.</td></tr>
+            <tr><td><strong>Best guess / centre</strong></td><td>The market's current single estimate of the outcome.</td></tr>
+            <tr><td><strong>Fair price</strong></td><td>A bet's average payout under that best guess — the mid price before spread.</td></tr>
+            <tr><td><strong>Spread</strong></td><td>The small margin you pay: buy above fair, sell below. The maker's profit.</td></tr>
+            <tr><td><strong>Position</strong></td><td>A bet you hold, tracked at your average entry price.</td></tr>
+            <tr><td><strong>Settle</strong></td><td>The market ends, the real outcome is set, and every position pays out.</td></tr>
+            <tr><td><strong>Liquidity provider (LP)</strong></td><td>Someone who funds the pool and earns the spread while carrying its risk.</td></tr>
+            <tr><td><strong>Reserve</strong></td><td>Cash the maker holds back to cover worst-case payouts; caps trade size.</td></tr>
+            <tr><td><strong>Capacity</strong></td><td>How much betting a market can take on before its cash can't safely back more; when it's full, buying pauses until liquidity is added or positions unwind.</td></tr>
+            <tr><td><strong>Partial fill</strong></td><td>When only part of your order can be safely taken, and the rest is declined.</td></tr>
+          </tbody>
+        </table></div>
+        <p class="small" style="margin-top:1.2rem">Want to know exactly how the price, spread, learning
+        and reserve are computed? Flip the switch at the top-left to <strong>Developer</strong> for the
+        full mathematics — every formula, with worked examples and live plots.</p>
+      </section>
+
+      <div class="footer">
+        <p>BMM — trader's guide · the plain-language companion to the engine reference. Every live demo
+        on this page runs the <em>real</em> pricing maths in your browser, so the numbers you see are
+        the numbers the market would give you.</p>
+      </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- ========================== DEVELOPER ============================= -->
+    <!-- ================================================================= -->
+    <div class="mode-dev">
     <div class="hero">
       <h1>BMM — <span class="grad">The Mathematics</span></h1>
       <p>A complete, developer-facing tour of every formula behind this Bayesian Market Maker:
@@ -133,8 +526,10 @@
         </tbody>
       </table></div>
       <p class="small">Money is stored as <code>numeric(20,8)</code> and every arithmetic result is passed
-      through <code>round8</code> (round-half-even to 8 decimals) — see §16. Formulas below omit the
-      rounding for clarity; the code never does.</p>
+      through <code>round8</code> (round-half-even to 8 decimals) — see §17. Formulas below omit the
+      rounding for clarity; the code never does. Positions and MM inventory aggregate by a
+      <strong>canonical contract key</strong> (type + params normalised to 12 significant figures,
+      <code>contractKey</code>), so two specs that price identically share one book entry.</p>
     </section>
 
     <!-- =============================================================== -->
@@ -153,6 +548,20 @@
       since \( \Phi^{-1}(0.9)\approx 1.2816 \). Drag <span class="sym">μ</span> and <span class="sym">σ</span>
       and watch the mass move and stretch:</p>
 
+      <details>
+        <summary>Background — the probability toolkit (everything the rest of the page assumes)</summary>
+        <p>A few standard definitions, so nothing below needs an outside reference:</p>
+        <ul>
+          <li><strong>Random variable &amp; density.</strong> θ is a <em>random variable</em> — a quantity whose value is uncertain. Its <strong>probability density</strong> \( p(\theta) \) measures relative likelihood; the probability θ lands in \( [a,b] \) is the area \( \int_a^b p(\theta)\,d\theta \), and the total \( \int_{-\infty}^{\infty} p=1 \).</li>
+          <li><strong>CDF &amp; quantile.</strong> The <strong>cumulative</strong> \( F(\theta)=P(\le\theta)=\int_{-\infty}^{\theta} p \) runs 0→1. Its inverse, the <strong>quantile function</strong> \( F^{-1}(u) \), answers the reverse question — “below which value does fraction \(u\) of the mass sit?”. For the Gaussian, \( F=\Phi(\tfrac{\theta-\mu}{\sigma}) \) and \( F^{-1}(u)=\mu+\sigma\,\Phi^{-1}(u) \).</li>
+          <li><strong>Expectation (the average).</strong> \( \mathbb E[g(\theta)]=\int g(\theta)\,p(\theta)\,d\theta \) — the value of any function \(g\), weighted by likelihood. (This “plug the function inside the integral” rule is the law of the unconscious statistician.) The mean is \( \mathbb E[\theta]=\mu \), and it is exactly the fair price of §4.</li>
+          <li><strong>Variance.</strong> Spread around the mean: \( \operatorname{Var}[\theta]=\mathbb E[(\theta-\mu)^2]=\mathbb E[\theta^2]-\mu^2 \). That last identity — <em>second moment minus mean-squared</em> — is reused all through §13. For the Gaussian, \( \operatorname{Var}=\sigma^2 \).</li>
+          <li><strong>Standardization (the z-score).</strong> Subtracting the mean and dividing by σ turns any \( \mathcal N(\mu,\sigma^2) \) into the <em>standard</em> \( \mathcal N(0,1) \): \( z=\tfrac{\theta-\mu}{\sigma} \). That is why the standard PDF/CDF \( \varphi,\Phi \) suffice everywhere — each formula just evaluates them at a z-score such as \( d=\tfrac{\mu-K}{\sigma} \).</li>
+          <li><strong>Credible interval.</strong> The Bayesian “the value is in here with probability X%”. The symmetric central X% interval runs between the \( \tfrac{1-X}{2} \) and \( \tfrac{1+X}{2} \) quantiles. For 80% that is the 0.10 and 0.90 quantiles, i.e. \( \mu\pm\Phi^{-1}(0.9)\,\sigma=\mu\pm1.2816\,\sigma \).</li>
+        </ul>
+        <p class="small" style="margin-top:.6rem">Made concrete on the belief \( \mathcal N(100,10^2) \): the density peaks at \( \theta=100 \); the CDF reads \( \text{cdf}(110)=\Phi(1)=0.8413 \), so 84% of the mass sits below 110; the 0.9-quantile is \( 100+10\cdot1.2816=112.82 \); and the 80% credible interval is \( [\,87.18,\ 112.82\,] \). Every later section just feeds a different z-score into these same three functions \( \varphi,\ \Phi,\ \Phi^{-1} \) — there is nothing else to learn.</p>
+      </details>
+
       <div class="viz" id="viz-belief">
         <div class="viz-head"><div class="viz-title">The belief over θ<span class="tag">live</span></div><div class="viz-hint">μ slides it · σ widens it</div></div>
         <div class="viz-grid">
@@ -165,7 +574,7 @@
       </div>
       <div class="dev"><span class="callout-title">Implementation</span>
       <code>GaussianBelief(mu, sigma2)</code> stores the variance and exposes <code>pdf/cdf/quantile/sample</code>.
-      Sampling uses the inverse-CDF of a seeded PRNG so Monte-Carlo results are reproducible (§16).</div>
+      Sampling uses the inverse-CDF of a seeded PRNG so Monte-Carlo results are reproducible (§17).</div>
     </section>
 
     <!-- =============================================================== -->
@@ -203,7 +612,8 @@
         <span class="eqlabel">pricing.ts</span>
       </div>
       <p>For a Gaussian belief, every v1 contract has a <strong>closed form</strong> — no integration
-      at runtime. Using \( d=\tfrac{\mu-K}{\sigma} \):</p>
+      at runtime. Using \( d=\tfrac{\mu-K}{\sigma} \) (the z-score of the strike — how many σ the mean
+      sits above \(K\), see §2):</p>
       <div class="tablewrap"><table>
         <thead><tr><th>Type</th><th>Fair price (closed form)</th><th>Reading</th></tr></thead>
         <tbody>
@@ -217,13 +627,46 @@
         </tbody>
       </table></div>
       <details>
-        <summary>Where the CALL formula comes from</summary>
-        <p>\( \mathbb E[\max(0,\theta-K)]=\int_K^\infty(\theta-K)\,\mathcal N(\theta;\mu,\sigma^2)\,d\theta \).
-        Splitting into \( \int\theta\,p - K\int p \) over \( [K,\infty) \) and using
-        \( \int_K^\infty \theta\,p\,d\theta=\mu\,\Phi(d)+\sigma\,\varphi(d) \) gives
-        \( \sigma\varphi(d)+(\mu-K)\Phi(d) \). The GAUSSIAN price is the integral of a product of two
-        Gaussians, which is itself Gaussian in \( (c-\mu) \) with variance \( w^2+\sigma^2 \).</p>
+        <summary>Where the CALL and GAUSSIAN formulas come from (full derivation)</summary>
+        <p><strong>The CALL.</strong> By the definition of expectation (§2),
+        \( \mathbb E[\max(0,\theta-K)]=\int_K^{\infty}(\theta-K)\,p(\theta)\,d\theta
+        =\underbrace{\int_K^{\infty}\theta\,p\,d\theta}_{A}-K\underbrace{\int_K^{\infty} p\,d\theta}_{B} \).
+        The easy piece is \( B=P(\theta\ge K)=\Phi(d) \). For \(A\), standardize with
+        \( z=\tfrac{\theta-\mu}{\sigma} \) (so \( \theta=\mu+\sigma z \), \( p\,d\theta=\varphi(z)\,dz \),
+        and the lower limit becomes \( z=-d \)):
+        \( A=\int_{-d}^{\infty}(\mu+\sigma z)\,\varphi(z)\,dz=\mu\Phi(d)+\sigma\!\int_{-d}^{\infty} z\,\varphi(z)\,dz \).
+        The trick is that \( z\,\varphi(z)=-\varphi'(z) \) (differentiate \( \varphi(z)=\tfrac{1}{\sqrt{2\pi}}e^{-z^2/2} \)),
+        so \( \int_{-d}^{\infty} z\,\varphi(z)\,dz=\big[-\varphi(z)\big]_{-d}^{\infty}=\varphi(d) \)
+        (using \( \varphi(-d)=\varphi(d) \)). Hence \( A=\mu\Phi(d)+\sigma\varphi(d) \) and
+        \( \text{CALL}=A-KB=(\mu-K)\Phi(d)+\sigma\varphi(d) \). The PUT follows the same way — or instantly
+        from put–call parity \( \text{CALL}-\text{PUT}=\mu-K \).</p>
+        <p><strong>The GAUSSIAN.</strong> Its price is the overlap of two bell curves,
+        \( \int_{-\infty}^{\infty} e^{-(\theta-c)^2/2w^2}\,\mathcal N(\theta;\mu,\sigma^2)\,d\theta \).
+        The whole job is to collect the two exponents into a single squared term in θ plus a constant.
+        Write \( a=\tfrac{1}{w^2}+\tfrac{1}{\sigma^2}=\tfrac{w^2+\sigma^2}{w^2\sigma^2} \) for the coefficient
+        of \( \theta^2 \); completing the square gives</p>
+        <div class="eqbox">$$ -\frac{(\theta-c)^2}{2w^2}-\frac{(\theta-\mu)^2}{2\sigma^2} \;=\; -\frac{a}{2}\,(\theta-b)^2 \;-\; \frac{(c-\mu)^2}{2(w^2+\sigma^2)},\qquad b=\frac{c/w^2+\mu/\sigma^2}{a}. $$</div>
+        <p>The first term still depends on θ; the second does not. So the integral factors into a θ-Gaussian
+        times a constant. The θ-Gaussian, integrated against the belief’s \( \tfrac{1}{\sqrt{2\pi\sigma^2}} \)
+        normalizer, contributes \( \tfrac{1}{\sqrt{2\pi\sigma^2}}\cdot\sqrt{\tfrac{2\pi}{a}}=\tfrac{1}{\sqrt{\sigma^2 a}}=\sqrt{\tfrac{w^2}{w^2+\sigma^2}} \);
+        the constant survives untouched. Multiplying the two:</p>
+        <div class="eqbox">$$ \text{Price}_\text{GAUSSIAN}=\sqrt{\frac{w^2}{w^2+\sigma^2}}\;\exp\!\Big(-\frac{(c-\mu)^2}{2(w^2+\sigma^2)}\Big). $$</div>
+        <p>Read it off: the two uncertainties \( w \) (contract tolerance) and \( \sigma \) (belief width)
+        <em>add in quadrature</em>, \( (w^2+\sigma^2) \) — the exact rule for convolving two normals — so a
+        wider belief <em>or</em> a more forgiving contract both flatten the peak and lower the price. The
+        prefactor \( \sqrt{w^2/(w^2+\sigma^2)}\le1 \) is the height penalty for that spreading; the
+        exponential measures how far the target \( c \) sits from the mean \( \mu \) in the combined scale.
+        This same complete-the-square step — two Gaussians multiplied, the θ² coefficient giving a precision
+        and the θ coefficient giving a centre — is precisely the engine of the Bayesian update in §7; there
+        we keep the θ-Gaussian and discard the constant, here we do the reverse.</p>
       </details>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      Belief \( \mathcal N(100,10^2) \). A <code>BINARY_CALL</code> at \(K=105\) is worth
+      \( \Phi(\tfrac{100-105}{10})=\Phi(-0.5)=0.3085 \) — the market gives \( \theta\ge105 \) a
+      <strong>30.85%</strong> chance. The plain <code>CALL</code> at the same strike, with
+      \( d=-0.5,\ \varphi(d)=0.3521 \), is \( 10(0.3521)+(-5)(0.3085)=\mathbf{1.978} \). And a
+      <code>SPREAD</code> over \([95,105]\) prices to \( \Phi(0.5)-\Phi(-0.5)=\mathbf{0.3829} \), i.e.
+      a 38.29% chance of landing in the band.</div>
       <p>The plot draws the payoff \( f(\theta) \) and the belief \( p(\theta) \) (green, scaled to
       fit). The fair price is the area of their product — change the belief or the contract and watch
       it move:</p>
@@ -263,6 +706,23 @@
       <p>Note a CALL’s delta is exactly \( P(\theta\ge K) \): deep in-the-money it tracks μ one-for-one
       (delta→1), far out it barely reacts (delta→0). That’s the intuition the spread uses to charge
       more on trades that could move the price a lot.</p>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      At the §4 belief \( \mathcal N(100,10^2) \), a <code>CALL</code> struck at \(K=105\) has
+      \( d=\tfrac{100-105}{10}=-0.5 \), so its delta is \( \Phi(-0.5)=\mathbf{0.3085} \): a one-unit rise
+      in the belief mean μ lifts that call’s fair price by about \( 0.31 \). A <code>BINARY_CALL</code> at
+      the same strike has delta \( \varphi(-0.5)/10=0.3521/10=\mathbf{0.0352} \) — much flatter, because a
+      binary’s payoff is capped at 1.</div>
+      <details>
+        <summary>Why a CALL’s delta collapses to just \( \Phi(d) \) (the edge terms cancel)</summary>
+        <p>Differentiate \( \text{CALL}=(\mu-K)\Phi(d)+\sigma\varphi(d) \) with respect to μ, with
+        \( d=\tfrac{\mu-K}{\sigma} \) so \( \tfrac{\partial d}{\partial\mu}=\tfrac1\sigma \). The product
+        rule gives three terms:
+        \( \Phi(d)+(\mu-K)\varphi(d)\tfrac1\sigma+\sigma\,\varphi'(d)\tfrac1\sigma \).
+        Because \( \varphi'(d)=-d\,\varphi(d)=-\tfrac{\mu-K}{\sigma}\varphi(d) \), the third term is
+        \( -(\mu-K)\varphi(d)\tfrac1\sigma \), which exactly cancels the second. Only \( \Phi(d) \) survives,
+        so \( \partial\text{Price}/\partial\mu=\Phi(d)=P(\theta\ge K) \). This same cancellation — the
+        density-weighted boundary terms always vanish — is why every delta in the table above is so clean.</p>
+      </details>
     </section>
 
     <!-- =============================================================== -->
@@ -270,7 +730,7 @@
       <h2><span class="section-num">6</span>Signal extraction<a class="anchor" href="#signal">#</a></h2>
       <p>When someone trades, they reveal information. The engine decodes a trade
       \( (C, q) \) into a <strong>signal</strong> \( s \) — the trader’s implied estimate of θ — and a
-      <strong>weight</strong> \( w \in[0,1) \) — how much to trust it. Define direction
+      <strong>weight</strong> \( w \ge 0 \) — how much to trust it. Define direction
       \( \text{dir}=\operatorname{sign}(q) \) and intensity \( \iota=|q|/Q_\text{max} \).</p>
       <div class="eqbox named"><span>$$
         s=\begin{cases}
@@ -282,10 +742,19 @@
       $$</span><span class="eqlabel">signal.ts</span></div>
       <p>The intuition: buying a CALL says “θ is above the strike”; selling it says the opposite.
       Buying a LINEAR pushes the signal above the current mean; selling pushes below. A range/point
-      bet pulls the signal toward the target when bought, and away (in μ’s current direction) when sold.</p>
+      bet sets the signal <em>at</em> the target when bought, and pushes it away — along \( \operatorname{sign}(\mu-\text{target}) \) — when sold.</p>
       <p>The weight rises with size but treats tiny trades as noise — below the threshold
       \( q_\text{th} \) it’s near zero:</p>
       <div class="eqbox">$$ w=\iota\,\Big(1-e^{-|q|/q_\text{th}}\Big)=\frac{|q|}{Q_\text{max}}\Big(1-e^{-|q|/q_\text{th}}\Big) $$</div>
+      <p class="small">The weight is not clamped: for an in-range size \( |q|\le Q_\text{max} \) it stays
+      below 1, but since \( \iota=|q|/Q_\text{max} \) is unbounded, an oversized order yields \( w&gt;1 \).
+      In practice fills are bounded by the reserve gate (§10), so \( w\in[0,1) \) on the live path.</p>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      Prior \( \mathcal N(100,12^2) \), a <strong>buy of 120</strong> units of a <code>CALL</code> at
+      \(K=100\) (defaults \( \alpha=1,\ \beta=1,\ Q_\text{max}=500,\ q_\text{th}=10 \)). Intensity
+      \( \iota=120/500=0.24 \). Signal \( s=100+(+1)(1)(12)(1+0.24)=\mathbf{114.88} \). Weight
+      \( w=0.24\,(1-e^{-120/10})=0.24(1-e^{-12})\approx\mathbf{0.2400} \). The trade reads as “θ is
+      around 115, trust it ~24%”.</div>
       <div class="dev"><span class="callout-title">Why this shape</span>
       Larger orders are more likely to be informed and carry more conviction, so both the signal
       magnitude \( (1+\iota) \) and the weight grow with \(|q|\). The \( 1-e^{-|q|/q_\text{th}} \)
@@ -308,6 +777,43 @@
       can only <em>shrink</em> (more data → more confidence). A floor
       \( \sigma'^2\ge\sigma_\text{min}^2 \) prevents runaway overconfidence. With the demo default
       \( \sigma_\varepsilon=\sigma_0 \), a full-weight signal moves μ about halfway to \(s\).</p>
+      <details>
+        <summary>Why these exact formulas? The Normal–Normal conjugate derivation</summary>
+        <p>Bayes’ rule says posterior \( \propto \) prior \( \times \) likelihood. The prior is
+        \( \mathcal N(\mu,\sigma^2) \); we treat the trade as a noisy observation of the truth,
+        \( s\sim\mathcal N(\theta,\ \sigma_\varepsilon^2/w) \) — a reading centred on θ whose precision
+        scales with the trust weight \(w\). Both factors are Gaussian, so their product is Gaussian too
+        (a <em>conjugate</em> pair: the posterior stays in the same family):</p>
+        <div class="eqbox">$$ p(\theta\mid s)\ \propto\ \exp\!\Big(-\tfrac{(\theta-\mu)^2}{2\sigma^2}\Big)\,\exp\!\Big(-\tfrac{w\,(\theta-s)^2}{2\sigma_\varepsilon^2}\Big) $$</div>
+        <p>Add the two exponents and <strong>complete the square</strong> in θ. Writing
+        \( \tau_0=\tfrac1{\sigma^2} \) and \( \tau_s=\tfrac{w}{\sigma_\varepsilon^2} \), expand the squares and
+        regroup by powers of θ:</p>
+        <div class="eqbox">$$ -\tfrac12\big[\tau_0(\theta-\mu)^2+\tau_s(\theta-s)^2\big]=-\tfrac12(\tau_0+\tau_s)\,\theta^2+(\tau_0\mu+\tau_s s)\,\theta+\text{const}. $$</div>
+        <p>Any Gaussian \( \exp\!\big(-\tfrac12\tau'(\theta-\mu')^2\big) \) has \( \theta^2 \)-coefficient
+        \( -\tfrac12\tau' \) and θ-coefficient \( +\tau'\mu' \). Matching those two coefficients to the line
+        above reads the posterior off directly — the quadratic term fixes the precision, the linear term
+        fixes the centre:</p>
+        <div class="eqbox">$$ \tau'=\underbrace{\tfrac{1}{\sigma^2}}_{\tau_0}+\underbrace{\tfrac{w}{\sigma_\varepsilon^2}}_{\tau_s},\qquad \mu'=\frac{\tau_0\,\mu+\tau_s\,s}{\tau'},\qquad \sigma'^2=\frac{1}{\tau'} $$</div>
+        <p>Notice the constant term we dropped carries no θ, so it only renormalizes the density and never
+        touches \( \mu' \) or \( \sigma' \) — which is why the posterior depends on the prior and the signal
+        but not on how “surprising” the signal was. The mean \( \mu' \) is a genuine weighted average:
+        rewrite it as \( \mu'=\mu+\tfrac{\tau_s}{\tau_0+\tau_s}(s-\mu) \), a step from the prior toward the
+        signal whose fractional size \( \tfrac{\tau_s}{\tau_0+\tau_s}\in[0,1) \) is exactly the signal’s
+        share of the total precision. With the demo default \( \sigma_\varepsilon=\sigma_0 \) and full weight
+        \( w=1 \), that share is \( \tfrac{1}{1+1}=\tfrac12 \) — μ moves <em>halfway</em> to \(s\), as §7 claims.</p>
+        <p>That is the whole rule: <strong>precisions add</strong> — each independent source of information
+        contributes \( 1/\text{variance} \) — and the new mean is the precision-weighted average of prior
+        and signal, leaning toward whichever is more certain. Since \( \tau_s\ge0 \), the posterior
+        precision only grows, so \( \sigma'^2 \) can only <em>shrink</em>: more data, more confidence. The
+        \( \sigma_\text{min} \) floor merely stops this from collapsing into absurd over-confidence.</p>
+      </details>
+      <div class="ex"><span class="callout-title">Worked example (continuing §6)</span>
+      Feed \( s=114.88,\ w=0.24 \) into prior \( \mathcal N(100,12^2) \) with
+      \( \sigma_\varepsilon=\sigma_0=12 \). Precisions \( \tau_0=\tfrac1{144},\ \tau_s=\tfrac{0.24}{144} \),
+      so \( \mu'=\tfrac{100+0.24(114.88)}{1.24}=\mathbf{102.88} \) and
+      \( \sigma'=\sqrt{144/1.24}=\mathbf{10.78} \). One 120-lot call buy moved the mean up
+      \( 2.88 \) and tightened σ from 12 to 10.78. <em>Commit &amp; repeat</em> below to watch this
+      compound.</div>
       <p>This widget runs the real loop: choose a trade, see the prior (grey) become the posterior
       (blue). Hit <em>Commit &amp; repeat</em> to feed the posterior back in and watch the belief
       converge and tighten — the market learning:</p>
@@ -350,6 +856,46 @@
         <li><strong>Volatility</strong> — scales with relative uncertainty \( \sigma/\max(|\mu|,\sigma) \); a jittery market quotes wider.</li>
       </ul>
       <div class="eqbox">$$ \text{Ask (buy)}=\text{Fair}+\text{Spread},\qquad \text{Bid (sell)}=\max\!\big(0,\ \text{Fair}-\text{Spread}\big) $$</div>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      Belief \( \mathcal N(100,10^2) \), a <code>CALL</code> at \(K=100\) (fair \(=3.9894\)), a
+      <strong>buy of 120</strong> over an existing \( \text{mmShort}=200 \). The four charges are
+      base \( 0.01(3.9894)=0.040 \), inventory \( 0.0005|320|(3.9894)=0.638 \), adverse
+      \( 0.5(0.24)(0.5)(10)=0.600 \), volatility \( 0.05(0.1)(3.9894)=0.020 \) → spread
+      \( \mathbf{1.298} \). You pay \( 3.989+1.298=\mathbf{5.288} \). Here inventory and adverse
+      selection dominate — exactly the price-impact-sensitive terms.</div>
+      <details>
+        <summary>Background — why a maker needs a spread (inventory &amp; adverse selection)</summary>
+        <p>An automated maker quotes both sides of every contract without knowing the outcome. It is not
+        greedy for the spread — it <em>needs</em> it to survive two structural risks, and the four terms
+        above are exactly those risks turned into numbers.</p>
+        <p><strong>Adverse selection — the informed-trader problem.</strong> Some traders know more than the
+        maker, and they only trade when the maker’s price is wrong in their favour: they buy what is cheap
+        and sell what is dear. So averaged over its counterparties the maker systematically <em>loses</em> —
+        it gets “picked off”. The classic market-microstructure result (Glosten–Milgrom) is that the only
+        defence is to pre-charge every trade for the information it might carry, because you cannot tell the
+        informed from the noise traders in advance. How large is that expected loss? A trade can move the
+        belief, and the resulting price change is the price’s sensitivity to the mean times the mean’s own
+        uncertainty, \( |\partial P/\partial\mu|\cdot\sigma \); a bigger order (intensity \( \iota \)) is both
+        more likely to be informed and more costly when it is. That is the term
+        \( \lambda\,\iota\,|\partial P/\partial\mu|\,\sigma \) — note it uses the very delta of §5, so contracts
+        whose price barely reacts to μ are cheap to quote, and price-sensitive ones are dear.</p>
+        <p><strong>Inventory risk — the unwanted-position problem.</strong> Every fill leaves the maker
+        holding the opposite side, a book \( \text{mmShort}+q \) it never chose and cannot lay off on anyone
+        else (it <em>is</em> the market). The more lopsided that book, the more a bad settlement hurts, so the
+        maker skews its quotes to discourage growing it — the Avellaneda–Stoikov idea of inventory control.
+        Charging in proportion to the post-trade position, \( \gamma\,|\text{mmShort}+q|\,|\text{Fair}| \),
+        makes the side that <em>flattens</em> the book cheaper to trade and the side that worsens it more
+        expensive, gently steering flow back toward neutral while paying the maker for the risk it carries
+        in the meantime.</p>
+        <p><strong>Volatility and base.</strong> A wider belief means any quote could be stale a moment later,
+        so the spread scales with relative uncertainty \( \sigma/\max(|\mu|,\sigma) \). The \( \max \) in the
+        denominator keeps this well-defined as \( \mu\to0 \) and caps the ratio at 1 (since the numerator can
+        never exceed the denominator), so the volatility charge is always between 0 and \( \eta\,|\text{Fair}| \).
+        The flat base \( s_0\,|\text{Fair}| \) is the floor — the minimum edge that keeps the maker profitable on
+        benign, uninformed flow. Three of the four terms are expressed as a fraction of \( |\text{Fair}| \) so
+        they scale with the contract’s magnitude; adverse selection is already in price units because
+        \( |\partial P/\partial\mu|\cdot\sigma \) is itself a price move.</p>
+      </details>
       <p>The bid is floored at 0 — the MM can charge to take a contract back but never pays you to
       hand it over. Drag size and inventory to see which component dominates:</p>
 
@@ -377,6 +923,11 @@
       \text{buy: } \overline{P}'=\frac{Q\,\overline{P}+q\,\text{exec}}{Q+q};\qquad
       \text{sell: } \Delta\text{realized}=|q|\,(\text{exec}-\overline{P})
       $$</span><span class="eqlabel">tradeMath.ts · applyFill</span></div>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      You hold 100 units at average \( \overline{P}=4.00 \). Buy 50 more at \( 4.60 \):
+      \( \overline{P}'=\tfrac{100(4)+50(4.6)}{150}=4.20 \). Later sell 60 at \( 5.20 \): realized
+      \( =60(5.20-4.20)=\mathbf{60.00} \), quantity falls to 90, and the average stays \( 4.20 \)
+      until you flatten completely.</div>
 
       <h3>Partial fills — solving the feasible size</h3>
       <p>If the full size would breach solvency (or the buyer’s balance), the engine fills the
@@ -387,7 +938,7 @@
 <span class="kw">const</span> reserveAfter  = requiredReserve(nextBook, belief);
 <span class="kw">const</span> margin       = reserveAfter &gt; reserveBefore ? openMargin : <span class="num">1</span>; <span class="cmt">// 1.2 to open, 1.0 to close</span>
 <span class="kw">const</span> solvent      = effectiveCash + EPS &gt;= margin * reserveAfter;
-<span class="kw">const</span> affordable   = side === <span class="str">'sell'</span> || balance + EPS &gt;= totalCost;</code></pre>
+<span class="kw">const</span> affordable   = side === <span class="str">'sell'</span> || isInfinite || balance + EPS &gt;= totalCost;</code></pre>
       <div class="note"><span class="callout-title">Subtle but important</span>
       <code>effectiveCash = cash + min(0, totalCost)</code> means a <em>buy’s</em> incoming premium is
       <strong>not</strong> counted as backing for the new risk it creates (only past cash backs risk),
@@ -411,6 +962,29 @@
 <span class="kw">for</span> (...) losses[i] = liability(book, draws[i]);
 losses.sort();
 <span class="kw">return</span> Math.max(<span class="num">0</span>, losses[Math.floor(alpha * (n - <span class="num">1</span>))]);</code></pre>
+      <details>
+        <summary>Background — Value-at-Risk, Monte-Carlo, and the empirical quantile</summary>
+        <p><strong>Value-at-Risk (VaR).</strong> The α-VaR is the loss you will <em>not</em> exceed with
+        probability α — i.e. the α-quantile of the loss distribution. At \( \alpha=0.99 \) it answers
+        “how much could the book owe on all but the worst 1% of outcomes?”. Holding that much cash means
+        only a 1-in-100 tail can breach the reserve.</p>
+        <p><strong>Why Monte-Carlo.</strong> Across a <em>mixed</em> book (calls, binaries, spreads…) the
+        total liability \( L(\theta) \) is a kinked, non-Gaussian function with no closed-form quantile.
+        The Monte-Carlo method estimates it by brute force: draw many θ from the belief, evaluate \( L \)
+        at each, and read the quantile off the empirical sample. The sampling error shrinks like
+        \( 1/\sqrt n \), so 50k draws pin the 99th percentile to well under a cent.</p>
+        <p><strong>Empirical quantile.</strong> Sort the \(n\) sampled losses ascending; the α-quantile is
+        the value at rank \( \lfloor\alpha(n-1)\rfloor \) (the zero-indexed nearest-rank estimator). For
+        \( \alpha=0.99,\ n=50{,}000 \) that is index 49499 — the 501st-largest loss (the 501 values at
+        indices 49499…49999 sit at or above it). The
+        \( \max(0,\cdot) \) clamps a net-credit book (negative liability) up to a non-negative reserve.</p>
+      </details>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      Book = 300 units of a <code>BINARY_CALL</code> at \(K=100\), belief \( \mathcal N(100,12^2) \).
+      Each unit pays at most 1, so liability is capped at 300. The expected liability is
+      \( 300\cdot\Phi(0)=\mathbf{150} \), but the 99th-percentile draw lands well into \( \theta\ge100 \)
+      where every unit pays in full, so the required reserve is \( \approx\mathbf{300} \) — the MM must
+      hold double its expected loss to survive the tail.</div>
       <p>A trade is admitted only if cash covers a margin multiple of the post-trade reserve
       (1.2× when opening risk, 1.0× when closing). The plot shows the liability curve \( L(\theta) \)
       (red) against the belief; the dashed lines are the reserve and the expected liability — toggle
@@ -434,17 +1008,26 @@ losses.sort();
     <section id="settlement">
       <h2><span class="section-num">11</span>Settlement<a class="anchor" href="#settlement">#</a></h2>
       <p>When an admin resolves the market with the true outcome \( \theta^\star \), each position
-      pays its payoff. Lifecycle: <code>OPEN → RESOLVED(θ*) → SETTLED → CLOSED</code>.</p>
+      pays its payoff. Normal lifecycle: <code>OPEN → RESOLVED(θ*) → SETTLED → CLOSED</code>. An admin
+      may instead <strong>cancel</strong> a market (<code>OPEN → CANCELLED</code>), which unwinds every
+      open position at cost rather than at payoff (below).</p>
       <div class="eqbox">$$ \text{Payout}(C, q)=q\cdot f_C(\theta^\star),\qquad \text{Realized P\&amp;L}=\text{Payout}-\text{costBasis} $$</div>
       <p>Trader payouts are paid from the pool, but — by design — they do <strong>not</strong> mutate
       <code>markets.cash</code> directly; the residual is computed logically so the cash-flow ledger
       reconciles exactly (see the admin market ledger). The leftover pool after all trader payouts is
       the LPs’ to claim:</p>
       <div class="eqbox named"><span>$$ \text{cashFinal}=\text{cash}-\sum_{\text{traders}}\text{Payout},\qquad \text{LP claim}=\frac{\text{shares}}{S_\text{total}}\cdot\text{cashFinal} $$</span><span class="eqlabel">lpMath.ts · settleMath.ts</span></div>
+      <h4>Cancellation refunds</h4>
+      <p>If a market is <em>cancelled</em> instead of resolved, no payoff is computed: every open
+      position is refunded the capital still locked in it — its <strong>cost basis</strong> — and the MM
+      hands back the premium it had collected. Only non-infinite (real) traders are credited:</p>
+      <div class="eqbox named"><span>$$ \text{Refund}(C,q)=q\cdot\overline{P}\qquad(\text{quantity}\times\text{average entry}) $$</span><span class="eqlabel">settleMath.ts · positionRefund</span></div>
+
       <h4>Proximity settlement</h4>
       <p>The <code>GAUSSIAN</code> contract <em>is</em> the proximity-reward mechanism: a point bet at
       \( c \) with tolerance \( w \) pays \( \exp(-(\theta^\star-c)^2/2w^2) \) — e.g. with \( w=1000 \),
-      being 500 off pays ≈ 0.88, being 2000 off pays ≈ 0.14.</p>
+      being 500 off pays \( \exp(-0.125)\approx 0.8825 \), being 2000 off pays
+      \( \exp(-2)\approx 0.1353 \).</p>
     </section>
 
     <!-- =============================================================== -->
@@ -458,6 +1041,12 @@ losses.sort();
       <div class="eqbox named"><span>$$ \Delta S=\text{amount}\cdot\frac{S_\text{total}}{\text{NAV}_\text{before}},\qquad \text{cashOut}=\frac{\text{shares}}{S_\text{total}}\cdot\text{NAV} $$</span><span class="eqlabel">lpMath.ts</span></div>
       <p>At genesis the creator deposits the reserve \( R_0 \) and is minted \( S_0=R_0 \) shares
       (price 1). If the MM earns spread income, NAV rises above \( R_0 \) and the LP’s claim grows.</p>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      Pool NAV 1000 over 1000 shares → share price \( \mathbf{1.000} \); a deposit of 200 mints
+      \( 200\cdot\tfrac{1000}{1000}=\mathbf{200} \) shares. Now the MM earns 100 of spread, lifting NAV
+      to 1100 (price \( \mathbf{1.100} \)). The same 200 deposit then mints only
+      \( 200\cdot\tfrac{1000}{1100}=\mathbf{181.82} \) shares — later entrants pay the appreciated
+      price, so early LPs aren’t diluted by the profit they earned.</div>
 
       <div class="viz" id="viz-lp">
         <div class="viz-head"><div class="viz-title">LP share accounting<span class="tag">live</span></div><div class="viz-hint">deposit mints at the current price</div></div>
@@ -478,7 +1067,8 @@ losses.sort();
       <div class="eqbox">$$ \text{E[payout]}=qP,\quad \operatorname{Var}[qf]=q^2\,(m_2-P^2),\quad \text{Std}=|q|\sqrt{m_2-P^2} $$</div>
       <p>The second moment has closed forms too: for indicators \( f\in\{0,1\} \) so
       \( m_2=P \); for LINEAR \( m_2=\mu^2+\sigma^2 \); for GAUSSIAN it’s a proximity price with width
-      \( w/\sqrt2 \). Tail risk and win-probability come from the same Monte-Carlo draws:</p>
+      \( w/\sqrt2 \). (CALL/PUT have no simple closed \( m_2 \), so they fall back to the Simpson
+      integrator of §4.) Tail risk and win-probability come from the same Monte-Carlo draws:</p>
       <div class="tablewrap"><table>
         <thead><tr><th>Metric</th><th>Definition</th></tr></thead>
         <tbody>
@@ -489,6 +1079,26 @@ losses.sort();
           <tr><td>Calibration (inCi80)</td><td>did \( \theta^\star \) land inside the final 80% CI? Should hold ≈80% of the time</td></tr>
         </tbody>
       </table></div>
+      <div class="ex"><span class="callout-title">Worked example</span>
+      A <code>BINARY_CALL</code> with fair price \( P=0.3085 \). Since an indicator squares to itself,
+      \( m_2=P \), so the per-unit variance is \( P-P^2=0.3085(1-0.3085)=\mathbf{0.2133} \) and the
+      per-unit standard deviation is \( \sqrt{0.2133}=\mathbf{0.4619} \). A 100-lot position therefore has
+      \( \text{Std}=100\cdot0.4619=\mathbf{46.19} \) — the spread of its settlement value around the
+      \( 100\cdot0.3085=30.85 \) expected payout.</div>
+      <details>
+        <summary>Background — the variance identity, VaR vs CVaR</summary>
+        <p><strong>Variance from two moments.</strong> For any payoff,
+        \( \operatorname{Var}[f]=\mathbb E[f^2]-(\mathbb E[f])^2=m_2-P^2 \) (§2). Scaling by \(q\) units
+        multiplies the variance by \( q^2 \) (and the standard deviation by \( |q| \)), giving
+        \( \operatorname{Var}[qf]=q^2(m_2-P^2) \). For an indicator \( f\in\{0,1\} \), \( f^2=f \) so
+        \( m_2=P \) and the variance is the Bernoulli \( P(1-P) \).</p>
+        <p><strong>VaR vs CVaR.</strong> Both summarise the loss tail. <strong>VaR₉₅</strong> is a single
+        threshold — the 5th-percentile P&amp;L, the loss you beat 95% of the time. <strong>CVaR₉₅</strong>
+        (a.k.a. expected shortfall) is the <em>average</em> loss <em>given</em> you are already in that
+        worst 5% — it sees how deep the tail goes <em>beyond</em> the threshold, which VaR alone hides.
+        Necessarily \( \text{CVaR}\le\text{VaR} \) (it averages strictly worse outcomes). Both are read
+        from the same sorted Monte-Carlo P&amp;L sample.</p>
+      </details>
     </section>
 
     <!-- =============================================================== -->
@@ -509,8 +1119,178 @@ losses.sort();
     </section>
 
     <!-- =============================================================== -->
+    <section id="capacity">
+      <h2><span class="section-num">15</span>Capacity &amp; the gate<a class="anchor" href="#capacity">#</a></h2>
+      <p>The reserve of §10 is not just a number the MM watches — it is a hard <strong>ceiling on how much
+      risk a market can take on</strong>. A market's capacity is, in one line,</p>
+      <div class="eqbox">$$ \text{capacity}\ \sim\ \frac{\text{cash}}{\text{risk}},\qquad\text{enforced as}\quad \text{cash}\ \ge\ m\cdot\text{Reserve}. $$</div>
+      <p>Because the MM is the counterparty (§10), <strong>a buy is not pure cash-in — it creates a
+      liability.</strong> The premium collected is small; the worst-case payout owed can be large, and it
+      <em>raises</em> the reserve. So every risk-opening trade is checked against the cash that backs it.</p>
+
+      <h4>The admission gate</h4>
+      <p>Both the quote (preview) and the execute (commit) paths run the identical test inside
+      <code>solveFill</code>, so they can never disagree. A candidate fill of signed size \( q \) is admitted
+      iff:</p>
+      <div class="eqbox named"><span>$$ \underbrace{\big(\text{cash}+\min(0,\ \text{totalCost})\big)}_{\text{effectiveCash}}+\varepsilon\ \ge\ m\cdot\text{Reserve}_{\text{after}}(q),\qquad m=\begin{cases}1.2 & \text{Reserve}_{\text{after}}\gt\text{Reserve}_{\text{before}}\ \ (\text{opening risk})\\[2pt] 1 & \text{otherwise}\ \ (\text{reducing risk})\end{cases} $$</span><span class="eqlabel">tradeMath.ts · tradeSvc.ts</span></div>
+      <p>plus a buyer-side affordability constraint \( \text{balance}\ge\text{totalCost} \) (sells credit the
+      trader, so they skip it). Two subtleties carry all the weight:</p>
+      <ul>
+        <li><strong>The opening margin \( m=1.2 \).</strong> A trade that <em>raises</em> the reserve must be
+        backed by a 20% buffer of cash above the new reserve; a trade that <em>lowers</em> it needs only
+        \( m=1 \). The buffer absorbs the Monte-Carlo sampling error in the reserve and any belief drift
+        between sizing and settlement. (It also surfaces in §14 as the <em>insolvency-risk</em> breaker.)</li>
+        <li><strong>effectiveCash excludes a buy's own premium.</strong> For a buy \( \text{totalCost}\gt 0 \),
+        so \( \min(0,\text{totalCost})=0 \): the incoming premium is <em>not</em> counted as backing for the
+        risk that same trade creates — otherwise a trade could self-fund unbounded exposure out of its own
+        spread. The premium is still banked into <code>cash</code> (it becomes LP profit); it simply cannot
+        collateralize itself. A sell has \( \text{totalCost}\lt 0 \), so its payout outflow <em>is</em>
+        subtracted.</li>
+      </ul>
+
+      <h4>Partial fills</h4>
+      <p>When the requested size doesn't fit, the engine doesn't reject outright — it <strong>sizes
+      down</strong>. Both constraints are monotone in \( |q| \) (a bigger buy raises both the reserve and the
+      cost), so <code>solveFill</code> binary-searches the largest feasible fill:</p>
+      <div class="eqbox">$$ q^\star=\max\{\,s\in[0,\,|q|]\ :\ \text{admit}(s)\,\},\qquad\text{reject only if } q^\star\approx 0. $$</div>
+
+      <h4>The “no-buy band”</h4>
+      <p>This explains the surprising symptom — an <em>open, solvent</em> market that still refuses
+      <em>every</em> buy, even a tiny one. Let \( \rho=\text{Reserve}/\text{cash} \). The pool is solvent while
+      \( \rho\le 1 \), but it opens new risk only while \( \rho\le 1/1.2\approx 0.83 \) (any buy makes
+      \( \text{Reserve}_{\text{after}}\gt\text{Reserve}_{\text{before}} \), forcing \( m=1.2 \)). So in the
+      band</p>
+      <div class="eqbox">$$ \tfrac{1}{1.2}\ \lt\ \rho\ \le\ 1\qquad\Longleftrightarrow\qquad \text{cash}\in[\,1.0,\ 1.2\,)\times\text{Reserve} $$</div>
+      <p>the market is solvent yet <strong>frozen for buys at any size</strong>; only trades that
+      <em>shrink</em> the reserve — sells or offsetting bets — can pull \( \rho \) back down and thaw it.</p>
+
+      <div class="ex"><span class="callout-title">Worked example</span>
+      Pool cash \( =110 \), required reserve \( =100 \) (\( \rho=0.91 \)). The market is solvent
+      (cash &gt; reserve), but a buy needs \( \text{cash}\ge 1.2\times\text{Reserve}_{\text{after}}\ge 120 \) —
+      it has only 110, so <strong>every buy is rejected regardless of size</strong>. A holder then sells,
+      cutting the reserve to 90; now \( 1.2\times 90=108\le 110 \) and buying reopens. Nothing was broken —
+      the market was momentarily <em>full</em>.</div>
+
+      <h4>Relaxing the limit — the developer's options</h4>
+      <p>Capacity is \( \text{cash}/\text{risk} \), so there is no free lunch: every way to “bypass” the gate
+      either adds capital, sheds risk, or hands the shortfall to someone. The full treatment with
+      consequences is in <a href="../capacity/expanding-capacity.md">docs/capacity/expanding-capacity.md</a>;
+      in brief:</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Approach</th><th>Idea</th><th>Cost / who bears the tail</th></tr></thead>
+        <tbody>
+          <tr><td>Lower the buffer \( m \)</td><td>1.2 → ~1.05</td><td>thinner cushion; more exposed to MC / belief error</td></tr>
+          <tr><td>Lower \( \alpha_R \)</td><td>reserve at 95% not 99%</td><td>more capacity, more ruin events</td></tr>
+          <tr><td><strong>Soft cap</strong> ★</td><td>price the crowded side up steeply so demand chokes off — cliff → ramp</td><td>none (the price bears it); preserves every guarantee</td></tr>
+          <tr><td>Solvency-factor haircut</td><td>let exposure exceed cash; scale payouts by \( s=\min(1,\,\text{cash}/\text{owed}) \)</td><td>winning traders (payouts become contingent)</td></tr>
+          <tr><td>Insurance fund (V2-H)</td><td>shared pre-funded backstop tops up shortfalls</td><td>the fund (mutualized across markets)</td></tr>
+          <tr><td>Hedging / reinsurance (V2-D)</td><td>offload tail risk → lower reserve per unit of exposure</td><td>external counterparty; basis risk</td></tr>
+          <tr><td>Auto-deleverage</td><td>force-close opposing positions to reclaim capacity</td><td>opposing traders (forced)</td></tr>
+          <tr><td>Bounded contracts</td><td>cap payoff types so tails are known / smaller</td><td>narrower product menu</td></tr>
+          <tr><td>Parimutuel</td><td>winners split losers' stakes (endogenous payouts)</td><td>redefines the product entirely</td></tr>
+        </tbody>
+      </table></div>
+      <p>The <strong>chosen direction is the soft cap</strong>: add a capacity-aware <em>congestion</em> term
+      to the spread (§8) that is ≈ 0 with headroom and rises toward infinity as \( \rho\to 1 \), so the price
+      ramps instead of hitting a wall — while the hard gate above stays as a backstop, so solvency and fixed
+      payouts are untouched. Reference design:</p>
+      <div class="eqbox">$$ \text{congestion}(q)=\kappa\,|\text{Fair}|\cdot\frac{u^{a}}{1-\min(u,\ 1-\varepsilon)},\qquad u=\frac{m\cdot\text{Reserve}_{\text{after}}(q)}{\text{cash}}\quad\big(0\ \text{if }\text{Reserve}_{\text{after}}\le\text{Reserve}_{\text{before}}\big). $$</div>
+      <p class="small">Status: the gate above ships today; the soft cap and the other options are design
+      choices. The soft cap is planned but not yet implemented — see
+      <a href="../capacity/soft-cap.md">docs/capacity/soft-cap.md</a> and its
+      <a href="../capacity/TASKS.md">build plan</a>. Code: <code>tradeMath.ts</code>
+      (<code>solveFill</code>), <code>tradeSvc.ts</code> (acceptance gate), <code>solvency.ts</code>
+      (reserve).</p>
+
+      <!-- ================= interactive capacity sandbox ================= -->
+      <details class="cap-wrap">
+        <summary>Interactive sandbox — a market at the gate, and every fix applied live</summary>
+        <div id="cap-sandbox" class="cap-sandbox">
+          <p class="cap-intro">A faithful miniature of the trade engine, booted into the <strong>no-buy band</strong>:
+          a default market that took so many one-sided buys it hit the gate, so every further buy is rejected.
+          Pick any fix below and the market <strong>re-initialises in “after-fix” mode</strong> — it replays the
+          same buy-demand under the new rules so you can see where it lands, then you can keep buying and watch
+          the stats, the price ramp, the payouts, and the positions react. Every number is the real engine
+          (<code>window.BMM</code>), not a mock-up.</p>
+
+          <div class="cap-top">
+            <label class="cap-cashbox">Initial liquidity
+              <input id="cap-cash" type="number" value="5000" min="1000" max="50000" step="500" /></label>
+            <button id="cap-cash-apply" type="button" class="cap-btn cap-btn-sm" disabled>Re-simulate</button>
+            <span id="cap-cash-msg" class="cap-cash-msg"></span>
+            <span class="cap-market">Market: <em>“Will the outcome θ exceed 100 by resolution?”</em> · the crowd is long
+              <code>CALL(K=100)</code> (pays \( \max(0,\theta-100) \)) · genesis \( \mu_0{=}100,\ \sigma_0{=}12 \)</span>
+          </div>
+
+          <div id="cap-status" class="cap-status sell"><span class="dot"></span>…</div>
+
+          <div class="cap-grid">
+            <div class="cap-charts">
+              <figure class="cap-chart">
+                <figcaption>Belief &amp; the MM’s liability tail</figcaption>
+                <canvas id="cap-cv-belief" data-h="190"></canvas>
+              </figure>
+              <figure class="cap-chart">
+                <figcaption>Price to buy more — cliff vs ramp</figcaption>
+                <canvas id="cap-cv-ramp" data-h="190"></canvas>
+              </figure>
+            </div>
+            <div class="readout cap-stats" id="cap-stats"></div>
+          </div>
+
+          <div class="cap-fixes">
+            <div class="cap-fixes-head">Choose a fix — the market re-initialises under its rules:</div>
+            <div id="cap-fix-select" class="seg-group cap-fix-select"></div>
+            <div id="cap-fix-info" class="cap-fix-info"></div>
+            <div id="cap-fix-params" class="controls"></div>
+          </div>
+
+          <div id="cap-buy-wrap" class="cap-buy">
+            <div class="cap-buy-row">
+              <span class="cap-buy-lab">Contract</span>
+              <div id="cap-buy-type" class="seg-group"></div>
+              <label class="cap-knum" id="cap-buy-k-wrap"><span id="cap-buy-k-lab">strike K</span>
+                <input id="cap-buy-k" type="number" value="100" step="1" /></label>
+              <label class="cap-knum" id="cap-buy-w-wrap">± width
+                <input id="cap-buy-w" type="number" value="8" min="1" step="1" /></label>
+            </div>
+            <div class="cap-buy-row">
+              <label>Buy <input id="cap-buy-size" type="number" value="12" min="1" max="2000" step="1" /> contracts</label>
+              <button id="cap-buy-btn" type="button" class="cap-btn">Buy</button>
+              <span id="cap-buy-out" class="cap-buy-out"></span>
+            </div>
+            <p class="cap-buy-tip">Tip: in the <strong>blocked</strong> market, buying more <code>CALL 100</code> is rejected
+            (it <em>opens</em> risk) — but buying a <code>PUT</code> (the opposite side) is <em>risk-reducing</em>, drops to
+            margin 1, and still fills. That’s the gate working as designed — it only blocks new risk, never offsets.</p>
+          </div>
+
+          <div class="cap-tables">
+            <div class="cap-tbl">
+              <h4>Payouts <span class="cap-h-note">— what winners are owed, and the solvency factor</span></h4>
+              <div id="cap-payout"></div>
+            </div>
+            <div class="cap-tbl">
+              <h4>Positions <span class="cap-h-note">— the crowd that filled the book, plus “You”</span></h4>
+              <div id="cap-positions"></div>
+            </div>
+          </div>
+
+          <p class="cap-foot small">Computed client-side by <code>capacity-engine.js</code> (the DOM-free
+          math, unit-tested against the server) and rendered by <code>capacity-sandbox.js</code>, both on
+          <code>window.BMM</code> (the same port of <code>packages/core</code> that draws every figure on this
+          page). Reserve is the closed-form 99%/α VaR of this single-CALL book — exactly the value the live
+          engine estimates by Monte-Carlo. <strong>A–E and G run the real fix logic;</strong> F is a simplified
+          hedge approximation; H &amp; I are explained, not simulated (they redefine the product menu / payout
+          rule, so they can’t mutate this one book). Design notes:
+          <a href="../capacity/expanding-capacity.md">expanding-capacity.md</a>,
+          <a href="../capacity/soft-cap.md">soft-cap.md</a>.</p>
+        </div>
+      </details>
+    </section>
+
+    <!-- =============================================================== -->
     <section id="config">
-      <h2><span class="section-num">15</span>Config parameters<a class="anchor" href="#config">#</a></h2>
+      <h2><span class="section-num">16</span>Config parameters<a class="anchor" href="#config">#</a></h2>
       <p>Every knob, its symbol, default, and what it tunes. Absolute σ-parameters are derived from
       the market’s genesis \( \sigma_0 \).</p>
       <div class="tablewrap"><table>
@@ -535,13 +1315,55 @@ losses.sort();
 
     <!-- =============================================================== -->
     <section id="numerics">
-      <h2><span class="section-num">16</span>Numerics &amp; rounding<a class="anchor" href="#numerics">#</a></h2>
+      <h2><span class="section-num">17</span>Numerics &amp; rounding<a class="anchor" href="#numerics">#</a></h2>
       <p>The special functions everything rests on (accurate to ~1e-12, validated against known
       values):</p>
       <div class="eqbox">$$ \varphi(x)=\tfrac{1}{\sqrt{2\pi}}e^{-x^2/2},\qquad \Phi(x)=\tfrac12\,\operatorname{erfc}\!\big(-x/\sqrt2\big),\qquad \Phi^{-1}=\text{Acklam + 1 Halley step} $$</div>
       <p><code>erf</code> uses a Maclaurin series for \( |z|&lt;2 \) and a Lentz continued fraction in
       the tails. Randomness flows through a seeded <strong>mulberry32</strong> PRNG — never
       <code>Math.random</code> — so Monte-Carlo reserve and tests are reproducible.</p>
+      <details>
+        <summary>Background — what each numerical method is (and why it’s here)</summary>
+        <ul>
+          <li><strong>\( \operatorname{erf} \) and the link to \( \Phi \).</strong> The error function
+          \( \operatorname{erf}(x)=\tfrac{2}{\sqrt\pi}\int_0^x e^{-t^2}\,dt \) is the Gaussian integral written
+          in its standard form, and \( \operatorname{erfc}(x)=1-\operatorname{erf}(x) \) is its right tail.
+          The normal CDF is just a shifted, rescaled copy of it: substituting \( t=u/\sqrt2 \) in \( \Phi \)’s
+          integral turns it into an \( \operatorname{erf} \), giving
+          \( \Phi(x)=\tfrac12\big(1+\operatorname{erf}(x/\sqrt2)\big)=\tfrac12\operatorname{erfc}(-x/\sqrt2) \).
+          So implementing one well-conditioned \( \operatorname{erf} \) hands you every Gaussian probability on
+          this page — pdf, cdf, prices, reserve — for free.</li>
+          <li><strong>Why two methods for \( \operatorname{erf} \) (series vs continued fraction).</strong>
+          Near zero the Maclaurin (Taylor-at-0) series
+          \( \operatorname{erf}(z)=\tfrac{2}{\sqrt\pi}\sum_{n\ge0}\tfrac{(-1)^n z^{2n+1}}{n!\,(2n+1)} \)
+          converges in a handful of terms. Out in the tails its terms first grow enormous and then nearly
+          cancel, so finite precision is destroyed — there the code instead evaluates \( \operatorname{erfc} \)
+          as a <em>continued fraction</em>, a nested ratio
+          \( \cfrac{a_1}{b_1+\cfrac{a_2}{b_2+\cdots}} \) that converges fastest exactly where the series is
+          worst. It is summed by <em>Lentz’s algorithm</em>, which accumulates the fraction from the top using
+          running ratios, so nothing overflows and you needn’t fix the depth in advance. Handing over at
+          \( |z|=2 \) keeps the whole real line at ~1e-12.</li>
+          <li><strong>\( \Phi^{-1} \): Acklam’s approximation + one Halley step.</strong> No elementary function
+          inverts \( \Phi \). <em>Acklam’s algorithm</em> splits \( (0,1) \) into a central region and two
+          tails and fits each with a ratio of low-order polynomials (a <em>rational</em> approximation),
+          reaching ~1.15e-9 relative error. One step of <em>Halley’s method</em> then polishes that to full
+          double precision. Halley refines a root of \( g(x)=\Phi(x)-p \) using the value, the slope
+          \( g'=\varphi \), and the curvature \( g''=-x\varphi \):
+          \( x\leftarrow x-\dfrac{2\,g\,g'}{2\,g'^2-g\,g''} \). It is the cubically-convergent cousin of
+          Newton’s method, so each pass roughly <em>triples</em> the number of correct digits (Newton only
+          doubles) — taking ~9 good digits to the full ~16 in a single shot.</li>
+          <li><strong>Inverse-transform sampling.</strong> If \( U \) is uniform on \( (0,1) \) then
+          \( F^{-1}(U) \) has exactly the distribution whose CDF is \( F \) — because
+          \( P\big(F^{-1}(U)\le\theta\big)=P\big(U\le F(\theta)\big)=F(\theta) \). For a normal that reads
+          \( \theta=\mu+\sigma\,\Phi^{-1}(u) \): push a uniform through the inverse-CDF and a Gaussian draw
+          comes out. That is precisely how the reserve’s Monte-Carlo θ’s (§10) are generated — one cheap
+          \( \Phi^{-1} \) evaluation per sample, all sharing the same seeded uniform stream.</li>
+          <li><strong>mulberry32.</strong> A tiny 32-bit <em>seeded</em> generator: from a single integer of
+          state it emits a fast, well-spread sequence of uniforms. Because it is seeded, every uniform — and
+          therefore every reserve estimate, every sampled draw, every test — is bit-for-bit reproducible
+          across runs and machines, the one guarantee an unseeded <code>Math.random</code> cannot give.</li>
+        </ul>
+      </details>
       <h3>Money &amp; rounding</h3>
       <p>All money is <code>numeric(20,8)</code>. Every arithmetic result goes through <code>round8</code>
       — <strong>round-half-even</strong> (banker’s rounding) to 8 decimals — so repeated operations
@@ -553,54 +1375,51 @@ losses.sort();
     </section>
 
     <!-- =============================================================== -->
-    <section id="users">
-      <h2><span class="section-num">17</span>For users — traders &amp; creators<a class="anchor" href="#users">#</a></h2>
-      <p class="lead">The short version, no calculus required.</p>
-
-      <h3>If you’re a trader</h3>
-      <ul>
-        <li><strong>The price is a probability (mostly).</strong> For yes/no and range contracts, the
-        fair price <em>is</em> the market’s estimated chance of the event — 0.62 means “about 62%
-        likely”. For calls/puts it’s an expected payout.</li>
-        <li><strong>You move the price.</strong> Buying nudges the market’s belief your way; the bigger
-        your order, the bigger the nudge — and the wider the spread you pay. Small orders barely move it.</li>
-        <li><strong>The spread is the cost of trading.</strong> You buy a touch above fair and sell a
-        touch below. It widens with order size, the maker’s existing inventory, and uncertainty. The
-        trade box shows the breakdown.</li>
-        <li><strong>Selling closes a position.</strong> v1 is long-only: a sell reduces something you
-        hold and realizes profit vs. your average entry. “Sell all” liquidates every position in the
-        market at once; because each sell moves the price, later ones fill a touch lower (the estimate
-        you see before confirming is at current marks).</li>
-        <li><strong>Settlement.</strong> When the outcome is known, each contract pays its payoff. Range
-        and proximity bets reward being close.</li>
-      </ul>
-
-      <h3>If you’re a market creator</h3>
-      <ul>
-        <li><strong>You set the starting belief.</strong> \( \mu_0 \) is your opening best guess,
-        \( \sigma_0 \) is how uncertain it is — a wider \( \sigma_0 \) means a flatter, more forgiving
-        opening market that needs more trading to sharpen.</li>
-        <li><strong>You fund the reserve \( R_0 \).</strong> That cash backs the maker’s worst-case
-        payouts and makes you the genesis liquidity provider; you earn the spread income (and bear
-        settlement risk) pro-rata.</li>
-        <li><strong>Bigger reserve, bigger capacity.</strong> The maker only takes on risk it can cover
-        at the 99th percentile, so a larger \( R_0 \) lets users trade larger before hitting partial
-        fills.</li>
-        <li><strong>The defaults are sensible.</strong> Spread/learning parameters (§15) ship tuned for
-        a play-money demo; you rarely need to touch them.</li>
-      </ul>
-
-      <div class="user"><span class="callout-title">One sentence</span>
-      You’re trading against a maker that prices every claim as the average payoff under its current
-      belief, charges a small spread, and learns from the order flow — so over time the price becomes
-      the crowd’s best estimate of the outcome.</div>
+    <section id="sim">
+      <h2><span class="section-num">18</span>Model validation — the Monte-Carlo harness<a class="anchor" href="#sim">#</a></h2>
+      <p>Beyond per-function unit tests, <code>sim.ts</code> runs the <em>entire</em> loop end-to-end
+      against synthetic informed traders to confirm the engine actually <strong>learns</strong>, stays
+      calibrated, and earns its spread. A single run draws a hidden truth, lets noisy-but-informed
+      traders arrive one by one, and settles:</p>
+      <div class="eqbox named"><span>$$
+        \begin{aligned}
+        \theta_\text{true} &amp;\sim \mathcal N(\mu_0,\sigma_0^2)\\[2pt]
+        \text{trader sees } y &amp;= \theta_\text{true}+\sigma_\text{obs}\,\varepsilon,\quad
+          \text{edge}=y-\mu,\ \ \text{buys a CALL/PUT struck at } K{=}\mu\\[2pt]
+        \text{size } q &amp;= \max\!\Big(1,\ \min\big(1,\tfrac{|\text{edge}|}{2\sigma}\big)\cdot Q_\text{max}\Big)
+          \quad(\text{conviction in } \sigma\text{-units})\\[2pt]
+        \text{MM} &amp;: \text{quote} \to \text{spread} \to \text{collect premium} \to \text{Bayes-update belief}\\[2pt]
+        \text{settle} &amp;: \text{pay } q\,f(\theta_\text{true}),\ \ \text{tally MM and trader P\&amp;L}
+        \end{aligned}
+      $$</span><span class="eqlabel">sim.ts · simulateRun</span></div>
+      <p>Aggregated over many runs — one seeded RNG threads the whole experiment, so the report is
+      fully reproducible — the summary answers two questions: did the posterior beat the no-learning
+      prior, and is the credible interval honest?</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Metric</th><th>Meaning</th><th>Healthy</th></tr></thead>
+        <tbody>
+          <tr><td><code>meanBeliefError</code></td><td>\( \overline{|\mu_\text{final}-\theta_\text{true}|} \)</td><td>&lt; <code>meanPriorError</code> (it learned)</td></tr>
+          <tr><td><code>meanPriorError</code></td><td>\( \overline{|\mu_0-\theta_\text{true}|} \) — the baseline to beat</td><td>reference</td></tr>
+          <tr><td><code>rmseBeliefError</code></td><td>root-mean-square posterior error</td><td>low</td></tr>
+          <tr><td><code>calibration80</code></td><td>fraction with \( \theta_\text{true}\in[\mu_f\pm1.2816\,\sigma_f] \)</td><td>\( \approx 0.80 \)</td></tr>
+          <tr><td><code>meanMmPnl</code></td><td>mean MM profit (premium income − settlement payouts)</td><td>\( \gtrsim 0 \)</td></tr>
+          <tr><td><code>meanUserWelfare</code></td><td>mean per-trader realized profit</td><td>informed traders \( \gtrsim 0 \)</td></tr>
+        </tbody>
+      </table></div>
+      <div class="note"><span class="callout-title">What it does and doesn’t cover</span>
+      The harness models spread income vs settlement payouts — the P&amp;L that drives calibration and
+      profitability — but deliberately does <strong>not</strong> run the reserve / solvency gate (§10);
+      that path is exercised by the API integration tests. So it’s a diagnostic and a parameter-tuning
+      tool: vary <code>cfg</code>, compare summaries, and pick the engine defaults of §16.</div>
     </section>
 
     <div class="footer">
       <p>BMM — The Mathematics · generated as living documentation. Every figure is computed
       client-side by <code>math.js</code>, a direct port of <code>packages/core</code>; formulas are
       typeset with vendored KaTeX (fully offline). Cross-check any formula against the cited source
-      file — they’re kept in lockstep.</p>
+      file — they’re kept in lockstep. New to the platform? Flip the switch to
+      <strong>Trader</strong> for the plain-language guide.</p>
+    </div>
     </div>
   </main>
 </div>
@@ -609,5 +1428,7 @@ losses.sort();
 <script src="vendor/katex/auto-render.min.js" defer></script>
 <script src="math.js" defer></script>
 <script src="app.js" defer></script>
+<script src="capacity-engine.js" defer></script>
+<script src="capacity-sandbox.js" defer></script>
 </body>
 </html>
