@@ -3,11 +3,12 @@
 // same `core.price` the server uses, drawn as a proper x–y chart with a dot at the
 // composed contract's value.
 
-import { GaussianBelief, price } from '@bmm/core';
-import { useRef, useState, useSyncExternalStore } from 'react';
+import { price } from '@bmm/core';
+import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { beliefFromView } from '../lib/beliefFromView.ts';
 import { fmt, fmtCompact } from '../lib/format.ts';
 import { getLiveSpec, subscribeLiveSpec } from '../lib/liveSpec.ts';
-import type { ContractSpec } from '../lib/types.ts';
+import type { Belief, ContractSpec } from '../lib/types.ts';
 import { type Domain, fitPointDomain, niceTicks, scale, toPath } from '../lib/viz.ts';
 
 const W = 360;
@@ -55,13 +56,11 @@ function paramLabel(type: ContractSpec['type']): string {
 
 export function PriceCurveChart({
   spec: specProp,
-  mu,
-  sigma,
+  belief: beliefView,
   domain,
 }: {
   spec: ContractSpec;
-  mu: number;
-  sigma: number;
+  belief: Belief;
   domain: Domain;
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -73,13 +72,16 @@ export function PriceCurveChart({
   // re-renders per frame — the heavy market page stays out of the drag loop.
   const liveSpec = useSyncExternalStore(subscribeLiveSpec, getLiveSpec);
   const spec = liveSpec ?? specProp;
+  // Reconstruct the market's real belief (mixture bumps / Student-t tails / Gaussian)
+  // so the sweep prices against it, not a Gaussian stand-in. Above the early return
+  // below to keep hook order stable.
+  const belief = useMemo(() => beliefFromView(beliefView), [beliefView]);
 
   const param = currentParam(spec);
   if (param == null) {
     return <p className="p-4 text-sm text-muted">Linear pays θ — no strike to sweep.</p>;
   }
 
-  const belief = new GaussianBelief(mu, sigma * sigma);
   // Follow the composed param: if a drag pushes it past the page's auto-domain
   // widen the sweep so the dot/line stay on-chart. A no-op while it's in range.
   const [lo, hi] = fitPointDomain(domain, param);

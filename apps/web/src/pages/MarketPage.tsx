@@ -204,7 +204,7 @@ export function MarketPage() {
             </Panel>
             <Panel title="Fair price vs strike">
               <div className="p-2">
-                <PriceCurveChart spec={spec} mu={mu} sigma={sigma} domain={domain} />
+                <PriceCurveChart spec={spec} belief={m.belief} domain={domain} />
               </div>
             </Panel>
           </div>
@@ -221,6 +221,7 @@ export function MarketPage() {
                 tradable={tradable}
                 mu={mu}
                 sigma={sigma}
+                belief={m.belief}
                 outcomeUnit={m.outcomeUnit}
                 outcomeMin={m.outcomeMin}
                 outcomeMax={m.outcomeMax}

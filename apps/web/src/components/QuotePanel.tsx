@@ -9,13 +9,14 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { useAuth } from '../auth/AuthContext.tsx';
 import { qk, usePortfolio } from '../hooks/queries.ts';
 import { ApiError, api } from '../lib/api.ts';
+import { beliefFromView } from '../lib/beliefFromView.ts';
 import { projectBelief } from '../lib/clientBelief.ts';
 import { estimateQuote } from '../lib/clientQuote.ts';
 import { fmt, fmtPct, fmtSigned } from '../lib/format.ts';
 import { getLiveSpec, subscribeLiveSpec } from '../lib/liveSpec.ts';
 import { setProjectedBelief } from '../lib/projectedBelief.ts';
 import { sellCloseStats, tradeStats } from '../lib/tradeStats.ts';
-import type { ContractSpec, Fill, SellAllResult } from '../lib/types.ts';
+import type { Belief, ContractSpec, Fill, SellAllResult } from '../lib/types.ts';
 import { Button, ErrorNote, FlashNumber } from './ui.tsx';
 
 // Money formatters that survive an unbounded (±∞) best/worst case.
@@ -57,6 +58,7 @@ export function QuotePanel({
   tradable,
   mu,
   sigma,
+  belief,
   outcomeUnit,
   outcomeMin = null,
   outcomeMax = null,
@@ -68,6 +70,7 @@ export function QuotePanel({
   tradable: boolean;
   mu: number;
   sigma: number;
+  belief: Belief;
   outcomeUnit: string;
   outcomeMin?: number | null;
   outcomeMax?: number | null;
@@ -190,6 +193,10 @@ export function QuotePanel({
 
   const isBuy = side === 'buy';
 
+  // The market's real belief model (mixture / Student-t / Gaussian), so the live
+  // previews price and project against its true shape — not a Gaussian stand-in.
+  const beliefModel = useMemo(() => beliefFromView(belief), [belief]);
+
   // In live-preview mode, recompute fair / exec / totalCost on the client from the
   // (possibly mid-drag) preview spec, borrowing the spread from the last real
   // server quote. Exact fair, estimated cost — and it updates every frame.
@@ -199,14 +206,13 @@ export function QuotePanel({
       return estimateQuote({
         spec: previewSpec,
         signedQ,
-        mu,
-        sigma,
+        belief: beliefModel,
         spreadTotal: quote.spread.total,
       });
     } catch {
       return null; // unpriceable spec mid-drag — fall back to the server quote
     }
-  }, [livePreview, quote, previewSpec, signedQ, mu, sigma]);
+  }, [livePreview, quote, previewSpec, signedQ, beliefModel]);
 
   // The numbers actually shown: the client estimate when previewing, else the
   // server quote. `estimated` flags that the panel is on the client estimate.
@@ -256,11 +262,11 @@ export function QuotePanel({
   const projected = useMemo(() => {
     if (!tradable || Math.abs(signedQ) === 0) return null;
     try {
-      return projectBelief({ spec: previewSpec, signedQ, mu, sigma, cfg });
+      return projectBelief({ spec: previewSpec, signedQ, belief: beliefModel, cfg });
     } catch {
       return null;
     }
-  }, [tradable, previewSpec, signedQ, mu, sigma, cfg]);
+  }, [tradable, previewSpec, signedQ, beliefModel, cfg]);
 
   // Publish it for the belief-over-time chart's "next" ghost point. Clear on
   // unmount.

@@ -9,10 +9,13 @@
 // contract shape relative to the fair value. execPrice / totalCost then follow the
 // engine's own formulas (apps/api tradeMath: ask = fair + spread, bid = max(0
 // fair − spread); totalCost = execPrice · signedQ).
-// The result is exact in `fair` and a close estimate in cost — and it updates
-// interactively, with no network round-trip, while the curve is being dragged.
+// `fair` is exact for EVERY belief kind: the caller passes the market's real
+// `BeliefModel` (Gaussian, mixture, or Student-t — via `beliefFromView`), so a
+// multi-modal or fat-tailed market previews against its true belief, not a
+// Gaussian stand-in. The result updates interactively with no network round-trip.
 
-import { GaussianBelief, price } from '@bmm/core';
+import type { BeliefModel } from '@bmm/core';
+import { price } from '@bmm/core';
 import type { ContractSpec } from './types.ts';
 
 export interface EstimatedQuote {
@@ -25,13 +28,11 @@ export interface EstimatedQuote {
 export function estimateQuote(args: {
   spec: ContractSpec;
   signedQ: number;
-  mu: number;
-  sigma: number;
+  belief: BeliefModel;
   spreadTotal: number;
 }): EstimatedQuote {
-  const { spec, signedQ, mu, sigma, spreadTotal } = args;
-  const sd = sigma > 0 ? sigma : 1e-6;
-  const fair = price(spec, new GaussianBelief(mu, sd * sd));
+  const { spec, signedQ, belief, spreadTotal } = args;
+  const fair = price(spec, belief);
   const execPrice = signedQ >= 0 ? fair + spreadTotal : Math.max(0, fair - spreadTotal);
   const totalCost = execPrice * signedQ;
   return { fair, spreadTotal, execPrice, totalCost };
