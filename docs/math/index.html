@@ -924,6 +924,29 @@
         preserves the pair’s combined weight, mean and variance exactly), and <em>cap</em> the count \(K\).
         The whole step is computed in log-space so well-separated modes don’t underflow.</p>
       </details>
+
+      <details class="dev">
+        <summary><strong>V2 — updating a Student-t belief</strong></summary>
+        <p>The Student-t is not self-conjugate, so a t prior under the trade likelihood has no exact t
+        posterior. We keep \(\nu\) — the <em>structural</em> tail weight, fixed at creation — and move
+        only the location and scale, running the very same precision-weighted step as the Gaussian but
+        carried out in the <strong>variance domain</strong>. Moment-match the prior to a Gaussian of
+        equal variance \(V=s_t^2\,\tfrac{\nu}{\nu-2}\) (here \(s_t\) is the t scale written \(s\) in §6,
+        renamed so \(s\) stays the signal), run the Normal–Normal update, then map the posterior
+        variance back to a t scale:</p>
+        <div class="eqbox named">
+          <span>$$ \tau_0=\frac1V,\quad \tau_s=\frac{w}{\sigma_\varepsilon^2},\qquad
+          \mu'=\frac{\tau_0\,\mu+\tau_s\,s}{\tau_0+\tau_s},\qquad
+          V'=\frac{1}{\tau_0+\tau_s},\qquad s_t'^2=V'\,\frac{\nu-2}{\nu} $$</span>
+          <span class="eqlabel">bayes.ts</span>
+        </div>
+        <p>This is byte-for-byte the §7 arithmetic (the floor \(V'\ge\sigma_\text{min}^2\) still applies),
+        so a Student-t market <em>learns at the Gaussian rate</em> while keeping its fat tails, and
+        degrades smoothly to the exact Normal–Normal update as \(\nu\to\infty\) (where \(V\to s_t^2\)).
+        Because \(\nu\) never changes, the tails stay as heavy as the market was created with; only the
+        centre and width move. The <code>useSimplifiedUpdate</code> variant applies the same
+        \(\mu'=\mu+\text{lr}\,(s-\mu)\,w\) and \(V'=V\,(1-\text{decay}\cdot w)\) in the variance domain.</p>
+      </details>
     </section>
 
     <!-- =============================================================== -->

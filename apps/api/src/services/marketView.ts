@@ -2,7 +2,7 @@
 // pool NAV = cash − E_p[L(θ)], and LP share price. NAV uses the live belief and
 // the MM's short book.
 
-import { type BookEntry, MixtureBelief, expectedLiability } from '@bmm/core';
+import { type BookEntry, MixtureBelief, StudentTBelief, expectedLiability } from '@bmm/core';
 import { round8 } from '@bmm/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.ts';
@@ -28,6 +28,8 @@ export interface MarketView {
     sigma2: number;
     // Present for mixture markets: per-component weight/mean/σ for the multi-bump chart.
     components?: { pi: number; mu: number; sigma: number }[];
+    // Present for Student-t markets: degrees of freedom ν, so the chart can draw fat tails.
+    nu?: number;
   };
   cfg: Record<string, number | boolean>;
   cash: number;
@@ -76,6 +78,7 @@ export async function buildMarketView(m: MarketRow): Promise<MarketView> {
       sigma: round8(belief.stddev()),
       sigma2: round8(belief.variance()),
       components,
+      nu: belief instanceof StudentTBelief ? belief.nu : undefined,
     },
     cfg: m.cfg,
     cash: m.cash,

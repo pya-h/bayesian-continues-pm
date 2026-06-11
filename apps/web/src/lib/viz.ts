@@ -52,6 +52,35 @@ export function pdfCurve(mu: number, sigma: number, domain: Domain, n = 160): Pt
   return out;
 }
 
+// Location-scale Student-t belief density at x, **peak-normalised** (=1 at μ).
+// `sigma` is the belief's stddev (finite for ν>2); the t's scale² is
+// σ²·(ν−2)/ν. The chart's left axis is relative likelihood (peak = 1.0), so we
+// return the t kernel (1 + ((x−μ)/scale)²/ν)^(−(ν+1)/2) directly — its Γ
+// normalising constant cancels under the chart's own peak-normalisation, so we
+// skip the lgamma an absolute density would need. Fatter tails than a Gaussian
+// of equal σ; → the Gaussian shape as ν→∞.
+export function studentTPdf(x: number, nu: number, mu: number, sigma: number): number {
+  const scale2 = (sigma * sigma * (nu - 2)) / nu;
+  const z2 = (x - mu) ** 2 / scale2;
+  return (1 + z2 / nu) ** (-(nu + 1) / 2);
+}
+
+export function studentTPdfCurve(
+  nu: number,
+  mu: number,
+  sigma: number,
+  domain: Domain,
+  n = 160,
+): Pt[] {
+  const [lo, hi] = domain;
+  const out: Pt[] = [];
+  for (let i = 0; i <= n; i++) {
+    const x = lo + ((hi - lo) * i) / n;
+    out.push({ x, y: studentTPdf(x, nu, mu, sigma) });
+  }
+  return out;
+}
+
 export interface PdfComponent {
   pi: number;
   mu: number;

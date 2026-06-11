@@ -33,6 +33,8 @@ export interface Belief {
   sigma2: number;
   // Present for mixture markets: per-component weight/mean/σ for the multi-bump chart.
   components?: BeliefComponent[];
+  // Present for Student-t markets: degrees of freedom ν, so the chart can draw fat tails.
+  nu?: number;
 }
 
 export interface MarketView {

@@ -18,6 +18,8 @@ import {
   pnlCurve,
   probInRegions,
   scale,
+  studentTPdf,
+  studentTPdfCurve,
   tickDecimals,
   viewDomain,
   winningRegions,
@@ -53,6 +55,42 @@ describe('pdfCurve', () => {
     expect(pts.length).toBe(61);
     expect(pts[0]?.x).toBe(20);
     expect(pts[pts.length - 1]?.x).toBe(80);
+    const ymax = Math.max(...pts.map((p) => p.y));
+    const atMu = pts.reduce((best, p) => (Math.abs(p.x - 50) < Math.abs(best.x - 50) ? p : best));
+    expect(close(atMu.y, ymax, 1e-3)).toBe(true);
+  });
+});
+
+describe('studentTPdf / studentTPdfCurve (V2-1 fat-tail rendering)', () => {
+  test('peak-normalised: =1 at μ, symmetric, monotone away from μ', () => {
+    expect(close(studentTPdf(50, 5, 50, 10), 1)).toBe(true);
+    expect(close(studentTPdf(58, 5, 50, 10), studentTPdf(42, 5, 50, 10))).toBe(true);
+    expect(studentTPdf(55, 5, 50, 10)).toBeLessThan(studentTPdf(52, 5, 50, 10));
+    expect(studentTPdf(70, 5, 50, 10)).toBeLessThan(studentTPdf(55, 5, 50, 10));
+  });
+
+  test('fatter tails than a Gaussian of equal σ (both peak-normalised)', () => {
+    const mu = 50;
+    const sigma = 10;
+    const far = mu + 4 * sigma;
+    const tNorm = studentTPdf(far, 5, mu, sigma); // peak already 1
+    const gNorm = gaussianPdf(far, mu, sigma) / gaussianPdf(mu, mu, sigma);
+    expect(tNorm).toBeGreaterThan(gNorm);
+  });
+
+  test('→ Gaussian shape as ν grows large', () => {
+    const mu = 50;
+    const sigma = 10;
+    const x = 63;
+    const tNorm = studentTPdf(x, 2000, mu, sigma);
+    const gNorm = gaussianPdf(x, mu, sigma) / gaussianPdf(mu, mu, sigma);
+    expect(close(tNorm, gNorm, 5e-3)).toBe(true);
+  });
+
+  test('curve spans the domain with n+1 points and peaks at μ', () => {
+    const pts = studentTPdfCurve(5, 50, 10, [20, 80], 60);
+    expect(pts.length).toBe(61);
+    expect(pts[0]?.x).toBe(20);
     const ymax = Math.max(...pts.map((p) => p.y));
     const atMu = pts.reduce((best, p) => (Math.abs(p.x - 50) < Math.abs(best.x - 50) ? p : best));
     expect(close(atMu.y, ymax, 1e-3)).toBe(true);

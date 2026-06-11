@@ -183,6 +183,8 @@ export function MarketPage() {
                 mu={mu}
                 sigma={sigma}
                 components={m.belief.components}
+                beliefKind={m.belief.kind}
+                nu={m.belief.nu}
                 spec={spec}
                 onSpecChange={setSpec}
                 outcomeUnit={m.outcomeUnit}

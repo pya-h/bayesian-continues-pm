@@ -30,6 +30,8 @@ import {
   pdfCurve,
   pickHandle,
   scale,
+  studentTPdf,
+  studentTPdfCurve,
   tickDecimals,
   toPath,
   viewDomain,
@@ -126,6 +128,8 @@ function BeliefChartImpl({
   mu,
   sigma,
   components,
+  beliefKind,
+  nu,
   spec: specProp,
   onSpecChange,
   outcomeUnit,
@@ -136,6 +140,10 @@ function BeliefChartImpl({
   mu: number;
   sigma: number;
   components?: BeliefComponent[];
+  // Belief kind, so a Student-t belief draws its fat-tailed curve (not a Gaussian).
+  beliefKind?: 'gaussian' | 'mixture' | 'student_t';
+  // Degrees of freedom ν, present (and used) only for a Student-t belief.
+  nu?: number;
   spec: ContractSpec;
   onSpecChange: (s: ContractSpec) => void;
   outcomeUnit: string;
@@ -181,17 +189,17 @@ function BeliefChartImpl({
   const samples = dragging ? 96 : 160;
 
   // Belief PDF scale (unitless density, scaled to its own peak × yMul). A mixture
-  // belief draws its true multi-bump curve; otherwise the single Gaussian.
+  // belief draws its true multi-bump curve, a Student-t its fat-tailed curve
+  // otherwise the single Gaussian.
   const isMixture = !!components && components.length > 1;
+  const isStudentT = beliefKind === 'student_t' && !!nu && nu > 2;
   const compKey = components?.map((c) => `${c.pi},${c.mu},${c.sigma}`).join('|') ?? '';
   // biome-ignore lint/correctness/useExhaustiveDependencies: compKey encodes components
-  const pdf = useMemo(
-    () =>
-      isMixture && components
-        ? mixturePdfCurve(components, domain, samples)
-        : pdfCurve(mu, sigma, domain, samples),
-    [isMixture, compKey, mu, sigma, domain, samples],
-  );
+  const pdf = useMemo(() => {
+    if (isMixture && components) return mixturePdfCurve(components, domain, samples);
+    if (isStudentT && nu) return studentTPdfCurve(nu, mu, sigma, domain, samples);
+    return pdfCurve(mu, sigma, domain, samples);
+  }, [isMixture, isStudentT, nu, compKey, mu, sigma, domain, samples]);
   const pdfMax = Math.max(...pdf.map((p) => p.y), 1e-12);
   const syPdf = scale(0, pdfMax * 1.12 * view.yMul, PLOT.b, PLOT.t);
 
@@ -387,7 +395,11 @@ function BeliefChartImpl({
     const theta = Math.min(hi, Math.max(lo, hover.theta));
     const tpx = sx(theta);
     const pdfV =
-      isMixture && components ? mixturePdf(theta, components) : gaussianPdf(theta, mu, sigma);
+      isMixture && components
+        ? mixturePdf(theta, components)
+        : isStudentT && nu
+          ? studentTPdf(theta, nu, mu, sigma)
+          : gaussianPdf(theta, mu, sigma);
     const payV = payoff(spec, theta);
     const hv = Math.min(PLOT.b, Math.max(PLOT.t, hover.vy));
     const cardW = 138;
