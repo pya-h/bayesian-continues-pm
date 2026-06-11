@@ -430,6 +430,19 @@ select, .seg {
 .legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
 .legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
 
+/* ----- 3-up impact charts (§ price impact) -------------------------------- */
+.impact-controls { margin-bottom: 1.1rem; max-width: 26rem; }
+.impact-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.15rem; }
+.impact-grid.duo { grid-template-columns: 1fr 1fr; }
+@media (max-width: 980px) { .impact-grid, .impact-grid.duo { grid-template-columns: 1fr; } }
+.impact-cell { display: flex; flex-direction: column; }
+.impact-cell h4 { margin: 0 0 0.15rem; font-size: 0.86rem; font-weight: 650; }
+.impact-cell .cap { font-size: 0.74rem; color: var(--faint); margin: 0 0 0.55rem; min-height: 2.1em; }
+.impact-cell .readout { grid-template-columns: 1fr 1fr; margin-top: 0.55rem; padding-top: 0.55rem; }
+.impact-cell .readout .v { font-size: 0.92rem; }
+.buyx { color: var(--buy); font-weight: 600; }
+.sellx { color: var(--sell); font-weight: 600; }
+
 /* ----- misc --------------------------------------------------------------- */
 .kbd { font-family: var(--mono); font-size: 0.78rem; background: var(--panel-2); border: 1px solid var(--edge); border-bottom-width: 2px; border-radius: 5px; padding: 0.05rem 0.35rem; }
 hr { border: none; border-top: 1px solid var(--edge); margin: 2.5rem 0; }

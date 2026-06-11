@@ -604,6 +604,141 @@
     return '<div><div class="k">' + k + '</div><div class="v ' + (tone || '') + '">' + v + '</div></div>';
   }
 
+  // Same probe (Bin·Call @ μ, so price = P(θ≥K) ∈ [0,1]); each chart
+  // isolates one lever of ΔFair ≈ (∂P/∂μ)·Δμ, driven by ι = |q|/Q_max.
+  function vizImpact() {
+    const root = $('#viz-impact'); if (!root) return;
+    const MU = 100, SG = 12, BASE_Q = 500;        // market N(100,12²), baseline depth
+    const base = () => new M.Belief(MU, SG);
+    const cfgWith = (qMax) => M.makeEngineConfig(MU, SG, { qMax });
+    const spec = { type: 'BINARY_CALL', strike: MU }; // fair reads as a probability
+    const fair0 = M.price(spec, base());           // = 0.50
+
+    const sideSeg = seg($('.impact-controls', root), {
+      label: 'Trade side — drives all three charts', value: 'buy',
+      options: [{ label: 'Buy ▲', value: 'buy' }, { label: 'Sell ▼', value: 'sell' }],
+    });
+
+    const POPT = { w: 340, h: 300, pad: { l: 38, r: 12, t: 14, b: 30 } };
+    const P1 = Plot($('#impact-amt canvas', root), POPT), o1 = $('#impact-amt .readout', root);
+    const P2 = Plot($('#impact-cnt canvas', root), POPT), o2 = $('#impact-cnt .readout', root);
+    const P3 = Plot($('#impact-lp canvas', root), POPT), o3 = $('#impact-lp .readout', root);
+    const YT = [0, 0.25, 0.5, 0.75, 1], yfmt = (v) => fmt(v, 2);
+
+    // one trade of size q (signed) → fair price on the post-trade belief
+    function fairAfter(q, cfg) {
+      const sig = M.extractSignal(spec, q, base(), cfg);
+      return M.price(spec, M.bayesUpdate(base(), sig.signal, sig.weight, cfg));
+    }
+
+    function draw() {
+      const buy = sideSeg.get() === 'buy', sgn = buy ? 1 : -1;
+      const col = buy ? P1.COL.buy : P1.COL.sell;
+      const tone = buy ? 'buy' : 'sell';
+      const cfg = cfgWith(BASE_Q);
+
+      P1.clear().domain(0, BASE_Q, 0, 1);
+      P1.grid([0, 250, 500], YT, { xfmt: (v) => fmt(v, 0), yfmt });
+      P1.hline(fair0, P1.COL.muted, '', true);
+      P1.curve((q) => (q <= 0 ? fair0 : fairAfter(sgn * q, cfg)), col, 2.4, 90);
+      const qm = 150, pm = fairAfter(sgn * qm, cfg);
+      P1.vline(qm, P1.COL.faint, '', true); P1.dot(qm, pm, col, 4);
+      o1.innerHTML = cell('price @150u', fmt(pm, 3), tone) + cell('Δ from 0.50', fmtS(pm - fair0, 3));
+
+      const Q2 = 120, NMAX = 24;
+      let bel = base(); const seq = [fair0];
+      for (let n = 1; n <= NMAX; n++) {
+        const sig = M.extractSignal(spec, sgn * Q2, bel, cfg);
+        bel = M.bayesUpdate(bel, sig.signal, sig.weight, cfg);
+        seq.push(M.price(spec, bel));
+      }
+      P2.clear().domain(0, NMAX, 0, 1);
+      P2.grid([0, 8, 16, 24], YT, { xfmt: (v) => fmt(v, 0), yfmt });
+      P2.hline(fair0, P2.COL.muted, '', true);
+      P2.curve((x) => { const i = Math.floor(x), t = x - i; return i >= NMAX ? seq[NMAX] : seq[i] * (1 - t) + seq[i + 1] * t; }, col, 2.4, 96);
+      seq.forEach((p, n) => P2.dot(n, p, col, 2.2));
+      o2.innerHTML = cell('after 24× 120u', fmt(seq[NMAX], 3), tone) + cell('per-trade now', fmtS(seq[NMAX] - seq[NMAX - 1], 4));
+
+      // ③ price impact vs liquidity (LP → depth Q ≈ 0.5·LP) ---------------
+      const QF = 150, LP0 = 200, LP1 = 4000;
+      const f3 = (lp) => fairAfter(sgn * QF, cfgWith(Math.max(20, BASE_Q * lp / 1000)));
+      P3.clear().domain(LP0, LP1, 0, 1);
+      P3.grid([LP0, 2000, LP1], YT, { xfmt: (v) => fmt(v, 0), yfmt });
+      P3.hline(fair0, P3.COL.muted, '', true);
+      P3.curve(f3, col, 2.4, 90);
+      P3.vline(1000, P3.COL.faint, 'base', true); P3.dot(1000, f3(1000), col, 4);
+      o3.innerHTML = cell('@thin (LP 400)', fmt(f3(400), 3), tone) + cell('@deep (LP 4k)', fmt(f3(LP1), 3), tone);
+    }
+    sideSeg.on(draw); redraws.push(draw); draw();
+  }
+
+  function vizMechCompare() {
+    const root = $('#viz-mech'); if (!root) return;
+    const MU = 100, SG = 12, K = 100, spec = { type: 'BINARY_CALL', strike: K };
+    const base = () => new M.Belief(MU, SG);
+    const XMAX = 1200;                              // fixed x-axis so liquidity-flattening is visible
+    const sig = (z) => 1 / (1 + Math.exp(-z));
+
+    const ctrls = $('.impact-controls', root);
+    const sLiq = slider(ctrls, { label: 'Liquidity — LP capital (scales every mechanism)', min: 400, max: 4000, step: 50, value: 1500, fmt: (v) => fmt(v, 0) });
+    const sQ = slider(ctrls, { label: 'Trade size — reference order (shares)', min: 50, max: XMAX, step: 10, value: 400, fmt: (v) => fmt(v, 0) });
+
+    const POPT = { w: 360, h: 300, pad: { l: 40, r: 12, t: 14, b: 30 } };
+    const PI = Plot($('#mech-impact canvas', root), POPT), oI = $('#mech-impact .readout', root);
+    const PS = Plot($('#mech-slip canvas', root), POPT), oS = $('#mech-slip .readout', root);
+    const YT = [0, 0.25, 0.5, 0.75, 1];
+
+    // matched-liquidity mappings (canonical depth ∝ L; ratios tuned so initial slopes line up)
+    const params = (L) => ({ Q: 2 * L, b: 2 * L, R: 2 * L, rho: 8 * L });
+    // marginal price after buying x shares ---
+    function bmmImpact(x, Q) { const c = M.makeEngineConfig(MU, SG, { qMax: Q }); const s = M.extractSignal(spec, x, base(), c); return M.price(spec, M.bayesUpdate(base(), s.signal, s.weight, c)); }
+    const lmsrImpact = (x, b) => sig(x / b);
+    function cpmmT(x, R) { return ((x - 2 * R) + Math.sqrt(x * x + 4 * R * R)) / 2; }
+    function cpmmImpact(x, R) { const t = cpmmT(x, R); const u = (R + t) * (R + t); return u / (R * R + u); }
+    const bookImpact = (x, rho) => Math.min(1, 0.5 + x / rho);
+    // premium over mid to FILL x shares (slippage) ---
+    function bmmSlip(x, Q) { const c = M.makeEngineConfig(MU, SG, { qMax: Q }); return M.computeSpread(spec, x, 0, base(), c).total; }
+    const lmsrSlip = (x, b) => (x < 1 ? 0 : (b * Math.log(Math.exp(x / b) + 1) - b * Math.LN2) / x - 0.5);
+    const cpmmSlip = (x, R) => (x < 1 ? 0 : cpmmT(x, R) / x - 0.5);
+    const bookSlip = (x, rho) => Math.min(0.5, x / (2 * rho));
+
+    function draw() {
+      const L = sLiq.get(), p = params(L), qm = sQ.get();
+      const cA = PI.COL.accent, cW = PI.COL.warn, cB = PI.COL.buy, cS = PI.COL.sell;
+
+      PI.clear().domain(0, XMAX, 0, 1);
+      PI.grid([0, 400, 800, 1200], YT, { xfmt: (v) => fmt(v, 0), yfmt: (v) => fmt(v, 2) });
+      PI.hline(0.5, PI.COL.muted, '', true);
+      PI.curve((x) => bookImpact(x, p.rho), cS, 2, 90);
+      PI.curve((x) => lmsrImpact(x, p.b), cW, 2, 90);
+      PI.curve((x) => cpmmImpact(x, p.R), cB, 2, 90);
+      PI.curve((x) => bmmImpact(x, p.Q), cA, 2.6, 90);
+      PI.vline(qm, PI.COL.faint, '', true);
+      oI.innerHTML =
+        cell('BMM @' + fmt(qm, 0), fmt(bmmImpact(qm, p.Q), 3), 'accent') +
+        cell('LMSR', fmt(lmsrImpact(qm, p.b), 3)) +
+        cell('CPMM', fmt(cpmmImpact(qm, p.R), 3), 'buy') +
+        cell('Order book', fmt(bookImpact(qm, p.rho), 3), 'sell');
+
+      let smax = 1e-3;
+      for (let i = 1; i <= 60; i++) { const x = (i / 60) * XMAX; smax = Math.max(smax, bmmSlip(x, p.Q), lmsrSlip(x, p.b), cpmmSlip(x, p.R), bookSlip(x, p.rho)); }
+      smax = Math.min(0.5, smax) * 1.12;
+      PS.clear().domain(0, XMAX, 0, smax);
+      PS.grid([0, 400, 800, 1200], [0, smax / 2, smax], { xfmt: (v) => fmt(v, 0), yfmt: (v) => fmt(v, 3) });
+      PS.curve((x) => bookSlip(x, p.rho), cS, 2, 90);
+      PS.curve((x) => lmsrSlip(x, p.b), cW, 2, 90);
+      PS.curve((x) => cpmmSlip(x, p.R), cB, 2, 90);
+      PS.curve((x) => bmmSlip(x, p.Q), cA, 2.6, 90);
+      PS.vline(qm, PS.COL.faint, '', true);
+      oS.innerHTML =
+        cell('BMM spread', fmt(bmmSlip(qm, p.Q), 4), 'accent') +
+        cell('LMSR', fmt(lmsrSlip(qm, p.b), 4)) +
+        cell('CPMM', fmt(cpmmSlip(qm, p.R), 4), 'buy') +
+        cell('Order book', fmt(bookSlip(qm, p.rho), 4), 'sell');
+    }
+    [sLiq, sQ].forEach((c) => c.on(draw)); redraws.push(draw); draw();
+  }
+
   function vizUserPrice() {
     const root = $('#u-viz-price'); if (!root) return;
     const cv = $('canvas', root), controls = $('.controls', root), out = $('.readout', root);
@@ -736,6 +871,7 @@
     modeSwitch();
     progress();
     vizBelief(); vizBeliefModels(); vizFlexBeliefs(); vizPricing(); vizBayes(); vizSpread(); vizReserve(); vizLp();
+    vizImpact(); vizMechCompare();
     vizUserPrice(); vizUserTrade();
     reveal();
   }

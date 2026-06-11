@@ -72,8 +72,11 @@
       <a href="#numerics">17 · Numerics &amp; rounding</a>
       <div class="group">Validation</div>
       <a href="#sim">18 · Model validation (Monte-Carlo)</a>
+      <div class="group">Price dynamics</div>
+      <a href="#impact-dyn">19 · Price impact — trades &amp; liquidity</a>
+      <a href="#mech-compare">20 · Slippage vs standard markets</a>
       <div class="group">Design studies</div>
-      <a href="#flexible">19 · Flexible parametric beliefs</a>
+      <a href="#flexible">21 · Flexible parametric beliefs</a>
     </div>
 
     <!-- trader TOC -->
@@ -1564,8 +1567,174 @@ losses.sort();
     </section>
 
     <!-- =============================================================== -->
+    <section id="impact-dyn">
+      <h2><span class="section-num">19</span>Price impact — how trades &amp; liquidity move price<a class="anchor" href="#impact-dyn">#</a></h2>
+      <p>This section ties the earlier pieces together into the one thing a trader actually feels:
+      <strong>how much the price moves</strong>. There are two distinct effects. A trade leaves a
+      <strong>lasting</strong> mark — it shifts the belief, so the <em>fair</em> price stays moved after the
+      trade (this is <em>price impact</em>). It also pays a <strong>transient</strong> round-trip cost — the
+      spread (§8) — that is not a price move at all, just a fee around the mid. We focus on the lasting part.</p>
+
+      <p>The lasting move is just the fair price (§4) re-evaluated on the <em>post-trade</em> belief (§7). To
+      first order it factors cleanly into a <strong>delta</strong> (§5, how much price reacts to the mean) times
+      a <strong>mean shift</strong> (§7, how far the trade drags the mean):</p>
+      <div class="eqbox named"><span>$$
+        \Delta\text{Fair}=\text{Fair}(\text{belief}')-\text{Fair}(\text{belief})
+        \ \approx\ \underbrace{\frac{\partial\text{Price}}{\partial\mu}}_{\text{delta}}\cdot
+        \underbrace{\Delta\mu}_{\text{mean shift}},\qquad
+        \Delta\mu=\kappa\,(s-\mu),\quad \kappa=\frac{\tau_s}{\tau_0+\tau_s}=\frac{w}{w+\sigma_\varepsilon^2/\sigma^2}
+      $$</span><span class="eqlabel">§5 × §7</span></div>
+      <p>Both halves are driven by the trade <strong>intensity</strong> \( \iota=|q|/Q_\text{max} \): the signal
+      reach \( s-\mu \) grows with \( \iota \) (§6) and so does the trust weight \( w \) (§6), which lifts the
+      blend factor \( \kappa \). That single ratio is the lever behind all three charts below — and notice
+      \( Q_\text{max} \) (market <strong>depth</strong>) sits in the denominator, so <strong>more liquidity
+      shrinks every trade’s intensity</strong>, hence its impact.</p>
+
+      <p>All three plots price the same probe contract — a <code>BINARY_CALL</code> struck at the mean, so its
+      fair price reads directly as the crowd’s probability \( P(\theta\ge K)\in[0,1] \), starting at
+      <strong>0.50</strong>. Flip the one switch to see a <span class="buyx">buy</span> push it up vs a
+      <span class="sellx">sell</span> push it down:</p>
+
+      <div class="viz" id="viz-impact">
+        <div class="viz-head">
+          <div class="viz-title">Price impact — three views<span class="tag">live</span></div>
+          <div class="viz-hint">market N(100, 12²) · probe = Bin·Call @100</div>
+        </div>
+        <div class="impact-controls controls"></div>
+        <div class="impact-grid">
+          <div class="impact-cell" id="impact-amt">
+            <h4>① Trade size</h4>
+            <p class="cap">One trade of growing size. Bigger order ⇒ higher intensity ⇒ bigger lasting move.</p>
+            <canvas></canvas>
+            <div class="legend"><span><i style="background:var(--accent)"></i>post-trade price</span><span><i style="background:var(--muted)"></i>start 0.50</span></div>
+            <div class="readout"></div>
+          </div>
+          <div class="impact-cell" id="impact-cnt">
+            <h4>② Trade count</h4>
+            <p class="cap">Many same-size, same-side trades in a row. Each adds a move; σ shrinks, so they fade.</p>
+            <canvas></canvas>
+            <div class="legend"><span><i style="background:var(--accent)"></i>price after n trades</span><span><i style="background:var(--muted)"></i>start 0.50</span></div>
+            <div class="readout"></div>
+          </div>
+          <div class="impact-cell" id="impact-lp">
+            <h4>③ Liquidity (LP)</h4>
+            <p class="cap">Same fixed trade into a deeper pool. More LP ⇒ depth Q≈0.5·LP ⇒ less impact.</p>
+            <canvas></canvas>
+            <div class="legend"><span><i style="background:var(--accent)"></i>impact vs liquidity</span><span><i style="background:var(--muted)"></i>start 0.50</span></div>
+            <div class="readout"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dev"><span class="callout-title">How each chart reads off the formula</span>
+      <strong>① Size</strong> sweeps \( |q| \) (so \( \iota \) and \( w \)) with depth fixed: the move grows
+      with size but bends over as the weight saturates. <strong>② Count</strong> applies the same trade
+      repeatedly — every fill nudges \( \mu \) again, but each Bayesian update also <em>shrinks</em> \( \sigma \)
+      (§7), so later trades carry less reach and the binary saturates toward 1 (or 0). <strong>③ Liquidity</strong>
+      holds the trade fixed and grows the pool: deeper liquidity raises \( Q_\text{max} \), which divides down the
+      intensity \( \iota=|q|/Q_\text{max} \), so the very same order barely moves a deep market. This is the
+      precise sense in which <em>liquidity does not set the price — it sets how hard the price is to move.</em></div>
+
+      <div class="note"><span class="callout-title">Why liquidity touches impact, not the level</span>
+      The fair price is \( \mathbb E_\text{belief}[f(\theta)] \) — a pure function of the <em>belief</em>, with no
+      cash term. So an LP deposit never changes today’s price; it changes the market’s <strong>depth</strong>
+      (modelled here as \( Q_\text{max}\propto \) pool liquidity), which is what every trade’s intensity is measured
+      against. Chart ③ is therefore flat-ish on the right: past a point, more capital just makes the line harder to
+      bend, exactly as a deep order book resists slippage. (Liquidity’s other job — backing the reserve gate of
+      §10 so large trades are <em>admitted</em> at all — is covered there.)</div>
+    </section>
+
+    <!-- =============================================================== -->
+    <section id="mech-compare">
+      <h2><span class="section-num">20</span>Slippage &amp; price impact vs standard prediction markets<a class="anchor" href="#mech-compare">#</a></h2>
+      <p>Is a <strong>continuous</strong> belief market economically competitive with the well-known
+      <strong>discrete</strong> platforms — Polymarket, Kalshi, Augur (central limit order books), and
+      Manifold, Gnosis/Omen, Futuur (automated market makers)? The two costs a trader actually pays are:</p>
+      <ul>
+        <li><strong>Price impact</strong> — how far the trade <em>leaves the price moved</em> (where the
+        marginal price ends up). This is a lasting effect and a cost to the <em>next</em> trader / to you
+        on the round trip.</li>
+        <li><strong>Slippage</strong> — the premium <em>you</em> pay over the pre-trade price to fill your
+        order (your average fill minus the mid).</li>
+      </ul>
+      <p>Every automated mechanism shares one law: <strong>impact and slippage scale like</strong>
+      \( 1/\text{liquidity} \). What differs is the <em>shape</em> of the curve and, crucially, <em>how the
+      cost is packaged</em>. The four families:</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Family · platforms</th><th>Mechanism</th><th>Marginal price after buying \(x\)</th><th>Liquidity knob</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Order book (CLOB)</strong><br><span class="small">Polymarket · Kalshi · Augur</span></td><td>match against resting limit orders</td><td>\( 0.5+x/\rho \) (linear, then a <em>gap</em> when the book runs out)</td><td>posted depth \( \rho \) — <strong>only what makers choose to post</strong></td></tr>
+          <tr><td><strong>LMSR</strong><br><span class="small">Manifold · Gnosis · Hanson</span></td><td>logarithmic scoring rule</td><td>\( \sigma(x/b) \) (logistic; smooth saturation)</td><td>\( b \) — set by the LP subsidy \( b\ln 2 \)</td></tr>
+          <tr><td><strong>CPMM</strong><br><span class="small">Omen · Futuur · Uniswap-style</span></td><td>constant product \( R_yR_n{=}k \)</td><td>\( (R{+}t)^2/\!\big(R^2{+}(R{+}t)^2\big) \) (convex)</td><td>reserves \( R \) — the LP collateral</td></tr>
+          <tr><td><strong>BMM (ours)</strong><br><span class="small">continuous belief MM</span></td><td>re-price on the updated belief</td><td>\( \Phi\big((\mu'{-}K)/\sigma'\big) \) — Bayesian move (§19)</td><td>depth \( Q_\text{max}\propto \) LP capital</td></tr>
+        </tbody>
+      </table></div>
+
+      <p>Drag <strong>liquidity</strong> and watch every curve flatten together; drag <strong>trade size</strong>
+      to read each mechanism at a chosen order. All start at the same mid (\(0.5\)) on a binary, matched to a
+      common liquidity budget so the comparison is apples-to-apples (calibration is approximate — the
+      <em>shapes</em> and the \(1/\text{liquidity}\) scaling are the real lesson):</p>
+
+      <div class="viz" id="viz-mech">
+        <div class="viz-head">
+          <div class="viz-title">Continuous vs discrete — impact &amp; slippage<span class="tag">live</span></div>
+          <div class="viz-hint">binary @ mid 0.50 · matched liquidity</div>
+        </div>
+        <div class="impact-controls controls"></div>
+        <div class="legend" style="margin:0 0 0.8rem">
+          <span><i style="background:var(--accent)"></i>BMM (ours)</span>
+          <span><i style="background:var(--warn)"></i>LMSR</span>
+          <span><i style="background:var(--buy)"></i>CPMM</span>
+          <span><i style="background:var(--sell)"></i>Order book</span>
+        </div>
+        <div class="impact-grid duo">
+          <div class="impact-cell" id="mech-impact">
+            <h4>Price impact</h4>
+            <p class="cap">Marginal price left behind after buying \(x\) shares. Higher ⇒ the trade moved the market more.</p>
+            <canvas></canvas>
+            <div class="readout"></div>
+          </div>
+          <div class="impact-cell" id="mech-slip">
+            <h4>Slippage — cost to fill</h4>
+            <p class="cap">Average premium over the mid to acquire \(x\) shares. Ours is a single-price <em>spread</em>; AMMs/books make you walk the curve.</p>
+            <canvas></canvas>
+            <div class="readout"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dev"><span class="callout-title">What the two charts show</span>
+      <strong>Impact (left).</strong> All four obey \(\text{impact}\propto x/\text{liquidity}\), so they overlap
+      for small orders near the mid — <em>a continuous belief market is in the same economic regime as the
+      standard AMMs, not worse.</em> They part company on big orders: LMSR/CPMM saturate smoothly toward 1, the
+      order book is dead-linear until it <em>runs out of resting orders</em> (then a price gap), and BMM bends up
+      a little faster because each fill also <em>sharpens</em> the belief (σ shrinks, §19).
+      <strong>Slippage (right).</strong> Here the <em>packaging</em> differs. On an AMM or order book you
+      <strong>eat your own impact</strong>: you walk up the curve and your average fill is the integral under it,
+      so slippage grows with size and there is no separate fee. On BMM you fill the <strong>whole order at one
+      quoted price</strong> (mid + spread) and the price moves <em>afterwards</em> — so there is <strong>no
+      intra-order slippage</strong>; the cost is an explicit, tunable maker spread that becomes LP revenue, and
+      the impact is deferred to the next trade.</div>
+
+      <div class="note"><span class="callout-title">The economic verdict — and the real risk difference</span>
+      <strong>Cost regime: comparable.</strong> Impact scales as \(1/\text{liquidity}\) in every system, so with
+      matched LP capital our continuous market is neither cheaper nor dearer in kind — it sits in the same band as
+      LMSR and CPMM. (Its explicit spread is a tunable config; the engine defaults here are conservative.)
+      <strong>The decisive advantage is always-on, continuous liquidity.</strong> Order-book venues
+      (Polymarket, Kalshi) only have the depth makers <em>choose</em> to post — a thin or one-sided book means a
+      huge gap or simply <em>no fill</em>, and a trader can be stuck unable to exit. AMMs and BMM
+      <strong>always quote a two-sided price</strong>, so liquidity never disappears. <strong>And BMM prices a
+      <em>continuum</em></strong>: one belief prices any strike or range (§3–§4), where a discrete market only
+      offers fixed buckets — so a “between 100 and 105” bet that has no contract elsewhere is just another query
+      here. <strong>How much risk does a user take?</strong> The same \(1/\text{liquidity}\) slippage risk as a
+      standard AMM, <em>minus</em> the order-book’s thin-market / no-exit risk, <em>plus</em> a known spread fee
+      instead of unknown curve-walking. Initial liquidity is the single dial that makes all of it acceptable —
+      exactly as the left chart shows every curve collapsing toward flat as LP capital grows.</div>
+    </section>
+
+    <!-- =============================================================== -->
     <section id="flexible">
-      <h2><span class="section-num">19</span>Flexible parametric beliefs — a design study<a class="anchor" href="#flexible">#</a></h2>
+      <h2><span class="section-num">21</span>Flexible parametric beliefs — a design study<a class="anchor" href="#flexible">#</a></h2>
       <div class="note"><span class="callout-title">Status: exploration, not shipped</span>
       Some markets let traders <em>paint</em> almost any curve by clicking to place predictions — a
       <strong>non-parametric, per-bucket</strong> design (LMSR / pari-mutuel over bins). This section asks
