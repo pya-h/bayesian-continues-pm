@@ -63,13 +63,24 @@
   // N narrow Gaussian bumps on a fixed grid; the WEIGHTS are the free params.
   // Closed-form priced (it IS a mixture), so no quadrature. `modes` synthesises
   // a wiggly weight profile so the slider sweeps simple → multi-peaked.
-  function fixedBasis(lo, hi, N, modes, sigma) {
+  function fixedBasis(lo, hi, N, modes, smooth, skew) {
+    skew = skew || 0;
+    const w = hi - lo;
+    // bump width tied to the hump spacing so `modes` peaks actually resolve; the
+    // `smooth` knob (≈ σ-slider) widens/narrows them around that base.
+    const sigma = Math.max(2, (w / modes) * 0.34 * (smooth || 1));
     const comps = [];
     for (let k = 0; k < N; k++) {
-      const c = lo + ((hi - lo) * k) / (N - 1);
-      const u = k / (N - 1);
-      const w = 0.12 + Math.pow(Math.max(0, Math.sin(modes * Math.PI * u + 0.35)), 2);
-      comps.push({ pi: w, mu: c, sigma2: sigma * sigma });
+      const t = k / (N - 1);
+      const c = lo + w * t;
+      let env = 0.04; // small floor so valleys don't hit zero
+      for (let j = 0; j < modes; j++) {
+        const cj = (j + 0.5) / modes; // place exactly `modes` humps across the grid
+        const z = (t - cj) / (0.42 / modes);
+        env += Math.exp(-(z * z));
+      }
+      const tilt = Math.exp(skew * (t - 0.5) * 2.2); // skew the weight envelope L↔R
+      comps.push({ pi: env * tilt, mu: c, sigma2: sigma * sigma });
     }
     return new B.MixtureBelief(comps); // kind='mixture' → closed-form pricing
   }
@@ -85,17 +96,20 @@
   }
 
   // THE GENERAL FORM: max-entropy / moment-expansion ------------------
-  // p(θ) ∝ exp(−[½λ₂u² + λ₃u³ + λ₄u⁴]), u=(θ−μ)/s — an exponential-family density
-  // whose exponent is a polynomial. Each added term is one more shape knob
-  // λ₂ alone → Gaussian, +λ₃ → skew, +λ₄ → fat tails OR (λ₂<0,λ₄>0) a double-well
-  // → bimodal. One form, many shapes; extend the polynomial for more modes. No
-  // closed-form price (quadrature), but always a valid density. Normalised
-  // numerically (with a min-energy shift for stability); moments cached.
+  // p(θ) ∝ exp(−[½λ₂u² + λ₃u³ + λ₄u⁴ + λ₆u⁶]), u=(θ−μ)/s — an exponential-family
+  // density whose exponent is a polynomial. Each added term is one more shape knob
+  // and the mode count is bounded by the polynomial degree (deg 2m → up to m modes)
+  // λ₂ → Gaussian, +λ₃ → skew, +λ₄>0 → fat tails / flat-top, λ₂<0 → bimodal.
+  // (3+ modes need a higher-degree poly with finely-balanced wells
+  // form for arbitrary multi-bump.) No closed-form price (quadrature), but always a
+  // valid density — a small u⁶ term, scaled up with |λ₃|, keeps the tails decaying
+  // (integrable) and stops skew dragging the mean off. Moments cached.
   function maxEnt(mu, s, lam2, lam3, lam4) {
-    // Floor the quartic so it always dominates the cubic at the window edge (else a
-    // skew term runs away and drags the mean off). Keeps the density well-behaved.
-    const l4 = Math.max(lam4, 0.05 + 0.2 * Math.abs(lam3));
-    const energy = (u) => 0.5 * lam2 * u * u + lam3 * u * u * u + l4 * u * u * u * u;
+    const l6 = 0.004 + 0.06 * Math.max(0, -lam4) + 0.03 * Math.abs(lam3); // confining stabiliser
+    const energy = (u) => {
+      const u2 = u * u;
+      return 0.5 * lam2 * u2 + lam3 * u2 * u + lam4 * u2 * u2 + l6 * u2 * u2 * u2;
+    };
     const L = 7, N = 2000, h = (2 * L) / N;
     let Emin = Infinity;
     for (let i = 0; i <= N; i++) { const e = energy(-L + i * h); if (e < Emin) Emin = e; }
@@ -161,15 +175,15 @@
       off: 'shipped', on: 'moderate — K·Φ', flex: 4,
     },
     basis: {
-      label: 'Fixed-basis ⭐', dof: 'N weights (grid)', shapes: 'near-arbitrary smooth',
-      price: 'closed-form Σ · fast', update: 'weight-only',
-      off: 'low', on: 'moderate — N·Φ, linear', flex: 5,
+      label: 'Gen·basis ⛓', dof: 'N weights', shapes: 'ANY # bumps · skew · flat',
+      price: 'closed-form Σ·Φ', update: 'weight-only',
+      off: 'low', on: 'feasible — N·Φ, linear', flex: 5,
     },
     maxent: {
-      label: 'General (max-ent)', dof: '2 + M (μ, σ, λ₃, λ₄, …)',
-      shapes: 'skew · peak · flat · bimodal — one form',
-      price: 'quadrature (∝ exp-poly)', update: 'moment-projection',
-      off: 'med', on: 'very hard — numeric normalize', flex: 5,
+      label: 'Gen·exact ★', dof: '2 + M (μ,σ,λₖ…)',
+      shapes: 'skew · peak · flat · bimodal',
+      price: 'quadrature (exp-poly)', update: 'moment-projection',
+      off: 'medium', on: 'very hard — numeric ∫', flex: 4,
     },
   };
 

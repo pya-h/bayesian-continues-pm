@@ -1607,8 +1607,8 @@ losses.sort();
             <tr><td>Student-t</td><td>3</td><td>fat tails</td><td>quadrature + Γ</td><td>variance-domain <em>(shipped)</em></td><td>shipped</td><td>hard — Γ, pow</td></tr>
             <tr><td>Beta (bounded)</td><td>2–3</td><td>U / J / skew / flat</td><td>incomplete-β</td><td>near-conjugate</td><td>low–med</td><td>hard — incomplete-β</td></tr>
             <tr><td>Mixture</td><td>3K</td><td>K distinct camps</td><td><strong>closed-form Σ</strong></td><td>responsibility <em>(shipped)</em></td><td>shipped</td><td>moderate — K·Φ</td></tr>
-            <tr><td><strong>Fixed-basis ⭐</strong></td><td>N&nbsp;weights</td><td><strong>near-arbitrary smooth</strong></td><td><strong>closed-form Σ · fast</strong></td><td>weight-only</td><td>low</td><td>moderate — N·Φ, linear</td></tr>
-            <tr><td><strong>General (max-ent)</strong></td><td>2 + M</td><td><strong>skew·peak·flat·bimodal — one form</strong></td><td>quadrature</td><td>moment-projection</td><td>med</td><td>very hard — numeric ∫</td></tr>
+            <tr><td><strong>Gen·basis ⛓ <span style="font-weight:400;color:var(--muted)">(on-chain)</span></strong></td><td>N&nbsp;weights</td><td><strong>ANY # bumps · skew · flat</strong></td><td><strong>closed-form Σ·Φ · fast</strong></td><td>weight-only</td><td>low</td><td><strong>feasible</strong> — N·Φ, linear</td></tr>
+            <tr><td><strong>Gen·exact ★ <span style="font-weight:400;color:var(--muted)">(off-chain)</span></strong></td><td>2 + M</td><td>skew·peak·flat·<strong>bimodal</strong></td><td>quadrature</td><td>moment-projection</td><td>med</td><td>very hard — numeric ∫</td></tr>
           </tbody>
         </table>
       </details>
@@ -1634,22 +1634,27 @@ losses.sort();
         surprise. The ideal is a single <strong>general</strong> belief that supports (almost) any shape with
         as many parameters as the data demands. Two forms qualify (full write-up:
         <code>docs/multi&nbsp;model/general-belief-form.md</code>):</p>
-        <p><strong>(A) Adaptive Gaussian mixture / fixed-basis ⭐</strong> — finite Gaussian mixtures are
-        <em>dense in the space of distributions</em>, so the mixture <em>is</em> the general model and every
-        family above is a special case (one component → Gaussian; offset pair → skew; a scale-mixture →
-        Student-t tails; \(K\) separated bumps → multi-modal). With component <strong>split/merge</strong> the
-        <em>parameter count is data-driven</em> — it grows modes on disagreement, collapses on consensus — and
-        pricing stays <strong>closed-form</strong> (`Σ πₖ·Φ`), so it is also the on-chain-feasible one. This is
-        the form to ship: a <code>general</code> kind the creator selects without choosing a shape.</p>
+        <p><strong>(A) Adaptive Gaussian mixture / basis ⛓ — the on-chain-feasible general mode.</strong>
+        Finite Gaussian mixtures are <em>dense in the space of distributions</em>, so the mixture <em>is</em> the
+        general model and every family above is a special case (one component → Gaussian; offset pair → skew; a
+        scale-mixture → Student-t tails; \(K\) separated bumps → <strong>any number of modes</strong>). With
+        component <strong>split/merge</strong> the <em>parameter count is data-driven</em> — it grows modes on
+        disagreement, collapses on consensus. Crucially it <strong>drops the one thing that makes a general form
+        expensive</strong> — numerical normalisation — because pricing stays <strong>closed-form</strong>
+        (`Σ πₖ·Φ`, linear in the weights). That is the <em>less-complex mode</em> for on-chain: a finite sum of
+        one well-approximated function (Φ), no quadrature, no Γ. It is the <strong>Gen·basis ⛓</strong> option in
+        the sandbox — and the form to ship as a <code>general</code> kind the creator selects without choosing a shape.</p>
         <p><strong>(B) Max-entropy / moment expansion</strong> — the literal “\(N\) parameters describe the
         belief” dial:</p>
         <div class="eqbox named"><span>$$ p(\theta)\ \propto\ \exp\!\Big(-\big[\tfrac12\lambda_2 u^2+\lambda_3 u^3+\lambda_4 u^4+\cdots\big]\Big),\quad u=\tfrac{\theta-\mu}{\sigma} $$</span><span class="eqlabel">General ★</span></div>
         <p>Each polynomial term is one more shape knob: \(\lambda_2\) → Gaussian, \(+\lambda_3\) → skew,
-        \(+\lambda_4\) → fat tails, and \(\lambda_2&lt;0,\lambda_4&gt;0\) → a double-well → <strong>bimodal</strong>.
-        One formula, a continuum of shapes — always a valid (max-entropy) density, but normalised by
-        <strong>numerical integration</strong>, so it prices by quadrature and is an off-chain tool. It is the
-        <strong>General ★</strong> option in the sandbox above — sweep \(\lambda_2\) negative with \(\lambda_4&gt;0\)
-        to split one bump into two from a single exponential family.</p>
+        \(+\lambda_4&gt;0\) → fat tails / flat-top, and \(\lambda_2&lt;0\) → a double-well → <strong>bimodal</strong>.
+        The <strong>mode count is bounded by the polynomial degree</strong> (degree \(2m\) → up to \(m\) modes), and
+        3+ visible modes need a higher-degree poly with <em>finely-balanced</em> wells — so for arbitrary multi-bump
+        the basis form (A) is the practical tool. One formula, a continuum of shapes — always a valid (max-entropy)
+        density, but normalised by <strong>numerical integration</strong>, so it prices by quadrature and is an
+        off-chain tool. It is the <strong>Gen·exact ★</strong> option in the sandbox above — sweep \(\lambda_2\)
+        negative to split one bump into two from a single exponential family.</p>
       </details>
 
       <div class="note"><span class="callout-title">The half nobody mentions — the interaction</span>

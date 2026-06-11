@@ -54,6 +54,14 @@ Two flavours, both parametric, both closed-form priced:
 So "the general mode" is **mostly buildable from what we already ship** — an *adaptive mixture
 belief kind* (`general`) = mixture + split enabled + relaxed caps + a placement-friendly update.
 
+**This is also the answer to "is there a less-complex on-chain general mode?"** Yes — Route A
+*is* it. The single thing that makes a general belief expensive on-chain is **numerical
+normalisation** (the `Z = ∫…` and special functions a max-entropy / exp-poly form needs). The
+mixture/basis sidesteps it entirely: its density is already normalised by construction
+(`Σπₖ = 1`) and its prices are a finite `Σ πₖ·Φ` — linear in the weights, one well-approximated
+function (Φ), no quadrature, no Γ. You drop the costly piece and keep *more* shape coverage
+(any number of bumps), not less.
+
 ---
 
 ## Route B — Max-entropy / moment-expansion exponential family (the "moments dial")
@@ -74,11 +82,17 @@ trades have revealed:
 | λ₂ | Gaussian |
 | + λ₃ | **skew** |
 | + λ₄ (λ₄>0) | **fat tails / flat-top** |
-| + λ₄ with **λ₂<0** | **double-well → bimodal** |
-| + λ₅, λ₆, … | more asymmetry, more modes |
+| **λ₂<0** | **double-well → bimodal** |
+| + λ₆, λ₈, … | 3, 4, … modes — but only with *finely-balanced* wells |
 
 One formula, a continuum of shapes, dialled purely by how many polynomial terms (parameters)
 you keep — precisely the "even 10 parameters" belief the creator wants, with **no model choice**.
+
+**The catch on multi-modality.** The mode count is bounded by the polynomial degree (degree
+\(2m\) → up to \(m\) modes), and the wells must be *depth-balanced* or the deeper ones
+exponentially dominate and the others vanish. So a quartic reliably reaches **bimodal**, but
+3+ *visible* modes are fiddly to dial by hand. For arbitrary multi-bump, **Route A (basis) is
+the practical universal form** — it places as many bumps as you like, directly.
 
 **Why it's the principled-but-heavier answer**
 

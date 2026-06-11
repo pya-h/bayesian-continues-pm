@@ -298,7 +298,7 @@
     const P = Plot(cv);
 
     const famSeg = seg(controls, {
-      label: 'Belief family', value: 'maxent',
+      label: 'Belief family  ·  (⛓ on-chain-feasible, ★ off-chain)', value: 'basis',
       options: [
         { label: 'Gaussian', value: 'gaussian' },
         { label: 'Skew', value: 'skew_normal' },
@@ -306,8 +306,8 @@
         { label: 'Student-t', value: 'student_t' },
         { label: 'Beta', value: 'beta' },
         { label: 'Mixture', value: 'mixture' },
-        { label: 'Fixed-basis', value: 'basis' },
-        { label: 'General ★', value: 'maxent' },
+        { label: 'Gen·basis ⛓', value: 'basis' },
+        { label: 'Gen·exact ★', value: 'maxent' },
       ],
     });
     const sMu = slider(controls, { label: 'center', min: 60, max: 140, step: 0.5, value: 100 });
@@ -319,8 +319,8 @@
     const sB = slider(controls, { label: 'b (Beta)', min: 0.2, max: 14, step: 0.1, value: 5, fmt: (v) => fmt(v, 1) });
     const sModes = slider(controls, { label: 'peaks / camps (mixture · basis)', min: 1, max: 9, step: 1, value: 3, fmt: (v) => fmt(v, 0) });
     const sSpread = slider(controls, { label: 'separation / spread (mixture · basis)', min: 0, max: 46, step: 1, value: 22, fmt: (v) => fmt(v, 0) });
-    const sWell = slider(controls, { label: 'λ₂ — well depth (general): <0 ⇒ bimodal', min: -4, max: 4, step: 0.1, value: 1, fmt: (v) => fmt(v, 1) });
-    const sQuart = slider(controls, { label: 'λ₄ — tail / bimodality (general)', min: 0, max: 1.6, step: 0.05, value: 0, fmt: (v) => fmt(v, 2) });
+    const sWell = slider(controls, { label: 'λ₂ — well depth (Gen·exact): <0 ⇒ bimodal', min: -4, max: 4, step: 0.1, value: 1, fmt: (v) => fmt(v, 1) });
+    const sQuart = slider(controls, { label: 'λ₄ — fat tails ↔ flat-top (Gen·exact)', min: 0, max: 1.6, step: 0.05, value: 0, fmt: (v) => fmt(v, 2) });
 
     function build() {
       const mu = sMu.get(), sg = sScale.get(), fam = famSeg.get();
@@ -330,7 +330,7 @@
         case 'student_t': return M.StudentT.fromVariance(sNu.get(), mu, sg * sg);
         case 'beta': return MM.betaScaled(mu - 3 * sg, mu + 3 * sg, sA.get(), sB.get());
         case 'mixture': return MM.fewCamps(mu, sSpread.get(), sModes.get(), sg);
-        case 'basis': { const half = sSpread.get() + 2.5 * sg; return MM.fixedBasis(mu - half, mu + half, 23, sModes.get(), sg * 0.5); }
+        case 'basis': { const half = sSpread.get() + 16; return MM.fixedBasis(mu - half, mu + half, 27, sModes.get(), sg / 12, sSkew.get() / 14); }
         case 'maxent': return MM.maxEnt(mu, sg, sWell.get(), sSkew.get() / 40, sQuart.get());
         default: return new M.Belief(mu, sg);
       }
@@ -338,7 +338,7 @@
     function relevance() {
       const f = famSeg.get();
       const dim = (ctl, on) => { ctl.el.closest('.control').style.opacity = on ? 1 : 0.32; };
-      dim(sSkew, f === 'skew_normal' || f === 'maxent');
+      dim(sSkew, f === 'skew_normal' || f === 'maxent' || f === 'basis');
       dim(sPeak, f === 'gen_normal'); dim(sNu, f === 'student_t');
       dim(sA, f === 'beta'); dim(sB, f === 'beta');
       dim(sModes, f === 'mixture' || f === 'basis');
@@ -346,7 +346,6 @@
       dim(sWell, f === 'maxent'); dim(sQuart, f === 'maxent');
     }
     function stars(n) { return '★'.repeat(n) + '☆'.repeat(5 - n); }
-    function tone(note) { return /hard|very/.test(note) ? 'warn' : /shipped|low/.test(note) ? '' : ''; }
 
     function draw() {
       const b = build();
@@ -366,15 +365,30 @@
       const K = mean + 1.5 * sd;
       P.vline(K, P.COL.warn, 'K');
       const fair = MM.priceFlex({ type: 'BINARY_CALL', strike: K }, b);
+      // Compact, grouped scorecard (overrides the default 2-col readout grid so the
+      // long descriptive values don't blow up into giant wrapped mono text).
+      out.style.display = 'block';
+      const onWarn = /hard|very|infeasible/.test(meta.on);
+      const onGood = /feasible|shipped|^low|moderate/.test(meta.on);
+      const row = (k, v, col) =>
+        `<div class="k" style="align-self:center">${k}</div>`
+        + `<div style="font-size:.84rem;font-weight:500;line-height:1.25${col ? `;color:${col}` : ''}">${v}</div>`;
+      const grp = (t) =>
+        `<div style="grid-column:1/-1;font-size:.6rem;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);opacity:.7;margin-top:.55rem;padding-top:.3rem;border-top:1px solid var(--edge)">${t}</div>`;
       out.innerHTML =
-        cell('shape DOF', meta.dof) +
-        cell('flexibility', stars(meta.flex), 'accent') +
-        cell('shapes it makes', meta.shapes) +
-        cell('pricing', meta.price) +
-        cell('update rule', meta.update) +
-        cell('tail binary fair', fmt(fair, 4)) +
-        cell('off-chain', meta.off, tone(meta.off)) +
-        cell('on-chain', meta.on, tone(meta.on));
+        '<div style="display:grid;grid-template-columns:7rem 1fr;gap:.26rem .8rem;align-items:baseline">'
+        + grp('Shape')
+        + row('Flexibility', stars(meta.flex), 'var(--accent)')
+        + row('Shape DOF', meta.dof)
+        + row('Makes', meta.shapes)
+        + grp('Engine')
+        + row('Pricing', meta.price)
+        + row('Update', meta.update)
+        + row('Tail&#8209;binary fair', fmt(fair, 4))
+        + grp('Implementation')
+        + row('Off&#8209;chain', meta.off)
+        + row('On&#8209;chain', meta.on, onWarn ? 'var(--warn)' : onGood ? 'var(--buy)' : '')
+        + '</div>';
       relevance();
     }
     [famSeg, sMu, sScale, sSkew, sPeak, sNu, sA, sB, sModes, sSpread, sWell, sQuart].forEach((c) => c.on(draw));
