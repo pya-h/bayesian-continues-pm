@@ -28,6 +28,7 @@ bun-debug.log*
 
 # test / coverage
 coverage/
+.test-logs/
 
 # e2e (playwright)
 e2e/node_modules/
