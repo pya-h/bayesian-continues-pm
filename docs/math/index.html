@@ -1275,7 +1275,8 @@ losses.sort();
             </div>
           </div>
 
-          <p class="cap-foot small">Computed client-side by <code>capacity-sandbox.js</code> on
+          <p class="cap-foot small">Computed client-side by <code>capacity-engine.js</code> (the DOM-free
+          math, unit-tested against the server) and rendered by <code>capacity-sandbox.js</code>, both on
           <code>window.BMM</code> (the same port of <code>packages/core</code> that draws every figure on this
           page). Reserve is the closed-form 99%/α VaR of this single-CALL book — exactly the value the live
           engine estimates by Monte-Carlo. <strong>A–E and G run the real fix logic;</strong> F is a simplified
@@ -1427,6 +1428,7 @@ losses.sort();
 <script src="vendor/katex/auto-render.min.js" defer></script>
 <script src="math.js" defer></script>
 <script src="app.js" defer></script>
+<script src="capacity-engine.js" defer></script>
 <script src="capacity-sandbox.js" defer></script>
 </body>
 </html>

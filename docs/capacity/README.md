@@ -21,4 +21,6 @@ solvency guarantee — it makes the existing limit *graceful*, it does not remov
 (`docs/math/index.html` → *Developer* mode → §15 *Capacity & the gate*): a faithful
 miniature engine booted into the no-buy band where you apply each option (A–E, G
 live; F approximated; H, I explained) and watch the gate, price ramp, payouts, and
-positions react. Engine: `docs/math/capacity-sandbox.js` on `window.BMM`.
+positions react. Engine math: `docs/math/capacity-engine.js` (DOM-free, unit-tested
+against the server engine); page rendering: `docs/math/capacity-sandbox.js`; both on
+`window.BMM`.
