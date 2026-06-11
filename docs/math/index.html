@@ -72,6 +72,8 @@
       <a href="#numerics">17 · Numerics &amp; rounding</a>
       <div class="group">Validation</div>
       <a href="#sim">18 · Model validation (Monte-Carlo)</a>
+      <div class="group">Design studies</div>
+      <a href="#flexible">19 · Flexible parametric beliefs</a>
     </div>
 
     <!-- trader TOC -->
@@ -1561,6 +1563,104 @@ losses.sort();
       tool: vary <code>cfg</code>, compare summaries, and pick the engine defaults of §16.</div>
     </section>
 
+    <!-- =============================================================== -->
+    <section id="flexible">
+      <h2><span class="section-num">19</span>Flexible parametric beliefs — a design study<a class="anchor" href="#flexible">#</a></h2>
+      <div class="note"><span class="callout-title">Status: exploration, not shipped</span>
+      Some markets let traders <em>paint</em> almost any curve by clicking to place predictions — a
+      <strong>non-parametric, per-bucket</strong> design (LMSR / pari-mutuel over bins). This section asks
+      the opposite question: how much shape flexibility can we get <strong>while staying parametric</strong>
+      — continuous \(\theta\), contract-composition, Bayesian-from-signal updates, closed-form-or-quadrature
+      pricing — without going bin-based? Full write-up in <code>docs/multi&nbsp;model/</code>.</div>
+
+      <p>The key reframe: in a parametric world <strong>flexibility = the number of shape degrees of freedom
+      (DOF)</strong>, and there is a continuous spectrum between a Gaussian and a histogram:</p>
+      <div class="eqbox">$$ \underbrace{\text{Gaussian}}_{2}\ \to\ \underbrace{\text{skew / peaked}}_{3}\ \to\
+      \underbrace{\text{skew-}t\,/\,\text{gen-hyperbolic}}_{4}\ \to\ \underbrace{\text{mixture}}_{3K}\ \to\
+      \underbrace{\text{fixed-basis}}_{N\ \text{weights}}\ \to\ \cdots\ \to\ \underbrace{\text{bins}}_{\infty} $$</div>
+      <p>Every family below already fits the engine: <code>BeliefModel</code> needs only
+      <code>pdf/cdf/mean/variance/sample</code>, and <code>expectF</code> prices <em>any</em> pdf by quadrature
+      when no closed form exists. So the question is <em>which family</em>, traded off along four axes —
+      <strong>shape power</strong>, <strong>pricing cost</strong>, <strong>update difficulty</strong>, and
+      <strong>on-chain feasibility</strong>. Pick a family and morph it; the scorecard reads its tradeoff live
+      (drawn against the equal-\((\mu,\sigma)\) Gaussian, so any gap is pure <em>shape</em>):</p>
+
+      <div class="viz" id="viz-flex">
+        <div class="viz-head"><div class="viz-title">Flexible-beliefs scorecard<span class="tag">live</span></div><div class="viz-hint">morph each family · read flexibility vs implementation cost</div></div>
+        <div class="viz-grid">
+          <div>
+            <canvas></canvas>
+            <div class="legend"><span><i style="background:var(--accent)"></i>candidate p(θ)</span><span><i style="background:var(--muted)"></i>Gaussian(μ,σ)</span><span><i style="background:var(--warn)"></i>tail strike K</span></div>
+          </div>
+          <div><div class="controls"></div><div class="readout"></div></div>
+        </div>
+      </div>
+
+      <details class="dev" open>
+        <summary><strong>The menu — flexibility vs implementation cost</strong></summary>
+        <table>
+          <thead><tr><th>Family</th><th>DOF</th><th>Adds</th><th>Pricing</th><th>Update</th><th>Off-chain</th><th>On-chain</th></tr></thead>
+          <tbody>
+            <tr><td>Gaussian</td><td>2</td><td>baseline bump</td><td>closed-form</td><td>conjugate (exact)</td><td>shipped</td><td>moderate — Φ approx</td></tr>
+            <tr><td>Skew-normal</td><td>3</td><td>asymmetry</td><td>quadrature</td><td>moment-match</td><td>low</td><td>hard — Φ inside ∫</td></tr>
+            <tr><td>Generalized-normal</td><td>3</td><td>peak ↔ flat</td><td>quadrature + Γ</td><td>moment-match</td><td>low</td><td>hard — Γ, frac. powers</td></tr>
+            <tr><td>Student-t</td><td>3</td><td>fat tails</td><td>quadrature + Γ</td><td>variance-domain <em>(shipped)</em></td><td>shipped</td><td>hard — Γ, pow</td></tr>
+            <tr><td>Beta (bounded)</td><td>2–3</td><td>U / J / skew / flat</td><td>incomplete-β</td><td>near-conjugate</td><td>low–med</td><td>hard — incomplete-β</td></tr>
+            <tr><td>Mixture</td><td>3K</td><td>K distinct camps</td><td><strong>closed-form Σ</strong></td><td>responsibility <em>(shipped)</em></td><td>shipped</td><td>moderate — K·Φ</td></tr>
+            <tr><td><strong>Fixed-basis ⭐</strong></td><td>N&nbsp;weights</td><td><strong>near-arbitrary smooth</strong></td><td><strong>closed-form Σ · fast</strong></td><td>weight-only</td><td>low</td><td>moderate — N·Φ, linear</td></tr>
+            <tr><td><strong>General (max-ent)</strong></td><td>2 + M</td><td><strong>skew·peak·flat·bimodal — one form</strong></td><td>quadrature</td><td>moment-projection</td><td>med</td><td>very hard — numeric ∫</td></tr>
+          </tbody>
+        </table>
+      </details>
+
+      <p>Two threads run through that table. First, <strong>pricing path decides on-chain feasibility.</strong>
+      Fixed-point chains can afford a polynomial approximation of \(\Phi\) but not \(\Gamma\), the incomplete
+      beta, or a 4000-node quadrature run deterministically across nodes. So the only families whose price is a
+      finite \(\sum_k w_k\,\Phi(\cdot)\) — <strong>Gaussian, mixture, and fixed-basis</strong> — are realistic
+      on-chain; the special-function families are off-chain-only without heroic effort.</p>
+
+      <p>Second, the recommended sweet spot is the <strong>fixed-basis Gaussian density</strong>: \(N\) narrow
+      bumps on a fixed grid with learnable weights,</p>
+      <div class="eqbox named"><span>$$ p(\theta)=\frac{1}{\sum_k w_k}\sum_{k=1}^{N} w_k\,\mathcal N(\theta;\,c_k,\,\sigma^2) $$</span><span class="eqlabel">design study</span></div>
+      <p>It gives near-arbitrary smooth shapes (universal approximation as the grid densifies), prices in
+      <strong>closed form</strong> as \(\sum_k w_k\cdot\text{price}_k\) — so no quadrature lag and the most
+      on-chain-feasible flexible option — and updates by a trivial <strong>weight-only</strong> step. Best of all,
+      a “click near \(\theta\)” maps directly onto “raise the weights of nearby bumps”, which is the parametric
+      way to get the <em>paint-the-curve</em> feel without bins.</p>
+
+      <details class="dev">
+        <summary><strong>One general form for every shape — the creator picks nothing</strong></summary>
+        <p>A creator can’t know whether the crowd will converge, split into camps, or fear a fat-tailed
+        surprise. The ideal is a single <strong>general</strong> belief that supports (almost) any shape with
+        as many parameters as the data demands. Two forms qualify (full write-up:
+        <code>docs/multi&nbsp;model/general-belief-form.md</code>):</p>
+        <p><strong>(A) Adaptive Gaussian mixture / fixed-basis ⭐</strong> — finite Gaussian mixtures are
+        <em>dense in the space of distributions</em>, so the mixture <em>is</em> the general model and every
+        family above is a special case (one component → Gaussian; offset pair → skew; a scale-mixture →
+        Student-t tails; \(K\) separated bumps → multi-modal). With component <strong>split/merge</strong> the
+        <em>parameter count is data-driven</em> — it grows modes on disagreement, collapses on consensus — and
+        pricing stays <strong>closed-form</strong> (`Σ πₖ·Φ`), so it is also the on-chain-feasible one. This is
+        the form to ship: a <code>general</code> kind the creator selects without choosing a shape.</p>
+        <p><strong>(B) Max-entropy / moment expansion</strong> — the literal “\(N\) parameters describe the
+        belief” dial:</p>
+        <div class="eqbox named"><span>$$ p(\theta)\ \propto\ \exp\!\Big(-\big[\tfrac12\lambda_2 u^2+\lambda_3 u^3+\lambda_4 u^4+\cdots\big]\Big),\quad u=\tfrac{\theta-\mu}{\sigma} $$</span><span class="eqlabel">General ★</span></div>
+        <p>Each polynomial term is one more shape knob: \(\lambda_2\) → Gaussian, \(+\lambda_3\) → skew,
+        \(+\lambda_4\) → fat tails, and \(\lambda_2&lt;0,\lambda_4&gt;0\) → a double-well → <strong>bimodal</strong>.
+        One formula, a continuum of shapes — always a valid (max-entropy) density, but normalised by
+        <strong>numerical integration</strong>, so it prices by quadrature and is an off-chain tool. It is the
+        <strong>General ★</strong> option in the sandbox above — sweep \(\lambda_2\) negative with \(\lambda_4&gt;0\)
+        to split one bump into two from a single exponential family.</p>
+      </details>
+
+      <div class="note"><span class="callout-title">The half nobody mentions — the interaction</span>
+      A flexible family is inert unless trades can <em>excite</em> its DOF. Today a trade collapses to one scalar
+      signal (§6), which can only slide or reweight — it cannot grow a bump where a user is betting. To let users
+      sculpt the curve you also need richer input: enable mixture component <strong>split/spawn</strong>, lean on
+      the <strong>bell contract</strong> (it already bets “a bump at \(c\)”), or add a thin <strong>placement
+      primitive</strong> that nudges nearby basis weights. The representation and the interaction are two halves
+      of the same lever.</div>
+    </section>
+
     <div class="footer">
       <p>BMM — The Mathematics · generated as living documentation. Every figure is computed
       client-side by <code>math.js</code>, a direct port of <code>packages/core</code>; formulas are
@@ -1575,6 +1675,7 @@ losses.sort();
 <script src="vendor/katex/katex.min.js" defer></script>
 <script src="vendor/katex/auto-render.min.js" defer></script>
 <script src="math.js" defer></script>
+<script src="multimodel.js" defer></script>
 <script src="app.js" defer></script>
 <script src="capacity-engine.js" defer></script>
 <script src="capacity-sandbox.js" defer></script>

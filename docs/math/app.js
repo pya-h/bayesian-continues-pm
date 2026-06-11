@@ -291,6 +291,96 @@
     redraws.push(draw); draw();
   }
 
+  function vizFlexBeliefs() {
+    const root = $('#viz-flex'); if (!root) return;
+    const MM = window.MMODEL; if (!MM) return;
+    const cv = $('canvas', root), controls = $('.controls', root), out = $('.readout', root);
+    const P = Plot(cv);
+
+    const famSeg = seg(controls, {
+      label: 'Belief family', value: 'maxent',
+      options: [
+        { label: 'Gaussian', value: 'gaussian' },
+        { label: 'Skew', value: 'skew_normal' },
+        { label: 'Gen-norm', value: 'gen_normal' },
+        { label: 'Student-t', value: 'student_t' },
+        { label: 'Beta', value: 'beta' },
+        { label: 'Mixture', value: 'mixture' },
+        { label: 'Fixed-basis', value: 'basis' },
+        { label: 'General ★', value: 'maxent' },
+      ],
+    });
+    const sMu = slider(controls, { label: 'center', min: 60, max: 140, step: 0.5, value: 100 });
+    const sScale = slider(controls, { label: 'width σ', min: 3, max: 32, step: 0.5, value: 12 });
+    const sSkew = slider(controls, { label: 'α — skew (skew · general)', min: -14, max: 14, step: 0.5, value: 5 });
+    const sPeak = slider(controls, { label: 'β — peak↔flat (gen-normal)', min: 0.3, max: 10, step: 0.1, value: 1.3, fmt: (v) => fmt(v, 1) });
+    const sNu = slider(controls, { label: 'ν — d.o.f. (Student-t)', min: 2.2, max: 80, step: 0.5, value: 5, fmt: (v) => fmt(v, 1) });
+    const sA = slider(controls, { label: 'a (Beta)', min: 0.2, max: 14, step: 0.1, value: 2, fmt: (v) => fmt(v, 1) });
+    const sB = slider(controls, { label: 'b (Beta)', min: 0.2, max: 14, step: 0.1, value: 5, fmt: (v) => fmt(v, 1) });
+    const sModes = slider(controls, { label: 'peaks / camps (mixture · basis)', min: 1, max: 9, step: 1, value: 3, fmt: (v) => fmt(v, 0) });
+    const sSpread = slider(controls, { label: 'separation / spread (mixture · basis)', min: 0, max: 46, step: 1, value: 22, fmt: (v) => fmt(v, 0) });
+    const sWell = slider(controls, { label: 'λ₂ — well depth (general): <0 ⇒ bimodal', min: -4, max: 4, step: 0.1, value: 1, fmt: (v) => fmt(v, 1) });
+    const sQuart = slider(controls, { label: 'λ₄ — tail / bimodality (general)', min: 0, max: 1.6, step: 0.05, value: 0, fmt: (v) => fmt(v, 2) });
+
+    function build() {
+      const mu = sMu.get(), sg = sScale.get(), fam = famSeg.get();
+      switch (fam) {
+        case 'skew_normal': return MM.skewNormal(mu, sg, sSkew.get());
+        case 'gen_normal': return MM.genNormal(mu, sg, sPeak.get());
+        case 'student_t': return M.StudentT.fromVariance(sNu.get(), mu, sg * sg);
+        case 'beta': return MM.betaScaled(mu - 3 * sg, mu + 3 * sg, sA.get(), sB.get());
+        case 'mixture': return MM.fewCamps(mu, sSpread.get(), sModes.get(), sg);
+        case 'basis': { const half = sSpread.get() + 2.5 * sg; return MM.fixedBasis(mu - half, mu + half, 23, sModes.get(), sg * 0.5); }
+        case 'maxent': return MM.maxEnt(mu, sg, sWell.get(), sSkew.get() / 40, sQuart.get());
+        default: return new M.Belief(mu, sg);
+      }
+    }
+    function relevance() {
+      const f = famSeg.get();
+      const dim = (ctl, on) => { ctl.el.closest('.control').style.opacity = on ? 1 : 0.32; };
+      dim(sSkew, f === 'skew_normal' || f === 'maxent');
+      dim(sPeak, f === 'gen_normal'); dim(sNu, f === 'student_t');
+      dim(sA, f === 'beta'); dim(sB, f === 'beta');
+      dim(sModes, f === 'mixture' || f === 'basis');
+      dim(sSpread, f === 'mixture' || f === 'basis');
+      dim(sWell, f === 'maxent'); dim(sQuart, f === 'maxent');
+    }
+    function stars(n) { return '★'.repeat(n) + '☆'.repeat(5 - n); }
+    function tone(note) { return /hard|very/.test(note) ? 'warn' : /shipped|low/.test(note) ? '' : ''; }
+
+    function draw() {
+      const b = build();
+      const meta = MM.META[famSeg.get()];
+      const mean = b.mean(), sd = b.stddev();
+      const x0 = b.lo != null ? b.lo : mean - 4 * sd;
+      const x1 = b.hi != null ? b.hi : mean + 4 * sd;
+      const gRef = new M.Belief(mean, sd);
+      let pmax = 1e-9;
+      for (let i = 0; i <= 240; i++) { const x = x0 + (i / 240) * (x1 - x0); pmax = Math.max(pmax, b.pdf(x), gRef.pdf(x)); }
+      P.clear().domain(x0, x1, 0, pmax * 1.14);
+      P.grid([x0, (x0 + x1) / 2, x1], [], { xfmt: (v) => fmt(v, 0) });
+      P.curve((x) => gRef.pdf(x), P.COL.muted, 1.5);          // equal-(μ,σ) Gaussian reference
+      P.area((x) => b.pdf(x), 'rgba(91,157,255,0.12)');
+      P.curve((x) => b.pdf(x), P.COL.accent, 2.6);            // the candidate family
+      P.vline(mean, P.COL.buy, 'μ', true);
+      const K = mean + 1.5 * sd;
+      P.vline(K, P.COL.warn, 'K');
+      const fair = MM.priceFlex({ type: 'BINARY_CALL', strike: K }, b);
+      out.innerHTML =
+        cell('shape DOF', meta.dof) +
+        cell('flexibility', stars(meta.flex), 'accent') +
+        cell('shapes it makes', meta.shapes) +
+        cell('pricing', meta.price) +
+        cell('update rule', meta.update) +
+        cell('tail binary fair', fmt(fair, 4)) +
+        cell('off-chain', meta.off, tone(meta.off)) +
+        cell('on-chain', meta.on, tone(meta.on));
+      relevance();
+    }
+    [famSeg, sMu, sScale, sSkew, sPeak, sNu, sA, sB, sModes, sSpread, sWell, sQuart].forEach((c) => c.on(draw));
+    redraws.push(draw); draw();
+  }
+
   function vizPricing() {
     const root = $('#viz-pricing'); if (!root) return;
     const cv = $('canvas', root), controls = $('.controls', root), out = $('.readout', root);
@@ -631,7 +721,7 @@
     theme();
     modeSwitch();
     progress();
-    vizBelief(); vizBeliefModels(); vizPricing(); vizBayes(); vizSpread(); vizReserve(); vizLp();
+    vizBelief(); vizBeliefModels(); vizFlexBeliefs(); vizPricing(); vizBayes(); vizSpread(); vizReserve(); vizLp();
     vizUserPrice(); vizUserTrade();
     reveal();
   }
