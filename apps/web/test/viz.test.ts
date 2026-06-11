@@ -18,6 +18,7 @@ import {
   pnlCurve,
   probInRegions,
   scale,
+  tickDecimals,
   viewDomain,
   winningRegions,
   zeroCrossings,
@@ -198,6 +199,28 @@ describe('niceTicks & scale', () => {
     expect(close(s(0), 100)).toBe(true);
     expect(close(s(10), 200)).toBe(true);
     expect(close(s(5), 150)).toBe(true);
+  });
+});
+
+describe('tickDecimals (axis precision tracks zoom)', () => {
+  test('wide integer-step domains need no decimals', () => {
+    expect(tickDecimals(niceTicks(0, 100, 6), 0, 100)).toBe(0);
+    expect(tickDecimals(niceTicks(0, 1000, 6), 0, 1000)).toBe(0);
+  });
+  test('tight domains gain decimals as the step shrinks below 1', () => {
+    // ~0.1 step → 1 decimal; ~0.01 step → 2 decimals.
+    expect(tickDecimals(niceTicks(64, 66, 6), 64, 66)).toBeGreaterThanOrEqual(1);
+    expect(tickDecimals(niceTicks(0.2, 0.3, 6), 0.2, 0.3)).toBeGreaterThanOrEqual(2);
+  });
+  test('derives directly from explicit tick steps', () => {
+    expect(tickDecimals([0, 1, 2], 0, 2)).toBe(0);
+    expect(tickDecimals([0, 0.5, 1], 0, 1)).toBe(1);
+    expect(tickDecimals([0, 0.05, 0.1], 0, 0.1)).toBe(2);
+  });
+  test('clamps to [0, 6] and falls back to a quarter-span step with < 2 ticks', () => {
+    expect(tickDecimals([5], 0, 40)).toBe(0); // span/4 = 10 → 0 decimals
+    expect(tickDecimals([], 0, 0.4)).toBe(1); // span/4 = 0.1 → 1 decimal
+    expect(tickDecimals([0, 1e-9, 2e-9], 0, 2e-9)).toBeLessThanOrEqual(6);
   });
 });
 

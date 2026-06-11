@@ -54,7 +54,7 @@ export { computeSpread, type SpreadBreakdown } from './spread.ts';
 
 // signal & bayes
 export { extractSignal, type ExtractedSignal } from './signal.ts';
-export { bayesUpdate, bayesUpdateMixture, updateBelief } from './bayes.ts';
+export { bayesUpdate, bayesUpdateMixture, bayesUpdateStudentT, updateBelief } from './bayes.ts';
 
 // solvency
 export {

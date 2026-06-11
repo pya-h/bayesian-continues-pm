@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { bayesUpdate } from '../src/bayes.ts';
+import { bayesUpdate, bayesUpdateStudentT } from '../src/bayes.ts';
 import { makeEngineConfig } from '../src/config.ts';
 import { GaussianBelief } from '../src/gaussian.ts';
 import { extractSignal } from '../src/signal.ts';
+import { StudentTBelief } from '../src/student_t.ts';
 import type { EngineConfig } from '../src/types.ts';
 
 const approx = (a: number, b: number, tol: number) => Math.abs(a - b) <= tol;
@@ -54,6 +55,46 @@ describe('bayesUpdate — precision-weighted (MODEL.md §5.3)', () => {
     const low = bayesUpdate(prior, 72500, 0.2, cfg);
     const high = bayesUpdate(prior, 72500, 0.9, cfg);
     expect(high.mu > low.mu).toBe(true);
+  });
+});
+
+describe('bayesUpdateStudentT — location-scale t, ν fixed (MODEL.md §2.3.3)', () => {
+  const cfg = makeEngineConfig(65000, 5000, { sigmaEps: Math.SQRT2 * 1000, sigmaMin: 1 });
+  const nu = 6;
+  const prior = StudentTBelief.fromVariance(nu, 65000, 5000 ** 2);
+
+  test('ν is preserved; only location/scale move', () => {
+    const post = bayesUpdateStudentT(prior, 72500, 0.5, cfg);
+    expect(post.nu).toBe(nu);
+  });
+
+  test('updates the variance exactly like the Gaussian conjugate step', () => {
+    // Same variance-domain precision arithmetic as bayesUpdate, so μ and the
+    // resulting variance match a Gaussian prior of equal variance.
+    const gPrior = new GaussianBelief(65000, 5000 ** 2);
+    const g = bayesUpdate(gPrior, 72500, 0.5, cfg);
+    const t = bayesUpdateStudentT(prior, 72500, 0.5, cfg);
+    expect(approx(t.mu, g.mu, 1e-6)).toBe(true);
+    expect(approx(t.variance(), g.variance(), 1e-3)).toBe(true);
+  });
+
+  test('μ moves toward the signal; variance strictly decreases', () => {
+    const post = bayesUpdateStudentT(prior, 72500, 0.5, cfg);
+    expect(post.mu > prior.mu).toBe(true);
+    expect(post.mu < 72500).toBe(true);
+    expect(post.variance() < prior.variance()).toBe(true);
+  });
+
+  test('zero weight → unchanged location and ν', () => {
+    const post = bayesUpdateStudentT(prior, 99999, 0, cfg);
+    expect(post.mu).toBe(prior.mu);
+    expect(post.nu).toBe(nu);
+  });
+
+  test('variance floored at σ_min²', () => {
+    const cfgFloor = makeEngineConfig(65000, 5000, { sigmaEps: 1, sigmaMin: 2000 });
+    const post = bayesUpdateStudentT(prior, 70000, 1, cfgFloor);
+    expect(post.variance() >= 2000 ** 2 - 1e-3).toBe(true);
   });
 });
 

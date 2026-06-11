@@ -236,6 +236,18 @@ export function niceTicks(lo: number, hi: number, target = 5): number[] {
   return out;
 }
 
+// How many fraction digits an axis label needs at the current zoom, derived from
+// the tick spacing: a step of 1 needs 0 decimals, 0.5/0.2 need 1, 0.05 needs 2
+// etc. So as the x-window is zoomed into a narrow range, labels (and the hover
+// readout) gain precision instead of all collapsing to the same rounded integer.
+// Pure; clamped to [0, 6]. Falls back to a quarter-span step if <2 ticks.
+export function tickDecimals(ticks: number[], lo: number, hi: number): number {
+  const step =
+    ticks.length >= 2 ? Math.abs((ticks[1] as number) - (ticks[0] as number)) : (hi - lo) / 4;
+  if (!(step > 0) || !Number.isFinite(step)) return 0;
+  return Math.min(6, Math.max(0, -Math.floor(Math.log10(step) + 1e-9)));
+}
+
 export function toPath(pts: Pt[], sx: (x: number) => number, sy: (y: number) => number): string {
   if (pts.length === 0) return '';
   return pts

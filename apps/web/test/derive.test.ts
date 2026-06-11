@@ -246,6 +246,20 @@ describe('buildCreateMarketBody', () => {
     });
   });
 
+  test('emits a student_t belief with ν when beliefKind is student_t', () => {
+    const body = buildCreateMarketBody({ ...base, beliefKind: 'student_t', nu: 5 });
+    expect(body.belief).toEqual({ kind: 'student_t', nu: 5 });
+  });
+
+  test('rejects a student_t ν that is not greater than 2', () => {
+    expect(() => buildCreateMarketBody({ ...base, beliefKind: 'student_t', nu: 2 })).toThrow(
+      'greater than 2',
+    );
+    expect(() => buildCreateMarketBody({ ...base, beliefKind: 'student_t', nu: '' })).toThrow(
+      'greater than 2',
+    );
+  });
+
   test('drops blank mixture rows and requires ≥ 2 complete modes', () => {
     expect(() =>
       buildCreateMarketBody({

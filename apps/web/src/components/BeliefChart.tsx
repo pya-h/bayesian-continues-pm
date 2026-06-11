@@ -30,6 +30,7 @@ import {
   pdfCurve,
   pickHandle,
   scale,
+  tickDecimals,
   toPath,
   viewDomain,
   winningRegions,
@@ -209,6 +210,11 @@ function BeliefChartImpl({
 
   const regions = winningRegions(spec, domain);
   const xTicks = niceTicks(lo, hi, 6);
+  // θ-axis label precision tracks the zoom: integers when wide, decimals when the
+  // window is tight. The live hover readout gets one extra digit (it's a precise
+  // pointer value, not a round tick).
+  const xDec = tickDecimals(xTicks, lo, hi);
+  const xDecHover = Math.min(6, xDec + 1);
   const payTicks = niceTicks(payAxisLo, payAxisHi, 5);
   const payZeroInRange = 0 >= payAxisLo && 0 <= payAxisHi;
 
@@ -517,7 +523,7 @@ function BeliefChartImpl({
             className="fill-[var(--color-muted)]"
             fontSize={11}
           >
-            {fmt(t, 0)}
+            {fmt(t, xDec)}
           </text>
         </g>
       ))}
@@ -626,7 +632,7 @@ function BeliefChartImpl({
         strokeDasharray="4 3"
       />
       <text x={sx(mu) + 4} y={PLOT.t + 11} className="fill-[var(--color-accent)]" fontSize={11}>
-        μ {fmt(mu, 0)}
+        μ {fmt(mu, xDec)}
       </text>
 
       {/* mixture component modes — a tick at each μ_k labelled with its weight %, so
@@ -689,7 +695,7 @@ function BeliefChartImpl({
             className="fill-[var(--color-warn)]"
             fontSize={11}
           >
-            θ* {fmt(thetaStar, 0)}
+            θ* {fmt(thetaStar, xDec)}
           </text>
         </g>
       )}
@@ -802,7 +808,7 @@ function BeliefChartImpl({
               fontSize={10}
               className="fill-[var(--color-ink)] font-semibold"
             >
-              {fmt(cross.theta, 0)}
+              {fmt(cross.theta, xDecHover)}
             </text>
           </g>
           {/* curve dots */}
@@ -850,7 +856,7 @@ function BeliefChartImpl({
               fontSize={11}
               className="fill-[var(--color-fg)] font-semibold"
             >
-              {fmt(cross.theta, 0)}
+              {fmt(cross.theta, xDecHover)}
             </text>
 
             <circle cx={cross.tx + 15} cy={cross.ty + 33} r={3.5} fill="var(--color-accent)" />

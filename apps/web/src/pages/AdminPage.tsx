@@ -98,6 +98,7 @@ const EMPTY_DRAFT: CreateMarketDraft = {
   initialReserve: 10_000,
   beliefKind: 'gaussian',
   components: [],
+  nu: 5,
   cfg: {},
 };
 
@@ -121,8 +122,8 @@ function CreateMarketForm() {
   const setCfg = (k: string, v: number | '') =>
     setDraft((d) => ({ ...d, cfg: { ...d.cfg, [k]: v } }));
 
-  // mixture-mode editor helpers ---
-  const setKind = (kind: 'gaussian' | 'mixture') =>
+  // belief-shape editor helpers ---
+  const setKind = (kind: 'gaussian' | 'mixture' | 'student_t') =>
     setDraft((d) => ({
       ...d,
       beliefKind: kind,
@@ -135,6 +136,9 @@ function CreateMarketForm() {
               { pi: 1, mu: d.initialMu + d.initialSigma, sigma: d.initialSigma },
             ]
           : (d.components ?? []),
+      // Seed a sensible ν (heavier tails than Gaussian, finite variance) on first
+      // switch to Student-t.
+      nu: kind === 'student_t' && !(Number(d.nu) > 2) ? 5 : d.nu,
     }));
   const setMode = (i: number, k: 'pi' | 'mu' | 'sigma', v: number | '') =>
     setDraft((d) => {
@@ -209,7 +213,7 @@ function CreateMarketForm() {
         <div className="mb-2 flex items-center gap-2">
           <span className="text-xs text-muted">Belief shape</span>
           <div className="flex overflow-hidden rounded-lg border border-edge">
-            {(['gaussian', 'mixture'] as const).map((k) => (
+            {(['gaussian', 'mixture', 'student_t'] as const).map((k) => (
               <button
                 key={k}
                 type="button"
@@ -220,7 +224,11 @@ function CreateMarketForm() {
                     : 'bg-panel-2 text-muted hover:text-fg'
                 }`}
               >
-                {k === 'gaussian' ? 'Gaussian' : 'Mixture (multi-modal)'}
+                {k === 'gaussian'
+                  ? 'Gaussian'
+                  : k === 'mixture'
+                    ? 'Mixture (multi-modal)'
+                    : 'Student-t (fat tails)'}
               </button>
             ))}
           </div>
@@ -261,6 +269,19 @@ function CreateMarketForm() {
             >
               + Add mode
             </button>
+          </div>
+        )}
+        {draft.beliefKind === 'student_t' && (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted">
+              A Student-t belief centered at μ with spread σ (above), but with <em>fatter tails</em>{' '}
+              than a Gaussian — so far-from-consensus outcomes stay more plausible. Lower ν ⇒
+              heavier tails; ν must exceed 2 for finite variance and approaches a Gaussian as ν
+              grows.
+            </p>
+            <Field label="Degrees of freedom ν (> 2)" className="w-40">
+              <Num value={draft.nu ?? ''} onChange={(v) => set('nu', v)} placeholder="5" />
+            </Field>
           </div>
         )}
       </div>

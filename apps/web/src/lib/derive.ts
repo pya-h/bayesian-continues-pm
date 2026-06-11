@@ -119,9 +119,11 @@ export interface CreateMarketDraft {
   initialMu: number;
   initialSigma: number;
   initialReserve: number;
-  beliefKind?: 'gaussian' | 'mixture';
+  beliefKind?: 'gaussian' | 'mixture' | 'student_t';
   // Mixture modes (only used when beliefKind === 'mixture').
   components?: MixtureModeDraft[];
+  // Degrees of freedom ν (only used when beliefKind === 'student_t'; >2).
+  nu?: number | '';
   cfg: Record<string, number | boolean | '' | null | undefined>;
 }
 
@@ -168,6 +170,10 @@ export function buildCreateMarketBody(draft: CreateMarketDraft): CreateMarketInp
       if (!Number.isFinite(m.mu)) throw new Error('Each mixture mode needs a finite center μ.');
     }
     body.belief = { kind: 'mixture', components: modes };
+  } else if (draft.beliefKind === 'student_t') {
+    const nu = Number(draft.nu);
+    if (!(nu > 2)) throw new Error('Student-t ν (degrees of freedom) must be greater than 2.');
+    body.belief = { kind: 'student_t', nu };
   }
 
   const cfg = cleanCfg(draft.cfg);

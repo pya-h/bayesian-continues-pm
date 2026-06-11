@@ -68,6 +68,12 @@ export const createBeliefSchema = z.discriminatedUnion('kind', [
     kind: z.literal('mixture'),
     components: z.array(createMixtureComponentSchema).min(2).max(6),
   }),
+  // Student-t reuses the market's initialMu/initialSigma as its location/spread
+  // only the degrees of freedom ν (>2, for finite variance) are authored here.
+  z.object({
+    kind: z.literal('student_t'),
+    nu: z.number().finite().gt(2),
+  }),
 ]);
 export type CreateBeliefDTO = z.infer<typeof createBeliefSchema>;
 

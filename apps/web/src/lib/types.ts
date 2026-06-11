@@ -308,7 +308,8 @@ export interface MarketCfgInput {
 
 export type CreateBeliefInput =
   | { kind: 'gaussian' }
-  | { kind: 'mixture'; components: { pi: number; mu: number; sigma: number }[] };
+  | { kind: 'mixture'; components: { pi: number; mu: number; sigma: number }[] }
+  | { kind: 'student_t'; nu: number };
 
 export interface CreateMarketInput {
   title: string;

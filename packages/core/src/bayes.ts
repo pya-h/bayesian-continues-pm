@@ -6,6 +6,7 @@
 import { GaussianBelief } from './gaussian.ts';
 import { MixtureBelief, type MixtureComponent } from './mixture.ts';
 import { DEFAULT_MIXTURE_OPS, type MixtureOpsConfig, manageMixture } from './mixture_ops.ts';
+import { StudentTBelief } from './student_t.ts';
 import type { BeliefModel, EngineConfig } from './types.ts';
 
 export function bayesUpdate(
@@ -109,8 +110,46 @@ export function bayesUpdateMixture(
   return manageMixture(new MixtureBelief(updated), opsCfg);
 }
 
-// Kind-agnostic belief update — dispatches to the Gaussian or mixture path. The
-// API trade engine calls this so the update is the same regardless of belief kind.
+// Bayesian update for a location-scale Student-t belief.
+// The t with fixed ν is not self-conjugate, so we keep ν — the *structural* tail
+// weight — fixed and move only the location μ and scale, applying the same
+// precision-weighted step as the Gaussian path but in the **variance domain**
+// (var = scale²·ν/(ν−2)). Equivalently: moment-match the prior to a Gaussian of
+// the same variance, do the conjugate update, then map the posterior variance back
+// to a t scale. This keeps the fat tails while learning at the Gaussian rate, and
+// makes a Student-t market degrade gracefully to the Gaussian update as ν→∞.
+export function bayesUpdateStudentT(
+  belief: StudentTBelief,
+  signal: number,
+  weight: number,
+  cfg: EngineConfig,
+): StudentTBelief {
+  const sigmaMin2 = cfg.sigmaMin * cfg.sigmaMin;
+  const nu = belief.nu;
+  const priorVar = belief.variance();
+
+  if (weight <= 0) {
+    // No information → unchanged location/tails, but respect the variance floor.
+    return StudentTBelief.fromVariance(nu, belief.mu, Math.max(priorVar, sigmaMin2));
+  }
+
+  if (cfg.useSimplifiedUpdate) {
+    const muNew = belief.mu + cfg.lr * (signal - belief.mu) * weight;
+    const varNew = priorVar * (1 - cfg.decay * weight);
+    return StudentTBelief.fromVariance(nu, muNew, Math.max(varNew, sigmaMin2));
+  }
+
+  // Precision-weighted update in the variance domain.
+  const precisionPrior = 1 / priorVar;
+  const precisionSignal = weight / (cfg.sigmaEps * cfg.sigmaEps);
+  const total = precisionPrior + precisionSignal;
+  const muNew = (precisionPrior * belief.mu + precisionSignal * signal) / total;
+  const varNew = Math.max(1 / total, sigmaMin2);
+  return StudentTBelief.fromVariance(nu, muNew, varNew);
+}
+
+// Kind-agnostic belief update — dispatches by belief kind. The API trade engine
+// calls this so the update is the same regardless of belief kind.
 export function updateBelief(
   belief: BeliefModel,
   signal: number,
@@ -123,6 +162,9 @@ export function updateBelief(
   }
   if (belief.kind === 'gaussian') {
     return bayesUpdate(belief as GaussianBelief, signal, weight, cfg);
+  }
+  if (belief.kind === 'student_t') {
+    return bayesUpdateStudentT(belief as StudentTBelief, signal, weight, cfg);
   }
   throw new Error(`updateBelief: unsupported belief kind ${belief.kind}`);
 }

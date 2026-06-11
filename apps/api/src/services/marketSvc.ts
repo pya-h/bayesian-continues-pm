@@ -10,6 +10,7 @@ import {
   type EngineConfig,
   GaussianBelief,
   MixtureBelief,
+  StudentTBelief,
   makeEngineConfig,
 } from '@bmm/core';
 import type { CreateMarketDTO, MarketStatus } from '@bmm/shared';
@@ -42,19 +43,30 @@ function toDate(s: string | undefined): Date | null {
   return s ? new Date(s) : null;
 }
 
+function makeInitialBelief(dto: CreateMarketDTO): BeliefModel {
+  const variance = dto.initialSigma * dto.initialSigma;
+  switch (dto.belief?.kind) {
+    case 'mixture':
+      return new MixtureBelief(
+        dto.belief.components.map((c) => ({ pi: c.pi, mu: c.mu, sigma2: c.sigma * c.sigma })),
+      );
+    case 'student_t':
+      // σ is the desired stddev; fromVariance converts to the t's scale² via ν/(ν−2).
+      return StudentTBelief.fromVariance(dto.belief.nu, dto.initialMu, variance);
+    default:
+      return new GaussianBelief(dto.initialMu, variance);
+  }
+}
+
 export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Promise<MarketRow> {
   const cfg: EngineConfig = makeEngineConfig(dto.initialMu, dto.initialSigma, dto.cfg ?? {});
   const reserve = dto.initialReserve;
 
-  // Initial belief: mixture if authored, else Gaussian (v1). initialMu/initialSigma
+  // Initial belief by authored kind, else Gaussian (v1). initialMu/initialSigma
   // stay the market's reference scale (cfg seed); a mixture's shape comes from its
-  // components, and current_mu/current_sigma carry its summary mean/σ.
-  const initialBelief: BeliefModel =
-    dto.belief?.kind === 'mixture'
-      ? new MixtureBelief(
-          dto.belief.components.map((c) => ({ pi: c.pi, mu: c.mu, sigma2: c.sigma * c.sigma })),
-        )
-      : new GaussianBelief(dto.initialMu, dto.initialSigma * dto.initialSigma);
+  // components, a Student-t reuses μ/σ as location/spread plus its ν, and
+  // current_mu/current_sigma carry the summary mean/σ for every kind.
+  const initialBelief: BeliefModel = makeInitialBelief(dto);
   const beliefFields = beliefPersistFields(initialBelief);
 
   const market = await db.transaction(async (tx) => {
