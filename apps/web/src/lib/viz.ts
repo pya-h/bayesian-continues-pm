@@ -184,6 +184,18 @@ export function pickHandle(handleXs: number[], pressX: number, radiusPx: number)
   return best;
 }
 
+// Widen a base domain just enough to keep a point `p` in view, extending only the
+// side `p` overshoots and adding a small fractional margin so the point never sits
+// flush against the edge. A no-op when `p` is already inside — used by the price-
+// vs-strike chart so the composed-parameter dot follows a drag past the auto range.
+export function fitPointDomain(base: Domain, p: number, margin = 0.06): Domain {
+  let [lo, hi] = base;
+  const m = Math.max(Math.abs(hi - lo) * margin, 1e-6);
+  if (p < lo) lo = p - m;
+  if (p > hi) hi = p + m;
+  return [lo, hi];
+}
+
 export function niceTicks(lo: number, hi: number, target = 5): number[] {
   const span = hi - lo;
   if (!(span > 0)) return [lo];

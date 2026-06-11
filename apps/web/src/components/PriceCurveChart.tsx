@@ -4,10 +4,11 @@
 // composed contract's value.
 
 import { GaussianBelief, price } from '@bmm/core';
-import { useRef, useState } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import { fmt, fmtCompact } from '../lib/format.ts';
+import { getLiveSpec, subscribeLiveSpec } from '../lib/liveSpec.ts';
 import type { ContractSpec } from '../lib/types.ts';
-import { type Domain, niceTicks, scale, toPath } from '../lib/viz.ts';
+import { type Domain, fitPointDomain, niceTicks, scale, toPath } from '../lib/viz.ts';
 
 const W = 360;
 const H = 140;
@@ -53,7 +54,7 @@ function paramLabel(type: ContractSpec['type']): string {
 }
 
 export function PriceCurveChart({
-  spec,
+  spec: specProp,
   mu,
   sigma,
   domain,
@@ -66,13 +67,22 @@ export function PriceCurveChart({
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
+  // Mirror the belief chart live: while a contract handle is being dragged the
+  // committed spec hasn't changed yet, so read the in-progress spec from the live
+  // store (set during the drag, cleared on release). Only this small chart
+  // re-renders per frame — the heavy market page stays out of the drag loop.
+  const liveSpec = useSyncExternalStore(subscribeLiveSpec, getLiveSpec);
+  const spec = liveSpec ?? specProp;
+
   const param = currentParam(spec);
   if (param == null) {
     return <p className="p-4 text-sm text-muted">Linear pays θ — no strike to sweep.</p>;
   }
 
   const belief = new GaussianBelief(mu, sigma * sigma);
-  const [lo, hi] = domain;
+  // Follow the composed param: if a drag pushes it past the page's auto-domain
+  // widen the sweep so the dot/line stay on-chart. A no-op while it's in range.
+  const [lo, hi] = fitPointDomain(domain, param);
   const n = 80;
   const pts: { x: number; y: number }[] = [];
   for (let i = 0; i <= n; i++) {

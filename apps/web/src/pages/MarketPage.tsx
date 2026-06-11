@@ -221,6 +221,7 @@ export function MarketPage() {
                 outcomeUnit={m.outcomeUnit}
                 outcomeMin={m.outcomeMin}
                 outcomeMax={m.outcomeMax}
+                cfg={m.cfg}
                 sellRequest={sellRequest}
               />
             </Panel>

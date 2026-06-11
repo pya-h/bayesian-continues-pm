@@ -16,6 +16,7 @@
 import { payoff } from '@bmm/core';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fmt, fmtCompact } from '../lib/format.ts';
+import { setLiveSpec } from '../lib/liveSpec.ts';
 import type { ContractSpec } from '../lib/types.ts';
 import {
   type Domain,
@@ -327,6 +328,7 @@ function BeliefChartImpl({
         const next = applyHandle(dragBaseSpec.current, dragId.current, pointerToData(p.x));
         dragLatest.current = next;
         setDragSpec(next);
+        setLiveSpec(next); // feed the live-preview panel without re-rendering the page
       } else if (gesture.current) applyGesture(p.x, p.y);
       else updateHover(p.x, p.y);
     });
@@ -341,6 +343,7 @@ function BeliefChartImpl({
     gesture.current = null;
     setDragging(false);
     setDragSpec(null);
+    setLiveSpec(null); // drag over → preview falls back to the committed spec
   };
   const onPointerUp = () => endDrag();
   const onLeave = () => {
@@ -349,10 +352,11 @@ function BeliefChartImpl({
   };
   const resetView = () => setView({ xMul: 1, xOff: 0, yMul: 1 });
 
-  // Drop any pending frame on unmount.
+  // Drop any pending frame on unmount, and clear any live-preview drag spec.
   useEffect(
     () => () => {
       if (raf.current != null) cancelAnimationFrame(raf.current);
+      setLiveSpec(null);
     },
     [],
   );

@@ -1,7 +1,8 @@
 // A compact μ-over-time line with a ±σ band, drawn as a proper x–y chart.
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import { fmt, timeAgo } from '../lib/format.ts';
+import { getProjectedBelief, subscribeProjectedBelief } from '../lib/projectedBelief.ts';
 import type { BeliefHistoryPoint } from '../lib/types.ts';
 import { niceTicks, scale, toPath } from '../lib/viz.ts';
 
@@ -13,18 +14,29 @@ export function BeliefHistoryChart({ points }: { points: BeliefHistoryPoint[] })
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [hi, setHi] = useState<number | null>(null);
 
+  // The prospective order's projected next belief (from the trade panel). Drawn as
+  // a dashed "next" ghost point one step past now; follows a drag live in preview.
+  const projected = useSyncExternalStore(subscribeProjectedBelief, getProjectedBelief);
+
   if (points.length < 2) {
     return <p className="p-4 text-sm text-muted">Not enough history yet — make a trade.</p>;
   }
 
   const n = points.length;
-  const sx = scale(0, n - 1, P.l, W - P.r);
+  // Reserve an extra x-slot for the ghost point when there's a projection.
+  const ghost = projected;
+  const xMax = ghost ? n : n - 1;
+  const sx = scale(0, xMax, P.l, W - P.r);
 
   let lo = Number.POSITIVE_INFINITY;
   let hiY = Number.NEGATIVE_INFINITY;
   for (const p of points) {
     lo = Math.min(lo, p.mu - p.sigma);
     hiY = Math.max(hiY, p.mu + p.sigma);
+  }
+  if (ghost) {
+    lo = Math.min(lo, ghost.mu - ghost.sigma);
+    hiY = Math.max(hiY, ghost.mu + ghost.sigma);
   }
   const padY = (hiY - lo) * 0.1 || 1;
   const sy = scale(lo - padY, hiY + padY, H - P.b, P.t);
@@ -47,8 +59,8 @@ export function BeliefHistoryChart({ points }: { points: BeliefHistoryPoint[] })
     const rect = svg.getBoundingClientRect();
     const vx = ((e.clientX - rect.left) / rect.width) * W;
     const frac = (vx - P.l) / (W - P.r - P.l);
-    const idx = Math.round(frac * (n - 1));
-    setHi(idx >= 0 && idx <= n - 1 ? idx : null);
+    const idx = Math.round(frac * xMax);
+    setHi(idx >= 0 && idx <= n - 1 ? idx : null); // ghost slot (idx === n) has no hover card
   };
 
   // crosshair geometry for the hovered sample
@@ -132,7 +144,9 @@ export function BeliefHistoryChart({ points }: { points: BeliefHistoryPoint[] })
           <text
             x={sx(i)}
             y={H - P.b + 13}
-            textAnchor={k === 0 ? 'start' : k === xIdx.length - 1 ? 'end' : 'middle'}
+            textAnchor={
+              k === 0 ? 'start' : k === xIdx.length - 1 ? (ghost ? 'middle' : 'end') : 'middle'
+            }
             fontSize={9}
             className="fill-[var(--color-muted)]"
           >
@@ -140,6 +154,17 @@ export function BeliefHistoryChart({ points }: { points: BeliefHistoryPoint[] })
           </text>
         </g>
       ))}
+      {ghost && (
+        <text
+          x={sx(n)}
+          y={H - P.b + 13}
+          textAnchor="end"
+          fontSize={9}
+          className="fill-[var(--color-accent)]"
+        >
+          next
+        </text>
+      )}
 
       <path d={bandPath} fill="var(--color-accent)" opacity={0.12} />
       <path
@@ -150,6 +175,54 @@ export function BeliefHistoryChart({ points }: { points: BeliefHistoryPoint[] })
         filter="url(#bh-glow)"
       />
       <circle cx={sx(n - 1)} cy={sy(points[n - 1]?.mu ?? 0)} r={3} fill="var(--color-accent)" />
+
+      {/* projected "next" belief: dashed step from now, ±σ whisker, hollow marker */}
+      {ghost &&
+        (() => {
+          const gx = sx(n);
+          const gy = sy(ghost.mu);
+          const gyU = sy(ghost.mu + ghost.sigma);
+          const gyL = sy(ghost.mu - ghost.sigma);
+          return (
+            <g pointerEvents="none">
+              <line
+                x1={sx(n - 1)}
+                y1={sy(points[n - 1]?.mu ?? 0)}
+                x2={gx}
+                y2={gy}
+                stroke="var(--color-accent)"
+                strokeWidth={2}
+                strokeDasharray="4 3"
+                opacity={0.85}
+              />
+              <line x1={gx} y1={gyU} x2={gx} y2={gyL} stroke="var(--color-accent)" opacity={0.45} />
+              <line
+                x1={gx - 3}
+                y1={gyU}
+                x2={gx + 3}
+                y2={gyU}
+                stroke="var(--color-accent)"
+                opacity={0.45}
+              />
+              <line
+                x1={gx - 3}
+                y1={gyL}
+                x2={gx + 3}
+                y2={gyL}
+                stroke="var(--color-accent)"
+                opacity={0.45}
+              />
+              <circle
+                cx={gx}
+                cy={gy}
+                r={3.5}
+                fill="var(--color-panel)"
+                stroke="var(--color-accent)"
+                strokeWidth={1.8}
+              />
+            </g>
+          );
+        })()}
 
       {/* hover crosshair + readout */}
       {cross && hp && (

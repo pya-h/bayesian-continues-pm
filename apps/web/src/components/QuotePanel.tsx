@@ -5,11 +5,15 @@
 
 import { contractKey } from '@bmm/core';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useAuth } from '../auth/AuthContext.tsx';
 import { qk, usePortfolio } from '../hooks/queries.ts';
 import { ApiError, api } from '../lib/api.ts';
+import { projectBelief } from '../lib/clientBelief.ts';
+import { estimateQuote } from '../lib/clientQuote.ts';
 import { fmt, fmtPct, fmtSigned } from '../lib/format.ts';
+import { getLiveSpec, subscribeLiveSpec } from '../lib/liveSpec.ts';
+import { setProjectedBelief } from '../lib/projectedBelief.ts';
 import { sellCloseStats, tradeStats } from '../lib/tradeStats.ts';
 import type { ContractSpec, Fill, SellAllResult } from '../lib/types.ts';
 import { Button, ErrorNote, FlashNumber } from './ui.tsx';
@@ -56,6 +60,7 @@ export function QuotePanel({
   outcomeUnit,
   outcomeMin = null,
   outcomeMax = null,
+  cfg,
   sellRequest = null,
 }: {
   marketId: string;
@@ -66,6 +71,7 @@ export function QuotePanel({
   outcomeUnit: string;
   outcomeMin?: number | null;
   outcomeMax?: number | null;
+  cfg: Record<string, number | boolean>;
   sellRequest?: { qty: number; nonce: number } | null;
 }) {
   const qc = useQueryClient();
@@ -74,6 +80,10 @@ export function QuotePanel({
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [qty, setQty] = useState(1);
   const [slippageOn, setSlippageOn] = useState(true);
+  // Live preview: when ON, the fair/cost/analytics are recomputed on the client
+  // every frame so they track a chart drag
+  // interactively. When OFF, they come from the (debounced) server quote.
+  const [livePreview, setLivePreview] = useState(false);
   const [lastFill, setLastFill] = useState<Fill | null>(null);
   const [lastSellAll, setLastSellAll] = useState<SellAllResult | null>(null);
   const [confirmSellAll, setConfirmSellAll] = useState(false);
@@ -87,18 +97,43 @@ export function QuotePanel({
   }, [sellRequest]);
 
   const signedQ = side === 'buy' ? Math.abs(qty) : -Math.abs(qty);
-  // Round the belief into the key so live ticks re-quote, but not on every pixel.
+  // The contract and size respond IMMEDIATELY: they only change on a discrete user
+  // action — a composer edit, or the moment a chart-handle drag is released — so the
+  // quote and the trade analytics update the instant the curve settles, not on a
+  // timer. Only the streaming belief is debounced, so live μ/σ ticks don't re-quote
+  // on every tick.
   const beliefKey = `${mu.toFixed(2)}:${sigma.toFixed(2)}`;
-  const debounced = useDebounced({ spec, signedQ, beliefKey }, 350);
+  const beliefKeyD = useDebounced(beliefKey, 350);
 
   const quoteQ = useQuery({
-    queryKey: ['quote', marketId, debounced],
-    queryFn: () => api.quote(marketId, debounced.spec, debounced.signedQ).then((r) => r.quote),
-    enabled: tradable && Math.abs(debounced.signedQ) > 0,
+    queryKey: ['quote', marketId, spec, signedQ, beliefKeyD],
+    queryFn: () => api.quote(marketId, spec, signedQ).then((r) => r.quote),
+    enabled: tradable && Math.abs(signedQ) > 0,
     placeholderData: keepPreviousData,
     retry: false,
+    // Staleness floor: other traders move the maker's inventory / pool while the
+    // user just looks, so a quote can silently go stale. Auto-refetch 30s after the
+    // last fetch settles. react-query anchors this timer to the last fetch and
+    // resets it on every refetch (an input change, a belief tick), so it only fires
+    // after 30s of no server update — exactly the set-after / clear-on-next-call
+    // behaviour we want, and it keeps firing even mid-drag (the quote key is stable
+    // during a drag, so the timer runs off the last real fetch). Paused when the tab
+    // is unfocused (default), so we don't poll while the user is away.
+    refetchInterval: 30_000,
   });
   const quote = quoteQ.data;
+
+  // Subscribe to the chart's in-progress drag spec — but ONLY in live-preview
+  // mode, so an ordinary drag never re-renders this panel (subscribe is a no-op
+  // unsubscribe when the toggle is off, so the store fires no listeners here).
+  const subscribeLive = useCallback(
+    (fn: () => void) => (livePreview ? subscribeLiveSpec(fn) : () => {}),
+    [livePreview],
+  );
+  const liveSpec = useSyncExternalStore(subscribeLive, getLiveSpec);
+  const isDragging = livePreview && liveSpec != null;
+  // The spec the preview prices: the live drag spec while dragging, else committed.
+  const previewSpec = isDragging ? liveSpec : spec;
 
   const trade = useMutation({
     mutationFn: () => {
@@ -154,41 +189,101 @@ export function QuotePanel({
   });
 
   const isBuy = side === 'buy';
-  const totalCost = quote?.totalCost ?? 0;
 
-  // Live "know your trade" analytics for the *debounced* order.
+  // In live-preview mode, recompute fair / exec / totalCost on the client from the
+  // (possibly mid-drag) preview spec, borrowing the spread from the last real
+  // server quote. Exact fair, estimated cost — and it updates every frame.
+  const estimate = useMemo(() => {
+    if (!livePreview || !quote || Math.abs(signedQ) === 0) return null;
+    try {
+      return estimateQuote({
+        spec: previewSpec,
+        signedQ,
+        mu,
+        sigma,
+        spreadTotal: quote.spread.total,
+      });
+    } catch {
+      return null; // unpriceable spec mid-drag — fall back to the server quote
+    }
+  }, [livePreview, quote, previewSpec, signedQ, mu, sigma]);
+
+  // The numbers actually shown: the client estimate when previewing, else the
+  // server quote. `estimated` flags that the panel is on the client estimate.
+  const view = useMemo(() => {
+    if (estimate)
+      return {
+        spec: previewSpec,
+        fair: estimate.fair,
+        execPrice: estimate.execPrice,
+        totalCost: estimate.totalCost,
+        estimated: true,
+      };
+    if (quote)
+      return {
+        spec,
+        fair: quote.fair,
+        execPrice: quote.execPrice,
+        totalCost: quote.totalCost,
+        estimated: false,
+      };
+    return null;
+  }, [estimate, quote, previewSpec, spec]);
+
+  const totalCost = view?.totalCost ?? 0;
+
+  // Live "know your trade" analytics for the current order.
   const stats = useMemo(
     () =>
-      quote
+      view
         ? tradeStats({
-            spec: debounced.spec,
-            signedQ: debounced.signedQ,
-            totalCost: quote.totalCost,
-            fair: quote.fair,
+            spec: view.spec,
+            signedQ,
+            totalCost: view.totalCost,
+            fair: view.fair,
             mu,
             sigma,
             outcomeMin,
             outcomeMax,
           })
         : null,
-    [quote, debounced.spec, debounced.signedQ, mu, sigma, outcomeMin, outcomeMax],
+    [view, signedQ, mu, sigma, outcomeMin, outcomeMax],
   );
+
+  // Projected next belief if this order fills (exact: same extractSignal→bayesUpdate
+  // the server runs, with the market's own cfg). Tracks the preview spec, so it
+  // follows a drag live in preview mode and settles on-drop otherwise.
+  const projected = useMemo(() => {
+    if (!tradable || Math.abs(signedQ) === 0) return null;
+    try {
+      return projectBelief({ spec: previewSpec, signedQ, mu, sigma, cfg });
+    } catch {
+      return null;
+    }
+  }, [tradable, previewSpec, signedQ, mu, sigma, cfg]);
+
+  // Publish it for the belief-over-time chart's "next" ghost point. Clear on
+  // unmount.
+  useEffect(() => {
+    setProjectedBelief(projected);
+  }, [projected]);
+  useEffect(() => () => setProjectedBelief(null), []);
 
   // If this sell closes a contract the user already holds, the result is no
   // longer probabilistic — it realizes profit against what they paid. Match the
   // composed contract to a held long and show that instead of max-profit/loss.
   const held = useMemo(() => {
     const here = (portfolio.data?.positions ?? []).filter(
-      (p) => p.marketId === marketId && sameContract(p.spec, debounced.spec) && p.quantity > 0,
+      (p) => p.marketId === marketId && sameContract(p.spec, spec) && p.quantity > 0,
     );
     return here[0] ?? null;
-  }, [portfolio.data, marketId, debounced.spec]);
+  }, [portfolio.data, marketId, spec]);
 
   const closeStats =
     !isBuy && quote && held
       ? sellCloseStats({
-          proceeds: -quote.totalCost,
-          qty: Math.abs(debounced.signedQ),
+          proceeds: -totalCost,
+          qty: Math.abs(signedQ),
           heldQty: held.quantity,
           avgEntryPrice: held.avgEntryPrice,
         })
@@ -244,6 +339,34 @@ export function QuotePanel({
         )}
       </label>
 
+      {/* live-preview toggle: client-side estimate that tracks a chart drag */}
+      <button
+        type="button"
+        onClick={() => setLivePreview((v) => !v)}
+        className="flex items-center justify-between gap-3 rounded-lg border border-edge bg-panel-2 px-3 py-2 text-left transition-colors hover:border-accent/60"
+      >
+        <span className="flex flex-col">
+          <span className="text-xs font-semibold text-fg">Live preview</span>
+          <span className="text-[10px] text-muted">
+            {livePreview
+              ? 'Estimating on-device — updates as you drag the curve'
+              : 'Server values, refreshed shortly after each change'}
+          </span>
+        </span>
+        <span
+          aria-hidden="true"
+          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200 ${
+            livePreview ? 'bg-accent glow-accent' : 'bg-edge'
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform duration-200 [transition-timing-function:var(--ease-spring)] ${
+              livePreview ? 'translate-x-4' : 'translate-x-0'
+            }`}
+          />
+        </span>
+      </button>
+
       {/* quote readout */}
       <div className="rounded-lg border border-edge bg-panel-2 p-3 text-sm">
         {!tradable ? (
@@ -256,7 +379,16 @@ export function QuotePanel({
           <p className="text-muted">Enter a size to see a live quote…</p>
         ) : (
           <div className="flex flex-col gap-1.5 tnum">
-            <Row label="Fair (mid)" value={`${fmt(quote.fair)} ${outcomeUnit && ''}`} />
+            {view?.estimated && (
+              <div className="-mt-0.5 mb-0.5 flex items-center gap-1.5 text-[10px] text-accent">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/70" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+                </span>
+                live estimate — spread held from last server quote
+              </div>
+            )}
+            <Row label="Fair (mid)" value={`${fmt((view ?? quote).fair)} ${outcomeUnit && ''}`} />
             <div className="my-1 border-t border-edge pt-1.5 text-xs text-muted">
               <Row label="base" value={fmt(quote.spread.base, 4)} small />
               <Row label="inventory" value={fmt(quote.spread.inventory, 4)} small />
@@ -264,7 +396,7 @@ export function QuotePanel({
               <Row label="volatility" value={fmt(quote.spread.volatility, 4)} small />
               <Row label="spread total" value={fmt(quote.spread.total, 4)} small strong />
             </div>
-            <Row label="Exec price" value={fmt(quote.execPrice)} strong />
+            <Row label="Exec price" value={fmt((view ?? quote).execPrice)} strong />
             <Row
               label={isBuy ? 'You pay' : 'You receive'}
               value={fmt(Math.abs(totalCost))}
@@ -274,7 +406,7 @@ export function QuotePanel({
             <div className="mt-1 border-t border-edge pt-1.5 text-xs text-muted">
               <Row
                 label="Proj. belief μ"
-                value={`${fmt(quote.projectedBelief.mu, 1)} (σ ${fmt(quote.projectedBelief.sigma, 1)})`}
+                value={`${fmt((projected ?? quote.projectedBelief).mu, 1)} (σ ${fmt((projected ?? quote.projectedBelief).sigma, 1)})`}
                 small
               />
               <Row label="Proj. reserve" value={fmt(quote.projectedReserve)} small />

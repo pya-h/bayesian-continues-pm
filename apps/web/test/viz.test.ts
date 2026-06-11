@@ -5,6 +5,7 @@ import {
   VIEW_MUL_MAX,
   VIEW_MUL_MIN,
   clampViewMul,
+  fitPointDomain,
   gaussianPdf,
   niceDomain,
   niceTicks,
@@ -242,6 +243,30 @@ describe('viewDomain', () => {
   test('a degenerate base domain is never returned as zero-width', () => {
     const [lo, hi] = viewDomain([5, 5], { xMul: 1, xOff: 0 });
     expect(hi).toBeGreaterThan(lo);
+  });
+});
+
+describe('fitPointDomain', () => {
+  test('a point already inside leaves the domain unchanged', () => {
+    expect(fitPointDomain([0, 100], 50)).toEqual([0, 100]);
+    expect(fitPointDomain([0, 100], 0)).toEqual([0, 100]);
+    expect(fitPointDomain([0, 100], 100)).toEqual([0, 100]);
+  });
+  test('a point above extends only the upper edge, past it by the margin', () => {
+    // span 100, margin 6% → 6, so hi = 130 + 6 = 136; lo untouched.
+    expect(fitPointDomain([0, 100], 130, 0.06)).toEqual([0, 136]);
+  });
+  test('a point below extends only the lower edge', () => {
+    expect(fitPointDomain([0, 100], -30, 0.06)).toEqual([-36, 100]);
+  });
+  test('the margin scales with the domain span', () => {
+    const [lo, hi] = fitPointDomain([0, 10], 20, 0.1); // margin = 1
+    expect([lo, hi]).toEqual([0, 21]);
+  });
+  test('a degenerate domain still gets a positive margin', () => {
+    const [lo, hi] = fitPointDomain([5, 5], 9);
+    expect(hi).toBeGreaterThan(9);
+    expect(lo).toBe(5);
   });
 });
 
