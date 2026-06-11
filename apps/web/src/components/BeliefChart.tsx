@@ -508,12 +508,12 @@ export function BeliefChart({
           <line
             x1={PLOT.l}
             x2={PLOT.r}
-            y1={cross.hv}
-            y2={cross.hv}
+            y1={cross.by}
+            y2={cross.by}
             stroke="var(--color-fg)"
             strokeWidth={1}
             strokeDasharray="3 4"
-            opacity={0.2}
+            opacity={0.35}
           />
           <line
             x1={cross.tpx}

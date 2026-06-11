@@ -4,7 +4,8 @@
 // composed contract's value.
 
 import { GaussianBelief, price } from '@bmm/core';
-import { fmt } from '../lib/format.ts';
+import { useRef, useState } from 'react';
+import { fmt, fmtCompact } from '../lib/format.ts';
 import type { ContractSpec } from '../lib/types.ts';
 import { type Domain, niceTicks, scale, toPath } from '../lib/viz.ts';
 
@@ -47,6 +48,10 @@ function currentParam(spec: ContractSpec): number | null {
   }
 }
 
+function paramLabel(type: ContractSpec['type']): string {
+  return type === 'GAUSSIAN' ? 'c' : type === 'SPREAD' ? 'mid' : 'K';
+}
+
 export function PriceCurveChart({
   spec,
   mu,
@@ -58,6 +63,9 @@ export function PriceCurveChart({
   sigma: number;
   domain: Domain;
 }) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
   const param = currentParam(spec);
   if (param == null) {
     return <p className="p-4 text-sm text-muted">Linear pays θ — no strike to sweep.</p>;
@@ -82,9 +90,44 @@ export function PriceCurveChart({
 
   const yTicks = niceTicks(yMin, yMax, 3);
   const xTicks = niceTicks(lo, hi, 4);
+  const xLabel = paramLabel(spec.type);
+
+  const onMove = (e: React.PointerEvent) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const vx = ((e.clientX - rect.left) / rect.width) * W;
+    const frac = (vx - P.l) / (W - P.r - P.l);
+    const idx = Math.round(frac * n);
+    setHoverIdx(idx >= 0 && idx <= n ? idx : null);
+  };
+
+  const hp = hoverIdx != null ? pts[hoverIdx] : null;
+  const cross = hp
+    ? (() => {
+        const px = sx(hp.x);
+        const py = sy(hp.y);
+        const cardW = 104;
+        const cardH = 32;
+        let cx = px + 8;
+        if (cx + cardW > W - P.r) cx = px - 8 - cardW;
+        if (cx < P.l) cx = P.l;
+        let cy = py - cardH - 6;
+        if (cy < P.t) cy = py + 8;
+        return { px, py, cx, cy, cardW, cardH };
+      })()
+    : null;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Fair price vs strike">
+    <svg
+      ref={svgRef}
+      viewBox={`0 0 ${W} ${H}`}
+      className="w-full touch-none select-none"
+      role="img"
+      aria-label="Fair price vs strike"
+      onPointerMove={onMove}
+      onPointerLeave={() => setHoverIdx(null)}
+    >
       <title>Model fair price across the strike/center parameter</title>
 
       {/* y gridlines + left-gutter labels */}
@@ -148,6 +191,67 @@ export function PriceCurveChart({
         opacity={0.6}
       />
       <circle cx={sx(param)} cy={sy(herePrice)} r={3.5} fill="var(--color-buy)" />
+
+      {/* hover crosshair + readout */}
+      {cross && hp && (
+        <g pointerEvents="none">
+          <line
+            x1={P.l}
+            x2={W - P.r}
+            y1={cross.py}
+            y2={cross.py}
+            stroke="var(--color-fg)"
+            strokeWidth={1}
+            strokeDasharray="3 4"
+            opacity={0.35}
+          />
+          <line
+            x1={cross.px}
+            x2={cross.px}
+            y1={P.t}
+            y2={H - P.b}
+            stroke="var(--color-fg)"
+            strokeWidth={1}
+            strokeDasharray="3 4"
+            opacity={0.35}
+          />
+          <circle
+            cx={cross.px}
+            cy={cross.py}
+            r={3.5}
+            fill="var(--color-buy)"
+            stroke="var(--color-ink)"
+            strokeWidth={1.5}
+          />
+          <rect
+            x={cross.cx}
+            y={cross.cy}
+            width={cross.cardW}
+            height={cross.cardH}
+            rx={5}
+            fill="var(--color-panel)"
+            stroke="var(--color-edge)"
+            strokeWidth={1}
+            opacity={0.92}
+          />
+          <text
+            x={cross.cx + 8}
+            y={cross.cy + 14}
+            fontSize={10}
+            className="fill-[var(--color-buy)] font-semibold"
+          >
+            price {fmtCompact(hp.y)}
+          </text>
+          <text
+            x={cross.cx + 8}
+            y={cross.cy + 26}
+            fontSize={9}
+            className="fill-[var(--color-muted)]"
+          >
+            {xLabel} {fmt(hp.x, 0)}
+          </text>
+        </g>
+      )}
     </svg>
   );
 }
