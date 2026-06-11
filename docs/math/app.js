@@ -189,6 +189,108 @@
     sMu.on(draw); sSg.on(draw); redraws.push(draw); draw();
   }
 
+  // Shows each model against the equal-(μ,σ) Gaussian, how its fair price
+  function vizBeliefModels() {
+    const root = $('#viz-models'); if (!root) return;
+    const cv = $('canvas', root), controls = $('.controls', root), out = $('.readout', root);
+    const P = Plot(cv);
+    const cfg = M.makeEngineConfig(100, 12);
+
+    const kindSeg = seg(controls, {
+      label: 'Belief model', value: 'mixture',
+      options: [
+        { label: 'Gaussian', value: 'gaussian' },
+        { label: 'Mixture', value: 'mixture' },
+        { label: 'Student-t', value: 'student_t' },
+      ],
+    });
+    const sMu = slider(controls, { label: 'μ — center', min: 70, max: 130, step: 0.5, value: 100 });
+    const sSg = slider(controls, { label: 'σ — uncertainty', min: 4, max: 26, step: 0.5, value: 12 });
+    const sGap = slider(controls, { label: 'mode separation (mixture)', min: 0, max: 28, step: 0.5, value: 16 });
+    const sW = slider(controls, { label: 'left-camp weight π₁ (mixture)', min: 0.1, max: 0.9, step: 0.05, value: 0.5, fmt: (v) => fmt(v, 2) });
+    const sNu = slider(controls, { label: 'ν — degrees of freedom (Student-t)', min: 3, max: 40, step: 0.5, value: 5 });
+    const cSeg = seg(controls, {
+      label: 'Contract', value: 'BINARY_CALL',
+      options: [{ label: 'Call', value: 'CALL' }, { label: 'Bin·Call', value: 'BINARY_CALL' }, { label: 'Spread', value: 'SPREAD' }],
+    });
+    const sK = slider(controls, { label: 'strike / center K', min: 70, max: 145, step: 1, value: 122 });
+    const btns = document.createElement('div');
+    btns.style.cssText = 'display:flex;gap:.5rem;margin-top:.4rem;flex-wrap:wrap';
+    btns.innerHTML = '<button class="seg" id="bm-buy">Buy K ↑ & commit</button>'
+      + '<button class="seg" id="bm-sell">Sell K ↓ & commit</button>'
+      + '<button class="seg" id="bm-reset">Reset prior</button>';
+    controls.appendChild(btns);
+
+    function prior() {
+      const mu = sMu.get(), sg = sSg.get(), kind = kindSeg.get();
+      if (kind === 'gaussian') return new M.Belief(mu, sg);
+      if (kind === 'student_t') return M.StudentT.fromVariance(sNu.get(), mu, sg * sg);
+      const gap = sGap.get(), w = sW.get();
+      return new M.MixtureBelief([
+        { pi: w, mu: mu - gap, sigma2: sg * sg },
+        { pi: 1 - w, mu: mu + gap, sigma2: sg * sg },
+      ]);
+    }
+    let cur = prior();
+    function specOf() { const t = cSeg.get(), K = sK.get(); return t === 'SPREAD' ? { type: 'SPREAD', lower: K - 8, upper: K + 8 } : { type: t, strike: K }; }
+    function commit(side) {
+      const q = (side === 'buy' ? 1 : -1) * 180;
+      const sig = M.extractSignal(specOf(), q, cur, cfg);
+      cur = M.updateBelief(cur, sig.signal, sig.weight, cfg);
+      draw();
+    }
+    function shapeNote() {
+      if (cur.kind === 'mixture') { const n = cur.components.length; return n > 1 ? n + ' camps (multi-modal)' : 'merged → 1 camp'; }
+      if (cur.kind === 'student_t') return 'fat tails · ν=' + fmt(cur.nu, 1);
+      return 'single symmetric bump';
+    }
+    function relevance() {
+      const kind = kindSeg.get();
+      sGap.el.closest('.control').style.opacity = kind === 'mixture' ? 1 : 0.35;
+      sW.el.closest('.control').style.opacity = kind === 'mixture' ? 1 : 0.35;
+      sNu.el.closest('.control').style.opacity = kind === 'student_t' ? 1 : 0.35;
+    }
+    function draw() {
+      const spec = specOf();
+      const gRef = new M.Belief(cur.mean(), cur.stddev()); // identical μ AND σ — isolates shape
+      const sg = cur.stddev(), c0 = cur.mean();
+      const x0 = c0 - 4.2 * sg, x1 = c0 + 4.2 * sg;
+      let pmax = 1e-9, fmax = 1e-9;
+      for (let i = 0; i <= 220; i++) {
+        const x = x0 + (i / 220) * (x1 - x0);
+        pmax = Math.max(pmax, cur.pdf(x), gRef.pdf(x));
+        fmax = Math.max(fmax, M.payoff(spec, x));
+      }
+      P.clear().domain(x0, x1, 0, pmax * 1.14);
+      P.grid([x0, (x0 + x1) / 2, x1], [], { xfmt: (v) => fmt(v, 0) });
+      // contract payoff, normalised into the plot (green) — the "market" context
+      P.curve((x) => (M.payoff(spec, x) / fmax) * pmax * 0.9, 'rgba(52,211,153,0.5)', 1.3);
+      // equal-(μ,σ) Gaussian reference (muted) vs the model belief (accent, filled)
+      P.curve((x) => gRef.pdf(x), P.COL.muted, 1.5);
+      P.area((x) => cur.pdf(x), 'rgba(91,157,255,0.12)');
+      P.curve((x) => cur.pdf(x), P.COL.accent, 2.6);
+      if (cur.kind === 'mixture') for (const c of cur.components) P.vline(c.mu, P.COL.accent, '', true);
+      P.vline(c0, P.COL.buy, 'μ', true);
+      P.vline(sK.get(), P.COL.warn, 'K');
+      const fairM = M.priceAny(spec, cur), fairG = M.price(spec, gRef);
+      const diff = fairG !== 0 ? ((fairM - fairG) / Math.abs(fairG)) * 100 : 0;
+      out.innerHTML =
+        cell('mean μ', fmt(cur.mean(), 2)) + cell('σ (std-dev)', fmt(cur.stddev(), 2)) +
+        cell('Fair — this model', fmt(fairM, 4), 'accent') +
+        cell('Fair — Gaussian(μ,σ)', fmt(fairG, 4)) +
+        cell('model vs Gaussian', (diff >= 0 ? '+' : '') + fmt(diff, 1) + '%', Math.abs(diff) > 1 ? 'warn' : '') +
+        cell('belief shape', shapeNote());
+      relevance();
+    }
+    function rebuild() { cur = prior(); draw(); }
+    [kindSeg, sMu, sSg, sGap, sW, sNu].forEach((c) => c.on(rebuild));
+    [cSeg, sK].forEach((c) => c.on(draw));
+    $('#bm-buy', btns).onclick = () => commit('buy');
+    $('#bm-sell', btns).onclick = () => commit('sell');
+    $('#bm-reset', btns).onclick = () => rebuild();
+    redraws.push(draw); draw();
+  }
+
   function vizPricing() {
     const root = $('#viz-pricing'); if (!root) return;
     const cv = $('canvas', root), controls = $('.controls', root), out = $('.readout', root);
@@ -529,7 +631,7 @@
     theme();
     modeSwitch();
     progress();
-    vizBelief(); vizPricing(); vizBayes(); vizSpread(); vizReserve(); vizLp();
+    vizBelief(); vizBeliefModels(); vizPricing(); vizBayes(); vizSpread(); vizReserve(); vizLp();
     vizUserPrice(); vizUserTrade();
     reveal();
   }

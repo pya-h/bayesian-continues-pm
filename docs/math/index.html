@@ -613,6 +613,41 @@
         <p class="small">A market’s kind is fixed at creation (<code>belief_kind</code>); existing Gaussian
         markets are byte-for-byte unchanged.</p>
       </details>
+
+      <div class="note" style="margin:1rem 0">
+        <strong>“Why do my markets still look Gaussian?”</strong> Two reasons, both by design.
+        <strong>(1) The kind is chosen at creation and never changes.</strong> A Gaussian market stays a
+        single bump <em>no matter what trades arrive</em> — trades move \(\mu\) and \(\sigma\), they do
+        not grow a second mode or fatten the tails. To see multi-modal or fat-tailed behaviour you must
+        <em>create</em> the market as <code>mixture</code> or <code>student_t</code>. <strong>(2) A
+        Student-t with moderate \(\nu\) genuinely looks almost Gaussian</strong> — its difference is in
+        the far tails, not the body, so the eye reads it as “Gaussian-ish” even though it prices
+        tail-heavy contracts differently. The sandbox below makes both effects visible: it draws each
+        model against the <em>equal-(μ, σ)</em> Gaussian, so any gap you see is pure <em>shape</em> —
+        the part a single Gaussian can never capture.
+      </div>
+
+      <div class="viz" id="viz-models">
+        <div class="viz-head"><div class="viz-title">Belief-model sandbox — Gaussian vs Mixture vs Student-t<span class="tag">live</span></div><div class="viz-hint">pick a model · compare to the equal-(μ,σ) Gaussian · commit a trade</div></div>
+        <div class="viz-grid">
+          <div>
+            <canvas></canvas>
+            <div class="legend"><span><i style="background:var(--accent)"></i>this model p(θ)</span><span><i style="background:var(--muted)"></i>Gaussian(μ,σ)</span><span><i style="background:rgba(52,211,153,.6)"></i>contract payoff</span><span><i style="background:var(--warn)"></i>strike K</span></div>
+          </div>
+          <div><div class="controls"></div><div class="readout"></div></div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:.6rem">
+        <strong>What to look for.</strong> <em>Mixture</em>: crank <em>mode separation</em> up and the one
+        bump splits into two camps — the equal-σ Gaussian fills the valley between them with mass nobody
+        believes in, and the fair price of a contract straddling the gap diverges (watch <em>model vs
+        Gaussian %</em>). Tilt <em>π₁</em> and the camps reweight. <em>Student-t</em>: drop \(\nu\) toward
+        3 and the body barely moves while the tails lift — push the strike \(K\) far out and the t prices
+        the long-shot contract well above the Gaussian, because it never dismissed the tail. <em>Commit a
+        trade</em> and each model updates by <em>its own</em> rule: the Gaussian just slides, the mixture
+        concentrates weight on the camp the order flow favours (and merges back toward consensus), the
+        Student-t re-centres while keeping ν — its tails — fixed.
+      </div>
     </section>
 
     <!-- =============================================================== -->

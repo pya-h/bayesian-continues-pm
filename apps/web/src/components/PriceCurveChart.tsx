@@ -78,19 +78,46 @@ export function PriceCurveChart({
   const belief = useMemo(() => beliefFromView(beliefView), [beliefView]);
 
   const param = currentParam(spec);
-  if (param == null) {
-    return <p className="p-4 text-sm text-muted">Linear pays θ — no strike to sweep.</p>;
-  }
-
   // Follow the composed param: if a drag pushes it past the page's auto-domain
   // widen the sweep so the dot/line stay on-chart. A no-op while it's in range.
-  const [lo, hi] = fitPointDomain(domain, param);
-  const n = 80;
-  const pts: { x: number; y: number }[] = [];
-  for (let i = 0; i <= n; i++) {
-    const x = lo + ((hi - lo) * i) / n;
-    const s = withParam(spec, x);
-    if (s) pts.push({ x, y: price(s, belief) });
+  const [lo, hi] = fitPointDomain(domain, param ?? domain[0]);
+
+  // The price-vs-strike CURVE is invariant to the swept strike itself — sliding the
+  // strike just moves the dot along it — so we memoise it on what actually changes
+  // its shape: the belief, the domain window, and the NON-swept spec params (a
+  // SPREAD's width, a GAUSSIAN's width). This keeps a handle drag cheap even when
+  // pricing needs quadrature (Student-t): we re-price the single dot per frame, not
+  // all n points, which is what made the chart lag on a fat-tailed market.
+  const sweepKey =
+    spec.type === 'GAUSSIAN'
+      ? `G:${spec.width}`
+      : spec.type === 'SPREAD'
+        ? `S:${spec.upper - spec.lower}`
+        : spec.type; // strike family: the curve is independent of the strike value
+
+  // SPREAD / GAUSSIAN (Bell) DO reshape as their width handle is dragged, so their
+  // curve can't be cached away like the strike family — every frame re-sweeps. With
+  // a Student-t belief each price is a 4000-node quadrature (no closed form), so a
+  // full 80-point re-sweep per frame janks. While such a drag is live we coarsen the
+  // sweep (cheap closed-form kinds stay full-res); it snaps back to full on release.
+  const dragging = liveSpec != null;
+  const reshapesWhileDragging = spec.type === 'SPREAD' || spec.type === 'GAUSSIAN';
+  const expensive = beliefView.kind === 'student_t'; // quadrature-priced, no closed form
+  const n = dragging && reshapesWhileDragging && expensive ? 22 : 80;
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sweepKey encodes the spec shape
+  const pts = useMemo(() => {
+    const out: { x: number; y: number }[] = [];
+    for (let i = 0; i <= n; i++) {
+      const x = lo + ((hi - lo) * i) / n;
+      const s = withParam(spec, x);
+      if (s) out.push({ x, y: price(s, belief) });
+    }
+    return out;
+  }, [sweepKey, belief, lo, hi, n]);
+
+  if (param == null) {
+    return <p className="p-4 text-sm text-muted">Linear pays θ — no strike to sweep.</p>;
   }
 
   const sx = scale(lo, hi, P.l, W - P.r);
