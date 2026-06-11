@@ -18,10 +18,10 @@
 | **Monorepo** | **Bun workspaces** | One JS project: `apps/api`, `apps/web`, `packages/core`, `packages/shared`. |
 
 ### 1.1 Non-goals (v1)
-- No real payments, custody, KYC/AML, geofencing, or tax reporting (the `MODEL.md §19` regulatory layer is **mocked/omitted**).
+- No real payments or custody — balances are play-money only (no KYC, identity, geofencing, or other legal/regulatory layer anywhere in the project).
 - No mixture / Student-t beliefs (v2).
 - No external hedging or correlated-market hedging (`MODEL.md §6.4` external hedge) — only the reserve buffer.
-- No margin/leverage/short beyond "sell what you hold" (see §5.4). Leverage tiers from `MODEL.md §9.3` are **out of scope** for v1; everything is 1× cash-collateralized.
+- No margin/leverage/short beyond "sell what you hold" (see §5.4). Leverage/margin/shorting are **out of scope** for v1 (they are V3); everything is 1× cash-collateralized.
 - No dispute-resolution voting; admin is the oracle (manual resolve) plus an optional manual numeric entry.
 
 ---
@@ -260,7 +260,7 @@ Extends `MODEL.md §12.2` with users/auth and LP tables. Money columns `numeric(
 
 ```
 users(user_id pk, username uniq, password_hash, role['user'|'admin'],
-      balance numeric, is_infinite bool, tier, created_at, updated_at)
+      balance numeric, is_infinite bool, created_at, updated_at)
 
 markets(market_id pk, title, description, outcome_unit, outcome_min, outcome_max,
         status, creator_id fk users,
@@ -407,5 +407,5 @@ Implemented: insolvency gate (`cash<1.2×Reserve` ⇒ reject opening trades), be
 ---
 
 ## 16. v2 / v3 Backlog (designed-for, not built)
-**V2** (`docs/v2/`): Mixture & Student-t beliefs (`BeliefModel` already abstracts this; numerical pricing path already present), component merge/split, multi-modal UI, external hedging, dispute resolution, adaptive parameters (EWMA `σ_ε`, regime-scaled spread, `MODEL.md §14.2`), real auth/KYC, sharding/read-replicas.
-**V3** (`docs/v3/`): leverage/margin tiers, shorting, the liquidation engine, and the full insurance fund — the borrowed-exposure stack (originally slated for V2, now its own version). V1 stays 1× cash-collateralized.
+**V2** (`docs/v2/`): Mixture & Student-t beliefs (`BeliefModel` already abstracts this; numerical pricing path already present), component merge/split, multi-modal UI, external hedging, dispute resolution, adaptive parameters (EWMA `σ_ε`, regime-scaled spread, `MODEL.md §14.2`), sharding/read-replicas.
+**V3** (`docs/v3/`): leverage/margin, shorting, the liquidation engine, and the full insurance fund — the borrowed-exposure stack (originally slated for V2, now its own version). V1 stays 1× cash-collateralized.

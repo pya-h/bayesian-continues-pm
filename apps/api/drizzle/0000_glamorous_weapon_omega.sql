@@ -134,7 +134,6 @@ CREATE TABLE "users" (
 	"role" varchar(16) DEFAULT 'user' NOT NULL,
 	"balance" numeric(20, 8) DEFAULT 0 NOT NULL,
 	"is_infinite" boolean DEFAULT false NOT NULL,
-	"tier" varchar(16) DEFAULT 'new' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "users_username_unique" UNIQUE("username")

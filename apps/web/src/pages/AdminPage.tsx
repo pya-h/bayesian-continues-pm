@@ -471,7 +471,6 @@ function UserRow({ user: u }: { user: AdminUser }) {
           <span className="mr-1.5 text-muted">{open ? '▾' : '▸'}</span>
           <span className="font-semibold">{u.username}</span>
           <span className="ml-2 rounded bg-panel-2 px-1.5 py-0.5 text-xs text-muted">{u.role}</span>
-          <span className="ml-2 text-xs text-muted">{u.tier}</span>
           <div className="tnum pl-5 text-xs text-muted">
             {u.isInfinite ? '∞ balance' : `$${fmt(u.balance)}`}
           </div>

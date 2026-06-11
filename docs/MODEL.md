@@ -707,16 +707,16 @@ if margin_available < 0:
 
 ### 9.3 Position Limits
 
+A per-market cap on the size any single account may hold, sized from market depth
+— not from any account class or legal status:
+
 ```
-max_position_size = f(user_tier, market_liquidity)
+max_position_size = f(market_liquidity)
 ```
 
-| User Tier | Max Position | Leverage |
-|-----------|-------------|----------|
-| New | $1,000 | 1x |
-| Verified | $10,000 | 2x |
-| Advanced | $100,000 | 5x |
-| Institutional | $1,000,000 | 10x |
+Concentration is additionally bounded by the circuit breaker in §15.1 (a single
+account exceeding ~20% of open interest). Where leverage is enabled, the per-market
+leverage limit is defined in §9.2 and configured per market (v3), not per account.
 
 ---
 
@@ -1257,25 +1257,7 @@ Monte Carlo simulation:
 
 ---
 
-## 19. Regulatory and Compliance
-
-### 19.1 KYC/AML
-
-| Tier | Requirement | Limits |
-|------|-------------|--------|
-| Anonymous | Email only | $100 deposit, no withdrawal |
-| Verified | ID + address | $10,000 deposit/withdrawal |
-| Institutional | Full due diligence | Unlimited |
-
-### 19.2 Jurisdiction
-
-- Restricted countries: US, UK (unless licensed), other prohibited jurisdictions
-- Geofencing based on IP
-- Tax reporting: 1099 or equivalent
-
----
-
-## 20. Complete Glossary
+## 19. Complete Glossary
 
 | Term | Definition |
 |------|------------|

@@ -21,7 +21,6 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
         role: users.role,
         balance: users.balance,
         isInfinite: users.isInfinite,
-        tier: users.tier,
         createdAt: users.createdAt,
       })
       .from(users)

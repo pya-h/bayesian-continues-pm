@@ -8,11 +8,11 @@
 
 ## 1. V3 Scope & Theme
 
-V2 made the market *richer* (multi-modal beliefs, adaptive params, hedging, robust oracles, compliance, scale) but kept the **collateral model identical to V1**. V3 changes only the collateral model — and everything that change forces. It is **additive and opt-in per market**: a V3 deployment still runs every existing market at 1× with byte-identical behavior; leverage/shorting are unlocked per-market via `cfg` and per-account via KYC tier (the V2-2 tier table).
+V2 made the market *richer* (multi-modal beliefs, adaptive params, hedging, robust oracles, scale) but kept the **collateral model identical to V1**. V3 changes only the collateral model — and everything that change forces. It is **additive and opt-in per market**: a V3 deployment still runs every existing market at 1× with byte-identical behavior; leverage/shorting are unlocked **per-market** via `cfg` (there is no per-account legal/identity class — this is play-money).
 
 | # | V3 Workstream | Earlier extension point it plugs into | `MODEL.md` ref |
 |---|---|---|---|
-| B | **Margin, leverage & shorting** (the core) | V1 trade engine, `positions`, V1 solvency; V2-2 tiers | §9.2, §9.3 |
+| B | **Margin, leverage & shorting** (the core) | V1 trade engine, `positions`, V1 solvency | §9.2, §9.3 |
 | H | **Insurance fund** (full mechanics) | V1 settlement / bankruptcy path; V1 stub fund | §8.2, §15.2 |
 | L | **Liquidation engine** | belief/price-update hook, quote engine | §9.3, §15 |
 | R | **Risk UX** (trade-panel previews, portfolio health) | web trade panel + portfolio | §9.2 |
@@ -28,7 +28,7 @@ Letters **B** and **H** keep the identifiers they carried while these were V2 Wo
 This is the realization of `MODEL.md §9.2/§9.3`. V1/V2 were 1× cash-collateralized; V3 introduces borrowed exposure and the bookkeeping to keep it bounded.
 
 ### 2.1 Concepts
-- **Leverage `L` (tier-based):** an account may hold open notional up to `L × equity`. `L` is capped by KYC tier (`users.leverage_cap`, from the V2-2 table) and by per-market `cfg.max_leverage`; the binding cap is `min(tier, market)`.
+- **Leverage `L`:** an account may hold open notional up to `L × equity`. `L` is capped **per market** by `cfg.max_leverage` — every account trading a market shares the same ceiling (no per-account leverage class).
 - **Margin:** collateral locked against open positions.
   `margin_required = Σ_C |position[C]| × margin_rate[C] × price[C]` (`§9.2`).
   `margin_rate[C] ∈ (0,1]` is **per-contract-type** — riskier (unbounded-tail) payoffs carry a higher rate than capped ones. Equivalently the **per-contract max leverage is `1/margin_rate`**. Examples (defaults, tunable in `cfg.margin_rates`): binary 0.10 (≤10×), spread 0.15, call/put 0.20 (≤5×), linear 0.25 (≤4×). A capped binary needs less margin than an unbounded linear because its worst case is bounded.
@@ -44,14 +44,14 @@ This is the realization of `MODEL.md §9.2/§9.3`. V1/V2 were 1× cash-collatera
 ### 2.3 Position & account model changes
 - `positions.quantity` may now be **negative** (short). Average-entry accounting (V1 `applyFill`) generalizes: a short's "entry" is the premium received; PnL is `qty × (mark − entry)` with `qty < 0`, so a short profits when the mark falls.
 - New per-user, per-market **margin account** row: `margin_used`, `equity_snapshot`, `maintenance`, `health`, `updated_at` (a cache/audit of the derived figures; the authoritative numbers are recomputed from positions + marks on each touch).
-- Per-contract `margin_rate` lives in `markets.cfg.margin_rates`; tier `leverage_cap` lives on `users` (the column V2-2 reserved).
+- Per-contract `margin_rate` lives in `markets.cfg.margin_rates`; the leverage ceiling lives in `markets.cfg.max_leverage` (per market).
 
 ### 2.4 Trade-engine changes (open / increase)
 The V1 pipeline (fair → spread → exec → slippage → balance/position check → tentatively apply → recompute reserve → **MM solvency gate** → commit) gains a **margin gate** in the per-account check step, *before* the existing MM-solvency gate:
 
 1. Compute post-trade `margin_required`, `equity`, `free_margin` for the **acting account**.
-2. **Reject/​partial-fill** if `margin_required > equity × leverage_cap` **or** `free_margin < 0` (`§9.2`). Sizing reuses the V1 `solveFill` monotone search, now on the *account-margin* frontier in addition to the MM frontier — the fill is the **min** of the two feasible sizes.
-3. **Position-limit** check vs tier max (`§9.3`).
+2. **Reject/​partial-fill** if `margin_required > equity × max_leverage` **or** `free_margin < 0` (`§9.2`). Sizing reuses the V1 `solveFill` monotone search, now on the *account-margin* frontier in addition to the MM frontier — the fill is the **min** of the two feasible sizes.
+3. **Position-limit** check vs the per-market cap (`§9.3`).
 4. The existing **MM solvency** gate is unchanged: the MM's reserve must still cover net `L(θ)`. Shorting *reduces* `mmShort` for that contract (the user takes the long-tail risk off the MM), longs *increase* it; net book risk drives the reserve exactly as in V1. **Margin and reserve are independent gates; a trade must pass both.**
 
 Reducing/closing trades (incl. buy-to-cover a short, sell-to-close a long) only ever *lower* `margin_required`, so they bypass the initial-margin gate (margin 1×, mirroring V1's reduce-side reserve rule).
@@ -63,7 +63,7 @@ At resolution θ*, each position settles at `f_C(θ*)`:
 - Margin is released back to free balance as positions settle.
 
 ### 2.6 Tests
-Margin gate opens/closes correctly (an over-leveraged open is rejected or partial-filled to the cap); reduce-side trades bypass the initial-margin gate; `margin_rate` ordering holds (binary needs less than linear for equal notional); shorts make `mmShort` go down and settle by *paying* `f(θ*)`; equity/free-margin/health arithmetic matches hand calculations; a flat account has zero margin; **no account can exceed `min(tier, market)` leverage**; 1× markets are byte-identical to V2 (regression).
+Margin gate opens/closes correctly (an over-leveraged open is rejected or partial-filled to the cap); reduce-side trades bypass the initial-margin gate; `margin_rate` ordering holds (binary needs less than linear for equal notional); shorts make `mmShort` go down and settle by *paying* `f(θ*)`; equity/free-margin/health arithmetic matches hand calculations; a flat account has zero margin; **no account can exceed the market's `max_leverage`**; 1× markets are byte-identical to V2 (regression).
 
 ---
 
@@ -73,7 +73,7 @@ A protocol-level backstop with real accounting. (V1 ships a stub safety-net acco
 
 - **Accrual (inflows):** `insurance_fund += fee_pct × volume` on every trade (default 0.1–0.5% of premium volume) **plus** liquidation **penalty** fees (Workstream L).
 - **Draws (outflows):** (a) **liquidation gap loss** — a liquidation that couldn't close fast enough to keep `equity ≥ 0`; (b) **settlement gap** — a short that owes more than its equity at resolution (§2.5); (c) **socialized loss** when the fund itself is exhausted (last resort, `§15.2`).
-- **Ledger:** `insurance_ledger(kind, amount, ref, created_at)` — append-only, signed; the single-row `insurance_fund.balance` equals `Σ ledger.amount` (an invariant the tests assert, mirroring the V2-10 transaction-ledger discipline).
+- **Ledger:** `insurance_ledger(kind, amount, ref, created_at)` — append-only, signed; the single-row `insurance_fund.balance` equals `Σ ledger.amount` (an invariant the tests assert, mirroring the V2-6 transaction-ledger discipline).
 - **Admin dashboard:** balance, inflows/outflows, **coverage ratio** = `balance / Σ at-risk gap exposure` across leveraged accounts; alert when coverage < threshold.
 
 ### 3.1 Tests
@@ -103,18 +103,17 @@ A price move into the liquidation region triggers liquidation; partial liquidati
 ## 5. Workstream R — Risk UX
 
 Pure presentation over the B/L data; no engine math here.
-- **Trade panel:** leverage selector (bounded to `min(tier, market)`), **short toggle**, and a live **margin / liquidation preview** — resulting leverage, margin locked, health ratio, and the belief/price level at which this position would be liquidated, shown *before* confirming.
+- **Trade panel:** leverage selector (bounded to the market's `max_leverage`), **short toggle**, and a live **margin / liquidation preview** — resulting leverage, margin locked, health ratio, and the belief/price level at which this position would be liquidated, shown *before* confirming.
 - **Portfolio:** per-position leverage, margin used, **liquidation distance** (how far θ/price can move before a margin call), health bars, **short positions** rendered distinctly, and a **liquidation history** tab fed by the `liquidations` rows + `margin_call`/`liquidation` WS events.
 - **Admin:** insurance-fund dashboard (§3) and a per-market liquidation feed.
 
 ### 5.1 Tests
-The pure preview helpers (liquidation-point solver, health-ratio, distance-to-liquidation) match the engine for a battery of positions; the panel renders for long/short/flat and 1×/N× without layout breakage; the short toggle is hidden when the market or tier disallows it.
+The pure preview helpers (liquidation-point solver, health-ratio, distance-to-liquidation) match the engine for a battery of positions; the panel renders for long/short/flat and 1×/N× without layout breakage; the short toggle is hidden when the market disallows it.
 
 ---
 
 ## 6. Data Model Deltas (vs V2)
 ```
-users           + leverage_cap                              -- the column V2-2 reserved, now live
 markets.cfg     + margin_rates{<type>:rate}, max_leverage, maint_margin_frac, liq_penalty_frac
 positions       quantity may be negative (short)            -- avg-entry accounting generalized
 margin_accounts (user_id, market_id, margin_used, equity_snapshot, maintenance, health, updated_at)
@@ -122,7 +121,7 @@ liquidations    (id, user_id, market_id, trigger, closed_qty, penalty, gap_loss,
 insurance_fund  (single row: balance)
 insurance_ledger(id, kind, amount, ref, created_at)         -- balance == Σ amount (invariant)
 ```
-All additive — new nullable/defaulted columns and new tables; existing V1/V2 markets read back identically (no `leverage_cap` ⇒ 1×, no `margin_rates` ⇒ fully collateralized).
+All additive — new nullable/defaulted columns and new tables; existing V1/V2 markets read back identically (no `margin_rates`/`max_leverage` ⇒ 1× fully collateralized).
 
 ## 7. API Deltas
 ```
@@ -142,7 +141,7 @@ New WS events: `margin_call`, `liquidation`, `insurance_update`.
 - **Admin:** insurance-fund dashboard; per-market liquidation feed.
 
 ## 9. Testing (V3 additions, consolidated)
-- **Margin gates** open/close; reduce-side bypass; per-type `margin_rate` ordering; leverage never exceeds `min(tier, market)`.
+- **Margin gates** open/close; reduce-side bypass; per-type `margin_rate` ordering; leverage never exceeds the market's `max_leverage`.
 - **Liquidation** triggers on a price move; partial liquidation restores the buffer; gap loss → insurance; penalty → insurance ledger.
 - **Shorting** lowers `mmShort`, settles by paying `f(θ*)`, gap → insurance.
 - **Insurance accounting** balances (`inflows − outflows = balance`); coverage alert fires.
@@ -150,12 +149,12 @@ New WS events: `margin_call`, `liquidation`, `insurance_update`.
 - **Math-doc:** margin/equity/health formulas, the liquidation trigger (`equity < maintenance`), penalty/gap-loss flow, and short-payout settlement all added to `docs/math/index.html` with a worked margin-call example, verified rendering.
 
 ## 10. Migration / Rollout from V2
-- **Prereq:** V2 shipped — in particular V2-2 (KYC tiers/limits), whose tier table supplies `leverage_cap`.
-- **All V1/V2 markets keep working:** absent `cfg.margin_rates`/`max_leverage`, a market is 1× cash-collateralized and every account's `leverage_cap` defaults to 1× ⇒ the margin gate is a no-op and behavior is exactly V2. Leverage/shorting are **opt-in per market** (`cfg`) and **gated per account** (tier).
+- **Prereq:** V2 shipped.
+- **All V1/V2 markets keep working:** absent `cfg.margin_rates`/`max_leverage`, a market is 1× cash-collateralized ⇒ the margin gate is a no-op and behavior is exactly V2. Leverage/shorting are **opt-in per market** (`cfg`).
 - **Ship order (see `TASKS.md`):** **V3-1 (margin/leverage/shorting core)** → **V3-2 (insurance fund)** → **V3-3 (liquidation engine, needs both)** → **V3-4 (risk UX)** → **V3-5 (hardening + math-doc)**.
 - DB migrations are additive; no destructive changes to V1/V2 data.
 
 ---
 
 ### Definition of done (V3)
-Accounts can trade with **tier-bounded leverage** and hold **short** positions under an **initial/maintenance margin** system; an automated **liquidation engine** closes failing accounts before they go underwater, charging penalties to and drawing gap losses from a fully-accounted **insurance fund**; shorts settle correctly at resolution; the **trade panel and portfolio** show margin, health, liquidation distance, and history; and **every pre-V3 market still runs at 1× with identical behavior**. The MM α-quantile reserve / capacity model (`docs/capacity/`) is untouched and continues to govern pool solvency independently of account margin.
+Accounts can trade with **market-bounded leverage** and hold **short** positions under an **initial/maintenance margin** system; an automated **liquidation engine** closes failing accounts before they go underwater, charging penalties to and drawing gap losses from a fully-accounted **insurance fund**; shorts settle correctly at resolution; the **trade panel and portfolio** show margin, health, liquidation distance, and history; and **every pre-V3 market still runs at 1× with identical behavior**. The MM α-quantile reserve / capacity model (`docs/capacity/`) is untouched and continues to govern pool solvency independently of account margin.

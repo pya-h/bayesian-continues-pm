@@ -7,7 +7,6 @@ export function publicUser(u: UserRow) {
     role: u.role,
     balance: u.balance,
     isInfinite: u.isInfinite,
-    tier: u.tier,
     createdAt: u.createdAt,
   };
 }

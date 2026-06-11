@@ -12,7 +12,6 @@ async function upsertUser(opts: {
   role: 'user' | 'admin';
   isInfinite: boolean;
   balance: number;
-  tier: 'new' | 'verified' | 'advanced' | 'institutional';
 }) {
   const passwordHash = await Bun.password.hash(opts.password);
   await db
@@ -23,12 +22,11 @@ async function upsertUser(opts: {
       role: opts.role,
       isInfinite: opts.isInfinite,
       balance: opts.balance,
-      tier: opts.tier,
     })
     .onConflictDoUpdate({
       target: users.username,
-      // keep role/infinite/tier authoritative; refresh password; don't clobber balance
-      set: { role: opts.role, isInfinite: opts.isInfinite, tier: opts.tier, updatedAt: new Date() },
+      // keep role/infinite authoritative; refresh password; don't clobber balance
+      set: { role: opts.role, isInfinite: opts.isInfinite, updatedAt: new Date() },
     });
 }
 
@@ -43,7 +41,6 @@ try {
     role: 'admin',
     isInfinite: true,
     balance: 0,
-    tier: 'institutional',
   });
 
   // Demo traders with a starter balance (admin can top up more).
@@ -54,7 +51,6 @@ try {
       role: 'user',
       isInfinite: false,
       balance: 10_000,
-      tier: 'verified',
     });
   }
 

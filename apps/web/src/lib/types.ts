@@ -2,13 +2,7 @@
 // (marketView.ts, tradeSvc.ts, lpSvc.ts, statsSvc.ts). Dates arrive over JSON as
 // ISO strings, so anything typed `Date` in the service is `string` here.
 
-import type {
-  ContractSpecDTO,
-  MarketStatus,
-  TransactionKind,
-  UserRole,
-  UserTier,
-} from '@bmm/shared';
+import type { ContractSpecDTO, MarketStatus, TransactionKind, UserRole } from '@bmm/shared';
 
 export type ContractSpec = ContractSpecDTO;
 
@@ -18,7 +12,6 @@ export interface PublicUser {
   role: UserRole;
   balance: number;
   isInfinite: boolean;
-  tier: UserTier;
   createdAt: string;
 }
 
@@ -254,7 +247,6 @@ export interface AdminUser {
   role: UserRole;
   balance: number;
   isInfinite: boolean;
-  tier: UserTier;
   createdAt: string;
 }
 

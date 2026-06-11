@@ -10,7 +10,6 @@ import type {
   MarketStatus,
   TransactionKind,
   UserRole,
-  UserTier,
 } from '@bmm/shared';
 import {
   boolean,
@@ -50,7 +49,6 @@ export const users = pgTable('users', {
   role: varchar('role', { length: 16 }).$type<UserRole>().notNull().default('user'),
   balance: money('balance').notNull().default(0),
   isInfinite: boolean('is_infinite').notNull().default(false),
-  tier: varchar('tier', { length: 16 }).$type<UserTier>().notNull().default('new'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

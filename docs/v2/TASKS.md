@@ -1,14 +1,14 @@
 # TASKS — BMM Continuous Prediction Market **V2**
 
-Phased plan for V2. Companion to `V2-TDD.md`. **Prerequisite: V1 shipped and in use** (`TDD.md` / `TASKS.md` done). All V2 work is additive — V1 markets keep behaving exactly as before (`belief_kind='gaussian'`, leverage 1×).
+Phased plan for V2. Companion to `V2-TDD.md`. **Prerequisite: V1 shipped and in use** (`TDD.md` / `TASKS.md` done). All V2 work is additive — V1 markets keep behaving exactly as before (`belief_kind='gaussian'`, 1× cash-collateralized).
 
 Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable checkpoint. `[blocked-by]` = hard deps.
 
-> ** Math-doc sync (standing rule).** The interactive math documentation (`docs/math/index.html`) is the public source-of-truth explainer for the model. **After every phase that changes the math** — new belief models, pricing/`dPrice_dMu`, adaptive-parameter rules, hedging, reserve/sampler changes — its checkpoint is **not complete** until `docs/math/index.html` is updated to match: add/derive the new formulas, refresh any affected worked examples (re-compute the numbers), extend the relevant background blocks, and keep both Trader and Developer modes consistent with the shipped code. Verify the doc renders (0 tag errors, 0 KaTeX errors) before closing the phase. Phases that touch no math (e.g. KYC tiers, scale/ops, transaction ledger) need no math-doc change — note "math-doc: n/a" in the checkpoint.
+> ** Math-doc sync (standing rule).** The interactive math documentation (`docs/math/index.html`) is the public source-of-truth explainer for the model. **After every phase that changes the math** — new belief models, pricing/`dPrice_dMu`, adaptive-parameter rules, hedging, reserve/sampler changes — its checkpoint is **not complete** until `docs/math/index.html` is updated to match: add/derive the new formulas, refresh any affected worked examples (re-compute the numbers), extend the relevant background blocks, and keep both Trader and Developer modes consistent with the shipped code. Verify the doc renders (0 tag errors, 0 KaTeX errors) before closing the phase. Phases that touch no math (e.g. scale/ops, transaction ledger) need no math-doc change — note "math-doc: n/a" in the checkpoint.
 
-**Recommended order:** V2-1 (beliefs) and V2-2 (tiers) in parallel → V2-5/6/7 (adaptive, hedging, oracles) → V2-8 (scale) → V2-9 (hardening). The transaction-ledger / admin-history workstreams (V2-10/11) are independent and already done.
+**Recommended order:** V2-1 (beliefs) → V2-2 (adaptive) & V2-3 (hedging) — both build on beliefs — alongside V2-4 (oracles) → V2-5 (scale) → V2-8 (hardening) → V2-9 (belief-history chart, last). The transaction-ledger / admin-history phases (V2-6/V2-7) are independent and already done.
 
-> ** Moved to V3.** **Leverage, margin, shorting & liquidation** (the old Phase V2-3) and the **full insurance-fund mechanics** (the old Phase V2-4) are **no longer part of V2** — they are deferred to **V3** (`docs/v3/`). Without shorting/borrowed exposure there is no margin gap-loss or user bankruptcy for the fund to absorb, so the two travel together. V2 stays **1×, cash-collateralized** end-to-end; every V2 market behaves as in V1 on the collateral axis. See `docs/v3/TASKS.md` / `docs/v3/TDD.md` and the explainer `docs/v3/shorting-and-leverage.md`.
+> ** Moved to V3.** **Leverage, margin, shorting & liquidation** and the **insurance fund** that backstops them are **not part of V2** — they are deferred to **V3** (`docs/v3/`). Without shorting/borrowed exposure there is no margin gap-loss or user bankruptcy for the fund to absorb, so the two travel together. V2 stays **1×, cash-collateralized** end-to-end; every V2 market behaves as in V1 on the collateral axis. See `docs/v3/TASKS.md` / `docs/v3/TDD.md` and the explainer `docs/v3/shorting-and-leverage.md`.
 
 ---
 
@@ -26,23 +26,7 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 
 ---
 
-## Phase V2-2 — KYC tiers, limits, compliance `[api, web]` (Workstream F)
-**Goal:** tiered accounts that gate deposit/withdraw/position limits.
-- [ ] `users` + `kyc_tier/kyc_status/country`; migration (default = Anonymous). *(The `leverage_cap` column lands in V3 with leverage — see `docs/v3/TASKS.md` Phase V3-1.)*
-- [ ] Mock KYC flow: `POST /users/me/kyc` (submit), `POST /admin/users/:id/kyc/approve` → advances tier.
-- [ ] `LimitsSvc`: deposit/withdraw/position limits per tier (`MODEL.md §9.3, §19.1`); enforced centrally. *(The per-tier leverage cap is added in V3.)*
-- [ ] Geofencing middleware (IP→country, blocklist, mockable).
-- [ ] `audit_events` append-only + writes on admin/top-up/tier/lifecycle actions; admin audit view.
-- [ ] `web`: KYC upgrade flow; tier badge; limit-aware errors.
-**Checkpoint:** a user upgrades tier via admin approval, gains higher limits; blocked country is geofenced; admin sees audit trail.
-
----
-
-> **Phases V2-3 (leverage/margin/shorting/liquidation) and V2-4 (insurance fund) moved to V3** — see the banner at the top of this file and `docs/v3/`.
-
----
-
-## Phase V2-5 — Adaptive parameters `[core, api, web]` (Workstream C) `[blocked-by: V2-1]`
+## Phase V2-2 — Adaptive parameters `[core, api, web]` (Workstream C) `[blocked-by: V2-1]`
 **Goal:** self-tuning σ_ε and spreads (`MODEL.md §14.2`).
 - [ ] EWMA `σ_ε`, regime-scaled `s₀`, optional adaptive `α/β`; all clamped to `§14.1` rails.
 - [ ] `market_cfg_history` time series; admin pin/override; rail-hit circuit breaker.
@@ -52,7 +36,7 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 
 ---
 
-## Phase V2-6 — Hedging `[core, api, web]` (Workstream D) `[blocked-by: V2-1]`
+## Phase V2-3 — Hedging `[core, api, web]` (Workstream D) `[blocked-by: V2-1]`
 **Goal:** reduce reserve via offsetting positions (`MODEL.md §6.4`).
 - [ ] `find_best_hedge(exposure)` over a binary/spread basis tiling Θ; trigger when `reserve > cash×0.8`.
 - [ ] Internal hedge bookkeeping (lowers `L(θ)` variance); `hedges` table.
@@ -63,7 +47,7 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 
 ---
 
-## Phase V2-7 — Robust oracles & disputes `[api, web]` (Workstream E)
+## Phase V2-4 — Robust oracles & disputes `[api, web]` (Workstream E)
 **Goal:** real feeds, aggregation, dispute handling (`MODEL.md §11`).
 - [ ] `OracleSource` interface + `ApiFeed`, `WeatherApi`, `Manual`, `Aggregated` (median/weighted+confidence) adapters; `oracle_sources`/`oracle_reports`.
 - [ ] Auto-resolve at `resolves_at`; missing-feed → SUSPEND+alert (`§15.1`).
@@ -74,7 +58,7 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 
 ---
 
-## Phase V2-8 — Scale & ops `[api]` (Workstream G) `[blocked-by: none]`
+## Phase V2-5 — Scale & ops `[api]` (Workstream G) `[blocked-by: none]`
 **Goal:** horizontal scale with sequential-consistency preserved (`MODEL.md §18.2`).
 - [ ] Redis: WS pub/sub fan-out across nodes; per-market **distributed lock** (Redlock) replacing in-process queue; hot cache for belief/quote snapshots.
 - [ ] Single-leader-per-market via consistent-hash on `market_id`; non-owners forward writes; reads anywhere.
@@ -85,7 +69,7 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 
 ---
 
-## Phase V2-10 — Transaction ledger & history `[shared, api, web]` (Workstream I) `[blocked-by: none]`
+## Phase V2-6 — Transaction ledger & history `[shared, api, web]` (Workstream I) `[blocked-by: none]`
 **Goal:** a single source-of-truth ledger that records every cash movement, surfaced to each user as a "Transactions" tab with filtering, sorting, and lifetime stats. Additive — no change to how cash actually moves; we just record it.
 
 **Design:** a `transactions` table written **atomically inside the same `db.transaction()`** as each balance/cash mutation (the existing post-commit `audit_events` is incomplete and can't be the source). User-centric: each row belongs to a `userId` (whose history it is) with a signed `amount` (+ into wallet, − out), `balanceAfter` (null for infinite/admin accounts), `marketId`, `counterpartyId`, `refType`/`refId`, and `metadata` jsonb. Admin funding writes **two** rows (`admin_credit` on the target, `admin_grant` on the admin) so it shows in both histories. Kinds: `trade_buy, trade_sell, market_create, lp_deposit, lp_withdraw, lp_claim, claim, refund, admin_credit, admin_grant`.
@@ -108,12 +92,12 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
   - [x] **Tests:** `test/txView.test.ts` (8) — category/label maps, filter (category + text + compose), sort (recent/oldest/amount, no-mutate). web 79 pass; build 123 kB gzip.
   - **Checkpoint:** a user opens Transactions and sees every action with lifetime stats; admin's grants and the funded user's credit each appear in their own history.
 
-**V2-10 status:** TX-1/TX-2/TX-3 all — transaction history feature complete end-to-end. (V2-11 admin market history NOT started — awaiting user go-ahead.)
+**V2-6 status:** TX-1/TX-2/TX-3 all — transaction history feature complete end-to-end.
 
 ---
 
-## Phase V2-11 — Admin market history & panel restructure `[api, web]` (Workstream I) `[blocked-by: none]`
-**Goal:** an **admin-only** per-market cash-flow history (the market pool's "bank statement") plus a reorganized admin panel split into focused tabs. No new write-path: the market ledger is **reconstructed by aggregation** from data we already store — every trade's premium flow (`trades.totalCost` in/out of `markets.cash`), the genesis reserve / LP deposits-withdrawals-claims (`lp_ledger`, including the creator's initial liquidity), trader settlement payouts (`claims`), and cancel refunds. Use whichever of trades vs positions is more efficient and accurate for each figure (trades for flow events, positions for net exposure). User-facing transaction history (V2-10) stays user-side only; this is the complementary admin view.
+## Phase V2-7 — Admin market history & panel restructure `[api, web]` (Workstream I) `[blocked-by: none]`
+**Goal:** an **admin-only** per-market cash-flow history (the market pool's "bank statement") plus a reorganized admin panel split into focused tabs. No new write-path: the market ledger is **reconstructed by aggregation** from data we already store — every trade's premium flow (`trades.totalCost` in/out of `markets.cash`), the genesis reserve / LP deposits-withdrawals-claims (`lp_ledger`, including the creator's initial liquidity), trader settlement payouts (`claims`), and cancel refunds. Use whichever of trades vs positions is more efficient and accurate for each figure (trades for flow events, positions for net exposure). User-facing transaction history (V2-6) stays user-side only; this is the complementary admin view.
 
 - **MH-1 — Market ledger read service `[api]`:** DONE (2026-06-09)
   - [x] `services/marketLedgerSvc.ts` (read-only): assembles a time-ordered market cash-flow ledger from `lp_ledger` (genesis via `navBefore=0` + deposits/withdraws/claims) + `trades` (signed `totalCost`) + cancel refunds (the per-trader `transactions` refund rows) + `claims` (trader payouts), each as `{ at, kind, delta (signed on the pool), affectsCash, cashAfter, userId, username, ref, note }`; plus rollups (genesisReserve, premiumIn/Out, lpDeposits/Withdrawals, refunds, traderPayouts, lpClaimsPaid, netPoolChange, currentCash, reserveRequired, nav, cashFinal, `reconciles`). Settlement distributions (trader/LP payouts) carry `affectsCash:false` since by design they don't mutate `markets.cash` (residual computed logically); the cash-affecting deltas sum exactly to `markets.cash`.
@@ -125,11 +109,11 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
   - [x] **Tests:** `test/marketLedgerView.test.ts` (8) — category/label maps, filter (category + text + compose), sort (recent/oldest/amount, no-mutate). web 87 green; build 126 kB gzip.
   - **Checkpoint:** an admin opens a market and sees its full cash-flow statement reconciling to current pool cash; the admin panel is organized into clear tabs.
 
-**V2-11 status:** MH-1/MH-2 both — admin market-history ledger + tabbed admin panel complete end-to-end.
+**V2-7 status:** MH-1/MH-2 both — admin market-history ledger + tabbed admin panel complete end-to-end.
 
 ---
 
-## Phase V2-9 — Hardening & polish `[all]` `[blocked-by: all]`
+## Phase V2-8 — Hardening & polish `[all]` `[blocked-by: all]`
 - [ ] Full V2 integration suite across workstreams; migration test (V1 data → V2 unchanged behavior).
 - [ ] Extended Monte-Carlo sim covering multi-modal calibration (mixture/t) and adaptive-parameter stability.
 - [ ] Load test (multi-node + Redis); chaos test (node loss mid-trade).
@@ -139,7 +123,7 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 
 ---
 
-## Phase V2-12 — Belief-history visualization in the main chart `[web]` `[blocked-by: all]` (Workstream J)
+## Phase V2-9 — Belief-history visualization in the main chart `[web]` `[blocked-by: all]` (Workstream J)
 **Goal:** let the **main belief chart** (`apps/web/src/components/BeliefChart.tsx`) show *how the consensus got here*, not just its current shape — encoding **time without a time axis** (the main chart's x-axis is the outcome θ). Pure presentation: no engine/math change. **Do last**, after the whole V2 build is otherwise done.
 
 **Design (decided):** a **ghost trail** — overlay faded snapshots of recent belief PDFs on the same θ-axis, older = more transparent, newest = solid, so the bump visibly drifts and narrows like a comet tail. Time → opacity. Gated behind a small "show history" toggle so the live chart stays clean by default. For V2 mixtures, the ghost is the general multi-modal `pdf(θ)`, so disagreement-then-consensus reads as two bumps fading into one.
@@ -155,4 +139,4 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 ---
 
 ### Definition of done (V2)
-Markets run on Gaussian / Mixture / Student-t beliefs with correct pricing and component management; parameters **self-tune** within spec rails; the MM **hedges** to free reserve; markets resolve from **aggregated oracles** with a **dispute** process; **KYC tiers/limits/geofencing/audit** enforce compliance; the system scales **horizontally** while preserving per-market sequential consistency. Trading stays **1× cash-collateralized** (no leverage/shorting) — that, the **liquidation engine**, and the **insurance fund** are **V3** (`docs/v3/`). All V1 behavior is preserved for existing markets.
+Markets run on Gaussian / Mixture / Student-t beliefs with correct pricing and component management; parameters **self-tune** within spec rails; the MM **hedges** to free reserve; markets resolve from **aggregated oracles** with a **dispute** process; the system scales **horizontally** while preserving per-market sequential consistency; and every cash movement is captured in a reconciling **transaction ledger** (user + admin views). Trading stays **1× cash-collateralized** (no leverage/shorting) — that, the **liquidation engine**, and the **insurance fund** are **V3** (`docs/v3/`). All V1 behavior is preserved for existing markets.

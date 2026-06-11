@@ -56,12 +56,3 @@ export const TransactionKind = {
   ADMIN_GRANT: 'admin_grant',
 } as const;
 export type TransactionKind = (typeof TransactionKind)[keyof typeof TransactionKind];
-
-// User tiers — v1 informational only (no leverage yet).
-export const UserTier = {
-  NEW: 'new',
-  VERIFIED: 'verified',
-  ADVANCED: 'advanced',
-  INSTITUTIONAL: 'institutional',
-} as const;
-export type UserTier = (typeof UserTier)[keyof typeof UserTier];

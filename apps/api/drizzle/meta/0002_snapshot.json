@@ -1468,13 +1468,6 @@
           "notNull": true,
           "default": false
         },
-        "tier": {
-          "name": "tier",
-          "type": "varchar(16)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'new'"
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
