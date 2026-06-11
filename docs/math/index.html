@@ -66,11 +66,12 @@
       <a href="#lp">12 · Liquidity providers</a>
       <a href="#stats">13 · Stats &amp; metrics</a>
       <a href="#breakers">14 · Circuit breakers</a>
+      <a href="#capacity">15 · Capacity &amp; the gate</a>
       <div class="group">Reference</div>
-      <a href="#config">15 · Config parameters</a>
-      <a href="#numerics">16 · Numerics &amp; rounding</a>
+      <a href="#config">16 · Config parameters</a>
+      <a href="#numerics">17 · Numerics &amp; rounding</a>
       <div class="group">Validation</div>
-      <a href="#sim">17 · Model validation (Monte-Carlo)</a>
+      <a href="#sim">18 · Model validation (Monte-Carlo)</a>
     </div>
 
     <!-- trader TOC -->
@@ -88,7 +89,8 @@
       <div class="group">Going further</div>
       <a href="#u-provide">9 · Funding a market (LPs &amp; creators)</a>
       <a href="#u-risks">10 · Risks &amp; smart habits</a>
-      <a href="#u-glossary">11 · Glossary</a>
+      <a href="#u-capacity">11 · Capacity — when a market fills up</a>
+      <a href="#u-glossary">12 · Glossary</a>
     </div>
   </nav>
 
@@ -366,8 +368,51 @@
       </section>
 
       <!-- ---------------------------------------------------------------- -->
+      <section id="u-capacity">
+        <h2><span class="section-num">11</span>Capacity — when a market fills up<a class="anchor" href="#u-capacity">#</a></h2>
+        <p>Every market is backed by a pool of cash (the reserve you fund in §9). That cash is what pays
+        winners when the market resolves, so a market can only take on as much betting as its cash can
+        safely cover — its <strong>capacity</strong>. Think of it like an insurer: it can write only as
+        many policies as its capital can pay claims on.</p>
+
+        <p>Here is the part that surprises people: <strong>buying is not just money flowing in.</strong>
+        When you buy, you pay a small premium now — but the maker takes on the obligation to pay you a
+        possibly much larger amount if your bet wins. A few cents in, potentially many dollars owed later.
+        As more people pile onto the same side, the pool's worst-case bill grows far faster than the
+        premiums it collects.</p>
+
+        <p>To guarantee winners always get paid, the maker holds back a <strong>reserve</strong> — enough
+        cash to cover the worst realistic outcome — and only takes on new risk while it still has a
+        comfortable buffer of cash above that reserve. When a market gets crowded on one side, the reserve
+        climbs toward the cash, the buffer shrinks, and:</p>
+        <ul>
+          <li><strong>Buys get smaller, then pause.</strong> A new bet that would add risk is trimmed to
+          what's safe (a partial fill) or, once the buffer is gone, declined — even though the market still
+          looks open.</li>
+          <li><strong>Selling and the other side still work.</strong> Closing a position, or betting the
+          opposite way, <em>reduces</em> the maker's risk, so those are never blocked — and they free up
+          capacity for everyone.</li>
+        </ul>
+
+        <p>If you hit “this market won't let me buy,” it isn't a glitch — the market is simply
+        <strong>full</strong> on that risk, like an insurer that has hit its book limit. Two things open it
+        back up:</p>
+        <ul>
+          <li><strong>Add liquidity.</strong> Anyone can fund the pool (the Manage-liquidity page). More
+          cash → more capacity → buying reopens.</li>
+          <li><strong>Let it unwind.</strong> As holders sell or bet the other way, the reserve falls and
+          capacity returns on its own.</li>
+        </ul>
+
+        <div class="user"><span class="callout-title">Why it exists</span>
+        Without this limit, a market could keep selling cheap bets it can't actually pay out, and winners
+        would be left short at settlement. Capacity is the rule that keeps the pool always able to pay — it
+        protects you, not the house.</div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
       <section id="u-glossary">
-        <h2><span class="section-num">11</span>Glossary<a class="anchor" href="#u-glossary">#</a></h2>
+        <h2><span class="section-num">12</span>Glossary<a class="anchor" href="#u-glossary">#</a></h2>
         <div class="tablewrap"><table>
           <thead><tr><th>Term</th><th>What it means for you</th></tr></thead>
           <tbody>
@@ -380,6 +425,7 @@
             <tr><td><strong>Settle</strong></td><td>The market ends, the real outcome is set, and every position pays out.</td></tr>
             <tr><td><strong>Liquidity provider (LP)</strong></td><td>Someone who funds the pool and earns the spread while carrying its risk.</td></tr>
             <tr><td><strong>Reserve</strong></td><td>Cash the maker holds back to cover worst-case payouts; caps trade size.</td></tr>
+            <tr><td><strong>Capacity</strong></td><td>How much betting a market can take on before its cash can't safely back more; when it's full, buying pauses until liquidity is added or positions unwind.</td></tr>
             <tr><td><strong>Partial fill</strong></td><td>When only part of your order can be safely taken, and the rest is declined.</td></tr>
           </tbody>
         </table></div>
@@ -480,7 +526,7 @@
         </tbody>
       </table></div>
       <p class="small">Money is stored as <code>numeric(20,8)</code> and every arithmetic result is passed
-      through <code>round8</code> (round-half-even to 8 decimals) — see §16. Formulas below omit the
+      through <code>round8</code> (round-half-even to 8 decimals) — see §17. Formulas below omit the
       rounding for clarity; the code never does. Positions and MM inventory aggregate by a
       <strong>canonical contract key</strong> (type + params normalised to 12 significant figures,
       <code>contractKey</code>), so two specs that price identically share one book entry.</p>
@@ -528,7 +574,7 @@
       </div>
       <div class="dev"><span class="callout-title">Implementation</span>
       <code>GaussianBelief(mu, sigma2)</code> stores the variance and exposes <code>pdf/cdf/quantile/sample</code>.
-      Sampling uses the inverse-CDF of a seeded PRNG so Monte-Carlo results are reproducible (§16).</div>
+      Sampling uses the inverse-CDF of a seeded PRNG so Monte-Carlo results are reproducible (§17).</div>
     </section>
 
     <!-- =============================================================== -->
@@ -1073,8 +1119,93 @@ losses.sort();
     </section>
 
     <!-- =============================================================== -->
+    <section id="capacity">
+      <h2><span class="section-num">15</span>Capacity &amp; the gate<a class="anchor" href="#capacity">#</a></h2>
+      <p>The reserve of §10 is not just a number the MM watches — it is a hard <strong>ceiling on how much
+      risk a market can take on</strong>. A market's capacity is, in one line,</p>
+      <div class="eqbox">$$ \text{capacity}\ \sim\ \frac{\text{cash}}{\text{risk}},\qquad\text{enforced as}\quad \text{cash}\ \ge\ m\cdot\text{Reserve}. $$</div>
+      <p>Because the MM is the counterparty (§10), <strong>a buy is not pure cash-in — it creates a
+      liability.</strong> The premium collected is small; the worst-case payout owed can be large, and it
+      <em>raises</em> the reserve. So every risk-opening trade is checked against the cash that backs it.</p>
+
+      <h4>The admission gate</h4>
+      <p>Both the quote (preview) and the execute (commit) paths run the identical test inside
+      <code>solveFill</code>, so they can never disagree. A candidate fill of signed size \( q \) is admitted
+      iff:</p>
+      <div class="eqbox named"><span>$$ \underbrace{\big(\text{cash}+\min(0,\ \text{totalCost})\big)}_{\text{effectiveCash}}+\varepsilon\ \ge\ m\cdot\text{Reserve}_{\text{after}}(q),\qquad m=\begin{cases}1.2 & \text{Reserve}_{\text{after}}\gt\text{Reserve}_{\text{before}}\ \ (\text{opening risk})\\[2pt] 1 & \text{otherwise}\ \ (\text{reducing risk})\end{cases} $$</span><span class="eqlabel">tradeMath.ts · tradeSvc.ts</span></div>
+      <p>plus a buyer-side affordability constraint \( \text{balance}\ge\text{totalCost} \) (sells credit the
+      trader, so they skip it). Two subtleties carry all the weight:</p>
+      <ul>
+        <li><strong>The opening margin \( m=1.2 \).</strong> A trade that <em>raises</em> the reserve must be
+        backed by a 20% buffer of cash above the new reserve; a trade that <em>lowers</em> it needs only
+        \( m=1 \). The buffer absorbs the Monte-Carlo sampling error in the reserve and any belief drift
+        between sizing and settlement. (It also surfaces in §14 as the <em>insolvency-risk</em> breaker.)</li>
+        <li><strong>effectiveCash excludes a buy's own premium.</strong> For a buy \( \text{totalCost}\gt 0 \),
+        so \( \min(0,\text{totalCost})=0 \): the incoming premium is <em>not</em> counted as backing for the
+        risk that same trade creates — otherwise a trade could self-fund unbounded exposure out of its own
+        spread. The premium is still banked into <code>cash</code> (it becomes LP profit); it simply cannot
+        collateralize itself. A sell has \( \text{totalCost}\lt 0 \), so its payout outflow <em>is</em>
+        subtracted.</li>
+      </ul>
+
+      <h4>Partial fills</h4>
+      <p>When the requested size doesn't fit, the engine doesn't reject outright — it <strong>sizes
+      down</strong>. Both constraints are monotone in \( |q| \) (a bigger buy raises both the reserve and the
+      cost), so <code>solveFill</code> binary-searches the largest feasible fill:</p>
+      <div class="eqbox">$$ q^\star=\max\{\,s\in[0,\,|q|]\ :\ \text{admit}(s)\,\},\qquad\text{reject only if } q^\star\approx 0. $$</div>
+
+      <h4>The “no-buy band”</h4>
+      <p>This explains the surprising symptom — an <em>open, solvent</em> market that still refuses
+      <em>every</em> buy, even a tiny one. Let \( \rho=\text{Reserve}/\text{cash} \). The pool is solvent while
+      \( \rho\le 1 \), but it opens new risk only while \( \rho\le 1/1.2\approx 0.83 \) (any buy makes
+      \( \text{Reserve}_{\text{after}}\gt\text{Reserve}_{\text{before}} \), forcing \( m=1.2 \)). So in the
+      band</p>
+      <div class="eqbox">$$ \tfrac{1}{1.2}\ \lt\ \rho\ \le\ 1\qquad\Longleftrightarrow\qquad \text{cash}\in[\,1.0,\ 1.2\,)\times\text{Reserve} $$</div>
+      <p>the market is solvent yet <strong>frozen for buys at any size</strong>; only trades that
+      <em>shrink</em> the reserve — sells or offsetting bets — can pull \( \rho \) back down and thaw it.</p>
+
+      <div class="ex"><span class="callout-title">Worked example</span>
+      Pool cash \( =110 \), required reserve \( =100 \) (\( \rho=0.91 \)). The market is solvent
+      (cash &gt; reserve), but a buy needs \( \text{cash}\ge 1.2\times\text{Reserve}_{\text{after}}\ge 120 \) —
+      it has only 110, so <strong>every buy is rejected regardless of size</strong>. A holder then sells,
+      cutting the reserve to 90; now \( 1.2\times 90=108\le 110 \) and buying reopens. Nothing was broken —
+      the market was momentarily <em>full</em>.</div>
+
+      <h4>Relaxing the limit — the developer's options</h4>
+      <p>Capacity is \( \text{cash}/\text{risk} \), so there is no free lunch: every way to “bypass” the gate
+      either adds capital, sheds risk, or hands the shortfall to someone. The full treatment with
+      consequences is in <a href="../capacity/expanding-capacity.md">docs/capacity/expanding-capacity.md</a>;
+      in brief:</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Approach</th><th>Idea</th><th>Cost / who bears the tail</th></tr></thead>
+        <tbody>
+          <tr><td>Lower the buffer \( m \)</td><td>1.2 → ~1.05</td><td>thinner cushion; more exposed to MC / belief error</td></tr>
+          <tr><td>Lower \( \alpha_R \)</td><td>reserve at 95% not 99%</td><td>more capacity, more ruin events</td></tr>
+          <tr><td><strong>Soft cap</strong> ★</td><td>price the crowded side up steeply so demand chokes off — cliff → ramp</td><td>none (the price bears it); preserves every guarantee</td></tr>
+          <tr><td>Solvency-factor haircut</td><td>let exposure exceed cash; scale payouts by \( s=\min(1,\,\text{cash}/\text{owed}) \)</td><td>winning traders (payouts become contingent)</td></tr>
+          <tr><td>Insurance fund (V2-H)</td><td>shared pre-funded backstop tops up shortfalls</td><td>the fund (mutualized across markets)</td></tr>
+          <tr><td>Hedging / reinsurance (V2-D)</td><td>offload tail risk → lower reserve per unit of exposure</td><td>external counterparty; basis risk</td></tr>
+          <tr><td>Auto-deleverage</td><td>force-close opposing positions to reclaim capacity</td><td>opposing traders (forced)</td></tr>
+          <tr><td>Bounded contracts</td><td>cap payoff types so tails are known / smaller</td><td>narrower product menu</td></tr>
+          <tr><td>Parimutuel</td><td>winners split losers' stakes (endogenous payouts)</td><td>redefines the product entirely</td></tr>
+        </tbody>
+      </table></div>
+      <p>The <strong>chosen direction is the soft cap</strong>: add a capacity-aware <em>congestion</em> term
+      to the spread (§8) that is ≈ 0 with headroom and rises toward infinity as \( \rho\to 1 \), so the price
+      ramps instead of hitting a wall — while the hard gate above stays as a backstop, so solvency and fixed
+      payouts are untouched. Reference design:</p>
+      <div class="eqbox">$$ \text{congestion}(q)=\kappa\,|\text{Fair}|\cdot\frac{u^{a}}{1-\min(u,\ 1-\varepsilon)},\qquad u=\frac{m\cdot\text{Reserve}_{\text{after}}(q)}{\text{cash}}\quad\big(0\ \text{if }\text{Reserve}_{\text{after}}\le\text{Reserve}_{\text{before}}\big). $$</div>
+      <p class="small">Status: the gate above ships today; the soft cap and the other options are design
+      choices. The soft cap is planned but not yet implemented — see
+      <a href="../capacity/soft-cap.md">docs/capacity/soft-cap.md</a> and its
+      <a href="../capacity/TASKS.md">build plan</a>. Code: <code>tradeMath.ts</code>
+      (<code>solveFill</code>), <code>tradeSvc.ts</code> (acceptance gate), <code>solvency.ts</code>
+      (reserve).</p>
+    </section>
+
+    <!-- =============================================================== -->
     <section id="config">
-      <h2><span class="section-num">15</span>Config parameters<a class="anchor" href="#config">#</a></h2>
+      <h2><span class="section-num">16</span>Config parameters<a class="anchor" href="#config">#</a></h2>
       <p>Every knob, its symbol, default, and what it tunes. Absolute σ-parameters are derived from
       the market’s genesis \( \sigma_0 \).</p>
       <div class="tablewrap"><table>
@@ -1099,7 +1230,7 @@ losses.sort();
 
     <!-- =============================================================== -->
     <section id="numerics">
-      <h2><span class="section-num">16</span>Numerics &amp; rounding<a class="anchor" href="#numerics">#</a></h2>
+      <h2><span class="section-num">17</span>Numerics &amp; rounding<a class="anchor" href="#numerics">#</a></h2>
       <p>The special functions everything rests on (accurate to ~1e-12, validated against known
       values):</p>
       <div class="eqbox">$$ \varphi(x)=\tfrac{1}{\sqrt{2\pi}}e^{-x^2/2},\qquad \Phi(x)=\tfrac12\,\operatorname{erfc}\!\big(-x/\sqrt2\big),\qquad \Phi^{-1}=\text{Acklam + 1 Halley step} $$</div>
@@ -1160,7 +1291,7 @@ losses.sort();
 
     <!-- =============================================================== -->
     <section id="sim">
-      <h2><span class="section-num">17</span>Model validation — the Monte-Carlo harness<a class="anchor" href="#sim">#</a></h2>
+      <h2><span class="section-num">18</span>Model validation — the Monte-Carlo harness<a class="anchor" href="#sim">#</a></h2>
       <p>Beyond per-function unit tests, <code>sim.ts</code> runs the <em>entire</em> loop end-to-end
       against synthetic informed traders to confirm the engine actually <strong>learns</strong>, stays
       calibrated, and earns its spread. A single run draws a hidden truth, lets noisy-but-informed
@@ -1194,7 +1325,7 @@ losses.sort();
       The harness models spread income vs settlement payouts — the P&amp;L that drives calibration and
       profitability — but deliberately does <strong>not</strong> run the reserve / solvency gate (§10);
       that path is exercised by the API integration tests. So it’s a diagnostic and a parameter-tuning
-      tool: vary <code>cfg</code>, compare summaries, and pick the engine defaults of §15.</div>
+      tool: vary <code>cfg</code>, compare summaries, and pick the engine defaults of §16.</div>
     </section>
 
     <div class="footer">
