@@ -125,7 +125,7 @@ market_cfg_history (market_id, cfg jsonb, created_at)   -- adaptive params over 
 ```
 *(`audit_events` already exists from V1 — admin-action / top-up / lifecycle logging — and the V2-5 transaction ledger builds beside it; neither is a legal/compliance artifact.)*
 
-*(Moved to V3: `markets.cfg.hedge_enabled` + the `hedges` table (`id, market_id, contract_ref, qty, reserve_before, reserve_after, created_at`); `positions.quantity` going negative, `margin_accounts`, `liquidations`, `insurance_fund`/`insurance_ledger`, `markets.cfg.margin_rates` — see `docs/v3/TDD.md §`Data Model.)*
+*(Moved to V3: `markets.cfg.hedge_enabled` + the `hedges` table (`id, market_id, contract_ref, qty, reserve_before, reserve_after, created_at`); `positions.quantity` going negative, `margin_accounts`, `liquidations`, `insurance_fund`/`insurance_ledger`, `markets.cfg.margin_rates` — see `docs/v3/TDD.md` §Data Model.)*
 
 ## 10. API Deltas
 ```
@@ -137,13 +137,13 @@ POST /markets/:id/dispute                  open dispute (in window)
 POST /admin/markets/:id/disputes/:d/resolve
 ```
 New WS events: `belief_components_update`, `oracle_report`, `dispute_opened`, `param_adapted`.
-*(The margin/leverage/liquidation and insurance endpoints + `margin_call`/`liquidation`/`insurance_update` WS events move to V3 — see `docs/v3/TDD.md §`API.)*
+*(The margin/leverage/liquidation and insurance endpoints + `margin_call`/`liquidation`/`insurance_update` WS events move to V3 — see `docs/v3/TDD.md` §API.)*
 
 ## 11. Frontend Deltas
 - **Belief chart:** general multi-modal PDF, component legend, fat-tail rendering.
 - **Admin:** belief-kind + component editor at creation; oracle-source config; dispute queue; adaptive-param charts.
 
-*(The admin **hedge book** (reserve before/after), the trade-panel leverage selector / margin / liquidation preview / short toggle, the portfolio margin-health / liquidation-distance / short views, and the insurance-fund dashboard are **V3** — see `docs/v3/TDD.md §`Frontend.)*
+*(The admin **hedge book** (reserve before/after), the trade-panel leverage selector / margin / liquidation preview / short toggle, the portfolio margin-health / liquidation-distance / short views, and the insurance-fund dashboard are **V3** — see `docs/v3/TDD.md` §Frontend.)*
 
 ## 12. Testing (additions)
 - Mixture/t pricing vs MC; component merge/prune/split invariants.

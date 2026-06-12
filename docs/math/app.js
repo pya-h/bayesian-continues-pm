@@ -759,7 +759,7 @@
       PS.curve((x) => lmsrSlip(x, p.b), cW, 2, 90);
       PS.curve((x) => cpmmSlip(x, p.R), cB, 2, 90);
       if (soft) {
-        PS.curve((x) => bmmSlip(x, p.Q), cM, 1.4, 90);            // faint "BMM today" baseline
+        PS.curve((x) => clampS(bmmSlip(x, p.Q)), cM, 1.4, 90);    // faint "BMM today" baseline
         if (xcap < XMAX) PS.vline(xcap, cA, 'capacity', true);
       }
       PS.curve((x) => clampS(bmmSlipEff(x, p, L, soft)), cA, 2.6, 90);

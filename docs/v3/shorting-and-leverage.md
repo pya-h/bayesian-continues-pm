@@ -186,8 +186,8 @@ safety machinery as one unit, opt-in per market, on top of an unchanged 1× core
 ---
 
 ## 6. Pointers
-- V3 engineering design: `docs/v3/TDD.md` (Workstream **B** margin/leverage/shorting, **H** insurance, **L** liquidation, **R** risk UX)
-- V3 build plan: `docs/v3/TASKS.md` (Phases V3-1 … V3-5)
+- V3 engineering design: `docs/v3/TDD.md` (Workstream **B** margin/leverage/shorting, **H** insurance, **D** hedging, **L** liquidation, **R** risk UX)
+- V3 build plan: `docs/v3/TASKS.md` (Phases V3-1 … V3-6)
 - MM-side solvency it does **not** touch: `docs/capacity/` (reserve, capacity gate, soft cap)
 - Spec: `docs/MODEL.md §9.2/§9.3` (margin/leverage/limits), `§8.2` (bankruptcy/negative payoff), `§15.2` (insurance / socialized loss)
 - Why two-sided expression matters for belief: `docs/v2/belief-and-exposure.md`
