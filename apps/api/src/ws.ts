@@ -54,7 +54,7 @@ export const wsRoutes = new Elysia()
       if (identity && identity.role === 'admin') ws.subscribe('system');
       ws.send({ type: 'welcome' });
     },
-    message(ws, raw) {
+    async message(ws, raw) {
       let msg: unknown = raw;
       if (typeof raw === 'string') {
         try {
@@ -65,9 +65,18 @@ export const wsRoutes = new Elysia()
       }
       if (!msg || typeof msg !== 'object') return;
       const { action, topic } = msg as { action?: string; topic?: string };
-      const identity = ws.data.wsIdentity;
+      let identity = ws.data.wsIdentity;
 
       if (action === 'subscribe' && typeof topic === 'string') {
+        // The socket identity is captured at upgrade; for the privileged topic
+        // re-read the role so a demotion/deletion takes effect on new subscriptions
+        // without waiting for a reconnect. (Already-held subscriptions persist for
+        // the socket lifetime — full revocation needs session infra.)
+        if (topic === 'system' && identity) {
+          const fresh = (await userRepo.byId(identity.userId)) as UserRow | undefined;
+          identity = fresh ? { userId: fresh.userId, role: fresh.role } : null;
+          ws.data.wsIdentity = identity;
+        }
         if (!canSubscribeTopic(topic, identity)) {
           ws.send({ type: 'error', topic, error: 'forbidden' });
           return;

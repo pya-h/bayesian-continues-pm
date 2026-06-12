@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { Phi, Rng, erf, normInv, phi } from '../src/numerics.ts';
+import { Phi, Rng, erf, erfc, normInv, phi } from '../src/numerics.ts';
 
 const close = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) <= tol;
 
@@ -94,5 +94,16 @@ describe('Rng (seeded)', () => {
     const variance = s2 / n - mean * mean;
     expect(close(mean, 0, 1e-2)).toBe(true);
     expect(close(variance, 1, 2e-2)).toBe(true);
+  });
+});
+
+describe('special functions at ±∞ (REVIEW-FINDINGS C20)', () => {
+  test('Phi/erf/erfc return exact limits instead of NaN', () => {
+    expect(Phi(Number.POSITIVE_INFINITY)).toBe(1);
+    expect(Phi(Number.NEGATIVE_INFINITY)).toBe(0);
+    expect(erf(Number.POSITIVE_INFINITY)).toBe(1);
+    expect(erf(Number.NEGATIVE_INFINITY)).toBe(-1);
+    expect(erfc(Number.POSITIVE_INFINITY)).toBe(0);
+    expect(erfc(Number.NEGATIVE_INFINITY)).toBe(2);
   });
 });

@@ -6,8 +6,10 @@
 // withdraw $ = ΔS / S_total · NAV (burn at the current price)
 // cash_final = cash − Σ user_payouts (residual pool value at settlement)
 // LP claim = shares / S_total · cash_final
-// Callers guard the degenerate cases (NAV_before ≤ 0 for deposits, S_total = 0)
-// these helpers assume valid inputs and just do the arithmetic.
+// Callers guard the degenerate cases: deposits reject NAV_before ≤ 0 (< 0 at
+// genesis) and take a genesis branch when S_total = 0 (mint at price 1 instead of
+// calling `sharesForDeposit`, which is pro-rata and would mint 0). These helpers
+// assume valid inputs and just do the arithmetic.
 
 import { round8 } from '@bmm/shared';
 

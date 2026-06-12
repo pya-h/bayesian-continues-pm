@@ -11,12 +11,15 @@ export function withMarketLock<T>(marketId: string, fn: () => Promise<T>): Promi
   // Run fn after prev settles (regardless of prev's outcome).
   const next = prev.then(fn, fn);
   // Keep the chain alive but swallow errors so one failure doesn't poison the queue.
-  chains.set(
-    marketId,
-    next.then(
-      () => undefined,
-      () => undefined,
-    ),
+  const tail = next.then(
+    () => undefined,
+    () => undefined,
   );
+  chains.set(marketId, tail);
+  // Prune once idle: if no newer op replaced this tail by the time it settles
+  // drop the entry so the map doesn't grow unboundedly with market count.
+  tail.then(() => {
+    if (chains.get(marketId) === tail) chains.delete(marketId);
+  });
   return next as Promise<T>;
 }

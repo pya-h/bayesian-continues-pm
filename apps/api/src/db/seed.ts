@@ -26,7 +26,7 @@ async function upsertUser(opts: {
     .onConflictDoUpdate({
       target: users.username,
       // keep role/infinite authoritative; refresh password; don't clobber balance
-      set: { role: opts.role, isInfinite: opts.isInfinite, updatedAt: new Date() },
+      set: { passwordHash, role: opts.role, isInfinite: opts.isInfinite, updatedAt: new Date() },
     });
 }
 

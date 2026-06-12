@@ -5,8 +5,8 @@
 // on the admin who dispensed it (−amount). Infinite accounts keep `balanceAfter`
 // null (their balance isn't tracked) and aren't actually mutated.
 
-import { TransactionKind, addMoney, round8 } from '@bmm/shared';
-import { eq } from 'drizzle-orm';
+import { TransactionKind, round8 } from '@bmm/shared';
+import { eq, sql } from 'drizzle-orm';
 import { db } from '../db/client.ts';
 import { type UserRow, userRepo } from '../db/repos.ts';
 import { users } from '../db/schema.ts';
@@ -28,13 +28,16 @@ export async function adminTopup(
     let updated = target;
     let balanceAfter: number | null = null;
     if (!target.isInfinite) {
-      balanceAfter = round8(addMoney(target.balance, amount));
+      // Atomic delta (like refundPositions/claimPayout): the request-time snapshot
+      // can be stale, so writing `snapshot + amount` absolutely would clobber any
+      // concurrent trade/claim/top-up that committed in between.
       const rows = await tx
         .update(users)
-        .set({ balance: balanceAfter, updatedAt: new Date() })
+        .set({ balance: sql`${users.balance} + ${amount}`, updatedAt: new Date() })
         .where(eq(users.userId, target.userId))
         .returning();
       updated = (rows[0] as UserRow) ?? target;
+      balanceAfter = round8(Number(updated.balance));
     }
 
     // Funded user's view: money entered the platform for them.
@@ -47,12 +50,23 @@ export async function adminTopup(
       refType: 'topup',
       metadata: { by: admin.username },
     });
-    // Admin's view: they dispensed it (record line; admin is the infinite source).
+    // Admin's view: they dispensed it. An infinite admin is the untracked source
+    // (balanceAfter null, no mutation); a non-infinite admin is actually debited
+    // so the grant row's books balance.
+    let adminBalanceAfter: number | null = null;
+    if (!admin.isInfinite) {
+      const arows = await tx
+        .update(users)
+        .set({ balance: sql`${users.balance} - ${amount}`, updatedAt: new Date() })
+        .where(eq(users.userId, admin.userId))
+        .returning();
+      adminBalanceAfter = round8(Number((arows[0] as UserRow | undefined)?.balance ?? 0));
+    }
     await recordTx(tx, {
       userId: admin.userId,
       kind: TransactionKind.ADMIN_GRANT,
       amount: round8(-amount),
-      balanceAfter: admin.isInfinite ? null : round8(admin.balance),
+      balanceAfter: adminBalanceAfter,
       counterpartyId: target.userId,
       refType: 'topup',
       metadata: { to: target.username },

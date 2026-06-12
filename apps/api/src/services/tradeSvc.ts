@@ -409,6 +409,18 @@ export async function executeTrade(
         },
       });
 
+      // Audit inside the tx: a post-commit insert failure would 5xx an executed
+      // trade, and (with no idempotency key on the route) invite a double-trade retry.
+      await writeAudit(
+        {
+          actorId: actor.userId,
+          action: 'trade_execute',
+          targetId: marketId,
+          payload: { contractKey: key, side, q: filledQ, execPrice: round8(execPrice) },
+        },
+        tx,
+      );
+
       return {
         tradeId,
         contractId,
@@ -486,18 +498,6 @@ export async function executeTrade(
       at: new Date().toISOString(),
     });
   }
-
-  await writeAudit({
-    actorId: actor.userId,
-    action: 'trade_execute',
-    targetId: marketId,
-    payload: {
-      contractKey: key,
-      side: result.side,
-      q: result.filledQ,
-      execPrice: result.execPrice,
-    },
-  });
 
   return result;
 }
@@ -605,6 +605,9 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
       const fills: SellAllFill[] = [];
       let totalProceeds = 0;
       let totalRealizedPnl = 0;
+      // Largest signed relative fair move across the closed contracts — feeds the
+      // rapid-move breaker post-commit (passing 0 made it blind to sell-alls).
+      let maxPriceMovePct = 0;
 
       for (const p of toClose) {
         const spec = specFromRow(p.type, p.params as Record<string, number>);
@@ -727,6 +730,10 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
         const proceeds = round8(-totalCost);
         totalProceeds = round8(totalProceeds + proceeds);
         totalRealizedPnl = round8(totalRealizedPnl + closedRealized);
+        if (Math.abs(fair) > 1e-9) {
+          const move = (markAfter - fair) / Math.abs(fair);
+          if (Math.abs(move) > Math.abs(maxPriceMovePct)) maxPriceMovePct = move;
+        }
         liveBelief = newBelief;
 
         affected.set(key, { spec, fair: price(spec, newBelief) });
@@ -766,6 +773,17 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
           .where(eq(users.userId, u.userId));
       }
 
+      // Audit inside the tx (same reasoning as the single-trade path).
+      await writeAudit(
+        {
+          actorId: actor.userId,
+          action: 'trade_sell_all',
+          targetId: marketId,
+          payload: { count: fills.length, totalProceeds },
+        },
+        tx,
+      );
+
       return {
         marketId,
         count: fills.length,
@@ -775,6 +793,7 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
         cash: liveCash,
         reserveRequired: reserveAfter,
         balance: newBalance,
+        priceMovePct: maxPriceMovePct,
         beliefAfter: { mu: round8(liveBelief.mean()), sigma: round8(liveBelief.stddev()) },
       };
     }),
@@ -803,7 +822,7 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
   const alerts = evalBreakers({
     sigma: result.beliefAfter.sigma,
     sigma0,
-    priceMovePct: 0,
+    priceMovePct: result.priceMovePct,
     cash: result.cash,
     reserve: result.reserveRequired,
   });
@@ -815,17 +834,6 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
       at: new Date().toISOString(),
     });
   }
-
-  await writeAudit({
-    actorId: actor.userId,
-    action: 'trade_sell_all',
-    targetId: marketId,
-    payload: {
-      count: result.count,
-      totalProceeds: result.totalProceeds,
-      totalRealizedPnl: result.totalRealizedPnl,
-    },
-  });
 
   return result;
 }

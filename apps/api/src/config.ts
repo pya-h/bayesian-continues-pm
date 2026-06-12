@@ -10,10 +10,21 @@ function num(key: string, fallback: number): number {
   return n;
 }
 
+function jwtSecret(): string {
+  const v = process.env.JWT_SECRET;
+  if (v) return v;
+  // A hardcoded fallback is a dev convenience only — in production every token
+  // would be forgeable by anyone who reads the source. Refuse to boot.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET must be set in production');
+  }
+  return 'dev-insecure-secret-change-me';
+}
+
 export const config = {
   port: num('PORT', 4000),
   webOrigin: process.env.WEB_ORIGIN ?? 'http://localhost:5173',
-  jwtSecret: process.env.JWT_SECRET ?? 'dev-insecure-secret-change-me',
+  jwtSecret: jwtSecret(),
   admin: {
     username: process.env.ADMIN_USERNAME ?? 'admin',
     // password is only strictly required when seeding; tolerate absence at boot.

@@ -116,3 +116,66 @@ describe('Student-t pricing via quadrature fallback (V2-1)', () => {
     expect(d > 0).toBe(true); // raising μ raises P(θ > strike)
   });
 });
+
+describe('Student-t closed-form pricing (REVIEW-FINDINGS C1/C10)', () => {
+  // Low ν + sd=20 is exactly the regime where the old ±10σ quadrature under-priced
+  // CALL/PUT by 2–8% and the jump-payoff cell noise wrecked dPriceDMu.
+  const t = StudentTBelief.fromVariance(3, 100, 400);
+
+  test('binary/spread prices are exactly the cdf identities', () => {
+    expect(price({ type: 'BINARY_CALL', strike: 110 }, t)).toBe(1 - t.cdf(110));
+    expect(price({ type: 'BINARY_PUT', strike: 110 }, t)).toBe(t.cdf(110));
+    expect(price({ type: 'SPREAD', lower: 95, upper: 105 }, t)).toBe(t.cdf(105) - t.cdf(95));
+  });
+
+  test('CALL matches the analytic E[(X−K)+] reference and converged quadrature', () => {
+    // exact: s·[f_std(d)·(ν+d²)/(ν−1) − d·(1−F_std(d))], independently re-derived
+    const K = 110;
+    const s = Math.sqrt(t.scale2);
+    const d = (K - t.mu) / s;
+    const exact = s * (s * t.pdf(K) * ((t.nu + d * d) / (t.nu - 1)) - d * (1 - t.cdf(K)));
+    const got = price({ type: 'CALL', strike: K }, t);
+    expect(approx(got, exact, 1e-12)).toBe(true);
+    // old quadrature gave ≈2.781 here (−2.1%); the converged value is ≈2.8418
+    expect(approx(got, 2.8418, 2e-3)).toBe(true);
+  });
+
+  test('put-call parity holds at low ν: call − put = μ − K', () => {
+    for (const K of [80, 100, 110, 130]) {
+      const c = price({ type: 'CALL', strike: K }, t);
+      const p = price({ type: 'PUT', strike: K }, t);
+      expect(approx(c - p, t.mu - K, 1e-9)).toBe(true);
+    }
+  });
+
+  test('dPriceDMu matches a fine central difference of the (exact) price', () => {
+    const h = 1e-5;
+    const specs: ContractSpec[] = [
+      { type: 'CALL', strike: 108 },
+      { type: 'PUT', strike: 92 },
+      { type: 'BINARY_CALL', strike: 99.25 },
+      { type: 'BINARY_PUT', strike: 104 },
+      { type: 'SPREAD', lower: 95, upper: 105 },
+    ];
+    for (const spec of specs) {
+      const up = price(spec, new StudentTBelief(t.nu, t.mu + h, t.scale2));
+      const dn = price(spec, new StudentTBelief(t.nu, t.mu - h, t.scale2));
+      const numeric = (up - dn) / (2 * h);
+      expect(approx(dPriceDMu(spec, t), numeric, 1e-6)).toBe(true);
+    }
+  });
+
+  test('binary dPriceDMu is the t pdf at the strike (location-family identity)', () => {
+    expect(dPriceDMu({ type: 'BINARY_CALL', strike: 110 }, t)).toBe(t.pdf(110));
+    expect(dPriceDMu({ type: 'BINARY_PUT', strike: 110 }, t)).toBe(-t.pdf(110));
+  });
+
+  test('quantile round-trips in the extreme tails (REVIEW-FINDINGS C21)', () => {
+    // polynomial tails: the old fixed ±60·sd bracket clipped p beyond ~1−1e-6 at ν=3
+    for (const p of [1e-9, 1e-7, 1 - 1e-7, 1 - 1e-9]) {
+      const q = t.quantile(p);
+      expect(Number.isFinite(q)).toBe(true);
+      expect(approx(t.cdf(q), p, Math.max(1e-12, p * 1e-6))).toBe(true);
+    }
+  });
+});

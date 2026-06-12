@@ -2,6 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { GaussianBelief } from '../src/gaussian.ts';
 import { price } from '../src/pricing.ts';
 import { positionStats, secondMoment } from '../src/stats.ts';
+import { MixtureBelief } from '../src/mixture.ts';
+import { StudentTBelief } from '../src/student_t.ts';
+import type { ContractSpec } from '../src/types.ts';
 
 const approx = (a: number, b: number, tol: number) => Math.abs(a - b) <= tol;
 
@@ -72,5 +75,54 @@ describe('positionStats', () => {
     const spec = { type: 'CALL', strike: 65000 } as const;
     const s = positionStats({ spec, quantity: 10, costBasis: 10 * 2000 }, belief);
     expect(s.cvar95 <= s.var95).toBe(true);
+  });
+});
+
+describe('secondMoment — non-Gaussian closed forms (REVIEW-FINDINGS C5/C14)', () => {
+  test('mixture binary/spread second moment equals the (exact) price: f² = f', () => {
+    const m = new MixtureBelief([
+      { pi: 0.5, mu: 90, sigma2: 25 },
+      { pi: 0.5, mu: 110, sigma2: 25 },
+    ]);
+    for (const spec of [
+      { type: 'BINARY_CALL', strike: 100 } as ContractSpec,
+      { type: 'BINARY_PUT', strike: 110 } as ContractSpec,
+      { type: 'SPREAD', lower: 95, upper: 105 } as ContractSpec,
+    ]) {
+      expect(secondMoment(spec, m)).toBe(price(spec, m));
+    }
+  });
+
+  test('far low-weight mixture mode is not dropped (was 0 vs exact ≈12.505)', () => {
+    const m = new MixtureBelief([
+      { pi: 0.995, mu: 0, sigma2: 1 },
+      { pi: 0.005, mu: 60, sigma2: 1 },
+    ]);
+    const m2 = secondMoment({ type: 'CALL', strike: 10 }, m);
+    // exact: 0.005·E[(X−10)²·1{X>10}] under N(60,1) ≈ 0.005·(2500+1) = 12.505
+    expect(approx(m2, 12.505, 0.01)).toBe(true);
+  });
+
+  test('LINEAR second moment is mean²+var for mixtures and t', () => {
+    const m = new MixtureBelief([
+      { pi: 0.7, mu: 95, sigma2: 9 },
+      { pi: 0.3, mu: 115, sigma2: 16 },
+    ]);
+    expect(approx(secondMoment({ type: 'LINEAR' }, m), m.mean() ** 2 + m.variance(), 1e-9)).toBe(true);
+    const t = StudentTBelief.fromVariance(4, 50, 100);
+    expect(approx(secondMoment({ type: 'LINEAR' }, t), 50 ** 2 + 100, 1e-9)).toBe(true);
+  });
+
+  test('student-t CALL/PUT second moment matches a tail-aware reference at low ν', () => {
+    // ±10σ quadrature truncates the polynomial tail (~1% at ν=2.5); the
+    // truncated-moment closed form does not. Reference values computed with a
+    // log-space far-tail integration to 1e13.
+    const t = StudentTBelief.fromVariance(2.5, 100, 400);
+    expect(approx(secondMoment({ type: 'CALL', strike: 112 }, t), 121.5795, 0.01)).toBe(true);
+    expect(approx(secondMoment({ type: 'CALL', strike: 90 }, t), 370.3597, 0.01)).toBe(true);
+    // PUT mirror: E[(K−X)+²] = Var + (μ−K)² − E[(X−K)+²]
+    const callSq = secondMoment({ type: 'CALL', strike: 112 }, t);
+    const putSq = secondMoment({ type: 'PUT', strike: 112 }, t);
+    expect(approx(callSq + putSq, t.variance() + (100 - 112) ** 2, 1e-6)).toBe(true);
   });
 });

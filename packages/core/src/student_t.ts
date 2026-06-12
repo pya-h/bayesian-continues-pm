@@ -75,6 +75,14 @@ function betai(a: number, b: number, x: number): number {
   return 1 - (bt * betacf(b, a, 1 - x)) / b;
 }
 
+// Standard Student-t CDF for ANY df > 0 (no finite-variance restriction — callers
+// like the truncated-moment identities in stats.ts need F_{ν−2} with ν−2 ≤ 2).
+export function studentTCdfStd(df: number, x: number): number {
+  const z = df / (df + x * x);
+  const ib = 0.5 * betai(df / 2, 0.5, z);
+  return x >= 0 ? 1 - ib : ib;
+}
+
 function gammaSample(shape: number, rng: Rng): number {
   if (shape < 1) {
     const u = rng.nextOpen();
@@ -158,11 +166,19 @@ export class StudentTBelief implements BeliefModel {
   quantile(p: number): number {
     if (p <= 0) return Number.NEGATIVE_INFINITY;
     if (p >= 1) return Number.POSITIVE_INFINITY;
-    // cdf is continuous and strictly increasing → bisect; bracket generously.
+    // cdf is continuous and strictly increasing → bisect. The tails are polynomial
+    // so no fixed ±k·sd bracket is safe in the extremes (for ν→2 the quantile/sd
+    // ratio outgrows any constant); expand geometrically until the bracket holds p.
     const sd = this.stddev();
     let lo = this.mu - 60 * sd;
     let hi = this.mu + 60 * sd;
-    for (let i = 0; i < 100; i++) {
+    for (let span = 60 * sd; this.cdf(hi) < p && Number.isFinite(hi); span *= 4) {
+      hi = this.mu + span * 4;
+    }
+    for (let span = 60 * sd; this.cdf(lo) > p && Number.isFinite(lo); span *= 4) {
+      lo = this.mu - span * 4;
+    }
+    for (let i = 0; i < 200; i++) {
       const mid = (lo + hi) / 2;
       if (this.cdf(mid) < p) lo = mid;
       else hi = mid;

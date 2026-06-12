@@ -152,11 +152,20 @@ export async function deposit(
       const belief = loadBelief(m);
       const book = await loadBookTx(tx, marketId);
       const navBefore = round8(m.cash - expectedLiability(book, belief));
-      if (navBefore <= 0) {
+      // Genesis / re-genesis: with no shares outstanding (e.g. the last LP withdrew
+      // everything while the market stayed OPEN) there is no pro-rata price to
+      // dilute — mint at share price 1, like market creation. Without this branch
+      // the `navBefore <= 0` guard bricked the market forever (every deposit 409s
+      // every buy fails the solvency gate on cash = 0), and `sharesForDeposit`
+      // would mint 0 shares for a real debit.
+      const genesis = m.lpSharesTotal <= 0;
+      if (genesis ? navBefore < 0 : navBefore <= 0) {
         throw new HttpError(409, 'Pool NAV is non-positive; deposits are paused');
       }
 
-      const sharesMinted = sharesForDeposit(amount, m.lpSharesTotal, navBefore);
+      const sharesMinted = genesis
+        ? round8(amount)
+        : sharesForDeposit(amount, m.lpSharesTotal, navBefore);
       await tx
         .update(markets)
         .set({

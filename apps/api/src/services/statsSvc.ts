@@ -13,9 +13,11 @@
 // Reads only — no locks, no mutations.
 
 import {
+  type BeliefModel,
   type ContractSpec,
   type EngineConfig,
   GaussianBelief,
+  StudentTBelief,
   computeSpread,
   expectedLiability,
   payoff,
@@ -39,6 +41,27 @@ import { loadBelief } from '../lib/belief.ts';
 import { specFromRow } from '../lib/contract.ts';
 import { HttpError } from '../lib/errors.ts';
 import { loadBook } from './marketView.ts';
+
+// Reconstruct the belief at a historical (μ, σ) point for price-history / mark-path
+// charts. `belief_updates` stores only the summary μ/σ, so
+// • gaussian — exact
+// • student_t — exact too: ν is fixed for the market's life, and (ν, μ, σ) fully
+// determine the state (scale² = σ²·(ν−2)/ν)
+// • mixture — NOT reconstructible from μ/σ (components aren't stored historically)
+// falls back to the same-moments Gaussian, flagged via `gaussianApprox` on the
+// series so the client can label it.
+function historicalBelief(
+  beliefKind: string,
+  liveBelief: BeliefModel,
+  mu: number,
+  sigma: number,
+): BeliefModel {
+  if (beliefKind === 'student_t') {
+    const nu = (liveBelief as StudentTBelief).nu;
+    return StudentTBelief.fromVariance(nu, mu, sigma * sigma);
+  }
+  return new GaussianBelief(mu, sigma * sigma);
+}
 import { aggregatePnl, ci80, inCi80, seriesStats } from './statsMath.ts';
 
 const LINEAR: ContractSpec = { type: 'LINEAR' };
@@ -77,7 +100,8 @@ export async function marketStats(marketId: string): Promise<MarketStats> {
       userId: trades.userId,
       quantity: trades.quantity,
       totalCost: trades.totalCost,
-      spreadTotal: trades.spreadTotal,
+      execPrice: trades.execPrice,
+      fairPrice: trades.fairPrice,
     })
     .from(trades)
     .where(eq(trades.marketId, marketId));
@@ -86,7 +110,10 @@ export async function marketStats(marketId: string): Promise<MarketStats> {
   const traders = new Set<string>();
   for (const t of tradeRows) {
     volume += Math.abs(t.totalCost);
-    spreadIncome += t.spreadTotal * Math.abs(t.quantity);
+    // What the MM actually captured: |exec − fair|·|q|. Using the quoted
+    // spreadTotal overstates income when a sell's bid was floored at 0
+    // (exec = max(0, fair − spread) keeps less than the full spread).
+    spreadIncome += Math.abs(t.execPrice - t.fairPrice) * Math.abs(t.quantity);
     traders.add(t.userId);
   }
 
@@ -144,7 +171,11 @@ export interface BeliefPoint {
 export interface MarketHistory {
   marketId: string;
   beliefHistory: BeliefPoint[];
-  priceHistory: { contractKey: string; points: { t: Date; fair: number }[] } | null;
+  priceHistory: {
+    contractKey: string;
+    points: { t: Date; fair: number }[];
+    gaussianApprox: boolean;
+  } | null;
 }
 
 // Belief (μ,σ) time series + optional fair-price series for one contract.
@@ -179,12 +210,14 @@ export async function marketHistory(
       .limit(1);
     if (crows[0]) {
       const spec = specFromRow(crows[0].type, crows[0].params);
+      const liveBelief = loadBelief(m);
       priceHistory = {
         contractKey,
         points: beliefHistory.map((p) => ({
           t: p.t,
-          fair: round8(price(spec, new GaussianBelief(p.mu, p.sigma * p.sigma))),
+          fair: round8(price(spec, historicalBelief(m.beliefKind, liveBelief, p.mu, p.sigma))),
         })),
+        gaussianApprox: m.beliefKind === 'mixture',
       };
     }
   }
@@ -362,7 +395,9 @@ export async function positionDetail(userId: string, contractId: string): Promis
     .where(eq(beliefUpdates.marketId, c.marketId))
     .orderBy(asc(beliefUpdates.createdAt));
   const markPoints = updates.map((u) =>
-    round8(p.quantity * price(spec, new GaussianBelief(u.mu, u.sigma * u.sigma)) - costBasis),
+    round8(
+      p.quantity * price(spec, historicalBelief(m.beliefKind, belief, u.mu, u.sigma)) - costBasis,
+    ),
   );
   const ss = seriesStats(markPoints);
 

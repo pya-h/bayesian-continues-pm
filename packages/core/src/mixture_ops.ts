@@ -106,13 +106,15 @@ export function manageMixture(
   return new MixtureBelief(merged);
 }
 
-// Split one component into two seeded halves at μ ± σ, sharing its weight. Optional
-// (off by default); lets a single over-stretched component grow into two modes.
+// Split one component into two seeded halves at μ ± σ/√2, sharing its weight.
+// Moment-preserving like mergeTwo: halves of variance σ²/2 offset by ±σ/√2 keep the
+// mean and give combined variance σ²/2 + σ²/2 = σ². Optional (off by default)
+// lets a single over-stretched component grow into two modes.
 export function splitComponent(c: MixtureComponent): [MixtureComponent, MixtureComponent] {
-  const sigma = Math.sqrt(c.sigma2);
+  const offset = Math.sqrt(c.sigma2 / 2);
   const halfVar = Math.max(c.sigma2 / 2, 1e-12);
   return [
-    { pi: c.pi / 2, mu: c.mu - sigma / 2, sigma2: halfVar },
-    { pi: c.pi / 2, mu: c.mu + sigma / 2, sigma2: halfVar },
+    { pi: c.pi / 2, mu: c.mu - offset, sigma2: halfVar },
+    { pi: c.pi / 2, mu: c.mu + offset, sigma2: halfVar },
   ];
 }

@@ -48,6 +48,37 @@ function priceUnderGaussian(spec: ContractSpec, mu: number, sigma2: number): num
   }
 }
 
+// Fair price under a Student-t(ν, μ, s²) belief — closed forms via the t pdf/cdf.
+// Quadrature is wrong for t on both payoff families: binaries/spreads put the jump
+// inside a Simpson cell (O(h) error that the central-difference ∂P/∂μ then amplifies
+// to ±100%+), and unbounded CALL/PUT keep accumulating polynomial-tail mass past any
+// finite window (−2% at ν=3 to −16% at ν=2.1). CALL uses
+// E[(X−K)+] = s²·pdf(K)·(ν+d²)/(ν−1) − (K−μ)·(1−F(K)), d=(K−μ)/s (valid for ν>1
+// we require ν>2); PUT follows by parity. Only the smooth GAUSSIAN payoff still
+// integrates numerically (bounded, no closed form under t).
+function priceUnderStudentT(spec: ContractSpec, t: StudentTBelief): number {
+  switch (spec.type) {
+    case 'LINEAR':
+      return t.mu;
+    case 'CALL':
+    case 'PUT': {
+      const K = spec.strike as number;
+      const s = Math.sqrt(t.scale2);
+      const d = (K - t.mu) / s;
+      const call = t.scale2 * t.pdf(K) * ((t.nu + d * d) / (t.nu - 1)) - (K - t.mu) * (1 - t.cdf(K));
+      return spec.type === 'CALL' ? call : call - (t.mu - K);
+    }
+    case 'BINARY_CALL':
+      return 1 - t.cdf(spec.strike as number);
+    case 'BINARY_PUT':
+      return t.cdf(spec.strike as number);
+    case 'SPREAD':
+      return t.cdf(spec.upper as number) - t.cdf(spec.lower as number);
+    default:
+      return expectF((x) => payoff(spec, x), t);
+  }
+}
+
 // ∂Price/∂μ under a SINGLE Gaussian N(μ, σ²).
 function dPriceDMuUnderGaussian(spec: ContractSpec, mu: number, sigma2: number): number {
   const sigma = Math.sqrt(sigma2);
@@ -93,10 +124,13 @@ export function price(spec: ContractSpec, belief: BeliefModel): number {
     for (const c of m.components) sum += c.pi * priceUnderGaussian(spec, c.mu, c.sigma2);
     return sum;
   }
+  if (belief.kind === 'student_t') {
+    return priceUnderStudentT(spec, belief as StudentTBelief);
+  }
   // LINEAR is E[θ] = mean exactly for any belief — avoids tail-truncation bias the
   // finite quadrature window would introduce on a fat-tailed belief.
   if (spec.type === 'LINEAR') return belief.mean();
-  // Unknown / non-closed-form kind (e.g. Student-t): numerically integrate the payoff.
+  // Unknown / non-closed-form kind: numerically integrate the payoff.
   return expectF((t) => payoff(spec, t), belief);
 }
 
@@ -115,12 +149,31 @@ export function dPriceDMu(spec: ContractSpec, belief: BeliefModel): number {
     return sum;
   }
   if (belief.kind === 'student_t') {
-    // t is a location family in μ; central-difference the price wrt a mean shift.
+    // t is a location family in μ: ∂E[f(X)]/∂μ has exact identities via pdf/cdf for
+    // every kinked/jump payoff. Central-differencing the quadrature price here is a
+    // trap — the jump's O(h) cell noise divided by 2h gave ∂P/∂μ errors of ±100%+.
     const t = belief as StudentTBelief;
-    const h = Math.max(1e-3, t.stddev() * 1e-3);
-    const up = price(spec, new StudentTBelief(t.nu, t.mu + h, t.scale2));
-    const dn = price(spec, new StudentTBelief(t.nu, t.mu - h, t.scale2));
-    return (up - dn) / (2 * h);
+    switch (spec.type) {
+      case 'LINEAR':
+        return 1;
+      case 'CALL':
+        return 1 - t.cdf(spec.strike as number);
+      case 'PUT':
+        return -t.cdf(spec.strike as number);
+      case 'BINARY_CALL':
+        return t.pdf(spec.strike as number);
+      case 'BINARY_PUT':
+        return -t.pdf(spec.strike as number);
+      case 'SPREAD':
+        return t.pdf(spec.lower as number) - t.pdf(spec.upper as number);
+      default: {
+        // Smooth payoff (GAUSSIAN): central-difference the (quadrature) price.
+        const h = Math.max(1e-3, t.stddev() * 1e-3);
+        const up = price(spec, new StudentTBelief(t.nu, t.mu + h, t.scale2));
+        const dn = price(spec, new StudentTBelief(t.nu, t.mu - h, t.scale2));
+        return (up - dn) / (2 * h);
+      }
+    }
   }
   throw new Error(`dPriceDMu: unsupported belief kind ${belief.kind}`);
 }

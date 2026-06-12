@@ -28,9 +28,72 @@ doesn't catch it.
 
 ---
 
+## Fix plan & progress
+
+All open findings are being fixed in six phases of roughly equal effort (heavy bugs sit
+alone or in pairs; light ones are batched). Each item is ticked here the moment its fix
+lands with tests green.
+
+**Phase 1 — Core pricing & numerics**
+- [x] C10 — Student-t binary/spread closed forms + exact `∂P/∂μ` identities (fixed 2026-06-12; mirrored in `docs/math/math.js`, parity 9e-14; regression tests added)
+- [x] C1 — Student-t CALL/PUT tail truncation (fixed via analytic `E[(X−K)+]` closed form + put-call parity — quadrature eliminated entirely for t jumps/kinks)
+- [x] C6 — `extractSignal` intensity clamped to ≤ 1 (`signal.ts`)
+- [x] C20 — `erfc(±∞)` guard → `Phi/erf/erfc(±∞)` exact limits
+- [x] C21 — Student-t quantile bracket expands geometrically; round-trips at p = 1e-9 … 1−1e-9
+
+**Phase 2 — Core stats/mixture + shared** *(all fixed 2026-06-12)*
+- [x] C5 — binary/spread second moment now `price()` (f²=f) for **every** kind — exact, kind-independent shortcut hoisted above the kind switch
+- [x] C14 — mixture CALL/PUT second moment per-component (each mode gets its own ±10σ_k window; repro now returns 12.505 exactly). Bonus: student-t CALL/PUT second moment got an exact truncated-moment closed form (`I₂ = d·I₁ + ν/(ν−2)·(1−F_{ν−2}(d√((ν−2)/ν)))`, verified vs tail-aware reference to 1e-6 at ν=2.5)
+- [x] C25 — `splitComponent` now moment-preserving (halves at μ ± σ/√2, σ²/2) and the docstring matches
+- [x] C26 — shared `BeliefKind` ships `MIXTURE`/`STUDENT_T`
+- [x] C27 — `formatMoney` docstring states fixed-dp behavior
+- [x] C22 — precision ceiling (~9e7) + inexact-tie behavior documented in the `money.ts` header (float-inherent; fix-by-documentation as recommended)
+- [x] C8 — `maxExecutable` marked `@internal` reference-only, pointing at the live `solveFill`
+
+**Phase 3 — API money & lifecycle** *(all fixed 2026-06-12)*
+- [x] C9 — cancel now distributes the post-refund pool to LPs pro-rata inside the same tx (lpLedger `claim` rows + `LP_CLAIM` transactions, `claimed` flags, audit payload carries `{refunded, lpReturned, shortfall}`); market-ledger view treats CANCELLED-market claim rows as cash-affecting so the statement still reconciles (at 0)
+- [x] C15 — cancel floors pool cash at 0; any refund-over-cash gap is surfaced as `shortfall` in the audit instead of booking negative cash
+- [x] C11 — `deposit` takes a genesis branch when `lpSharesTotal ≤ 0` (mint at price 1, gate on `nav < 0` instead of `≤ 0`) — an emptied pool is re-fundable and the revived market trades again (integration-tested)
+- [x] C4 — admin top-up writes an atomic SQL delta (`balance = balance + amount`) and reads `balanceAfter` from `.returning()` — no more lost updates from stale snapshots
+
+**Phase 4 — API robustness**
+- [ ] C16 — seed refreshes admin password
+- [ ] C17 — duplicate-registration race → 409
+- [ ] C18 — audit writes inside the tx (trade + transition)
+- [ ] C19 — history reconstruction kind-aware (t exact; mixture labeled approximate)
+- [ ] C28 — spread income clamped to what the floored bid actually captured
+- [ ] C29 — sell-all passes real `priceMovePct` to breakers
+- [ ] C30 — market queue pruned
+- [ ] C31 — non-infinite admin grant debits/records consistently
+- [ ] C33 — `JWT_SECRET` fails hard outside dev
+- [ ] C34 — WS identity re-checked (role changes take effect)
+
+**Phase 5 — Web correctness**
+- [ ] C2 — win-chance priced from the real belief model
+- [ ] C3 — belief shape refreshed on others' trades (non-Gaussian markets)
+- [ ] C12 — market-page error state rendered (no infinite spinner)
+- [ ] C13 — trade button gated on a live quote (slippage guard can't silently drop)
+- [ ] C23 — API error parsing tolerant of non-JSON bodies
+- [ ] C24 — login honors the deep-link redirect target
+
+**Phase 6 — Web nits + docs**
+- [ ] C7 — Fair (mid) row shows the outcome unit
+- [ ] C35 — history-chart duplicate keys at n=2
+- [ ] C36 — mixture mode markers on the mixture curve
+- [ ] C37 — μ line hidden when panned out of domain
+- [ ] C38 — history invalidation key made a true prefix
+- [ ] C39 — "max" button no longer floors fractional sells
+- [ ] C40 — prefs reach memoized components
+- [ ] C41 — §20 legend swatch gated on the soft-cap toggle
+- [ ] C32 — v2/TDD §10 spec drift corrected
+- [ ] O1 — docs/README index completed
+
+---
+
 ## Status of pass-1 findings — all re-verified
 
-**C1–C8: every one CONFIRMED, none fixed yet.** Three corrections to the records:
+**C1–C8: every one CONFIRMED** (none were fixed as of the pass-2 audit; see the
+fix-plan checklist above for current status). Three corrections to the records:
 
 - **C1** — magnitudes reproduce exactly (−2.14% at ν=3, −8.36% at ν=2.1, both at sd=20,
   matching the original table) and are *conservative*: at sd=10 the CALL errors grow to
@@ -69,7 +132,7 @@ tick-label band (verified: `bmmSlip(1200, Q=800) = 0.607 > smax = 0.56`). Now wr
 
 ## New — Open, High
 
-### C9 · [High] Cancelling a market permanently strands all LP funds
+### C9 · [High — fixed 2026-06-12] Cancelling a market permanently strands all LP funds
 `apps/api/src/services/marketSvc.ts:210-214` — the `cancel` branch calls `refundPositions`
 (traders' cost basis, `settleSvc.ts:73-114`) and patches `cash`, but never touches
 `lp_positions`/`lp_ledger`. There is **no code path out**: `lpSvc.withdraw` requires
@@ -89,7 +152,7 @@ any user (e.g. seeded alice/bob with real 10k balances) can be an LP today.
 LPs pro-rata by shares (or allow `lp/claim` on CANCELLED with `cashFinal` = post-refund
 cash), with ledger rows.
 
-### C10 · [High] Student-t binary/spread priced by quadrature across a discontinuity → `∂P/∂μ` noise up to ±234% → adverse-selection spread 3× too wide (or zero)
+### C10 · [High — fixed 2026-06-12] Student-t binary/spread priced by quadrature across a discontinuity → `∂P/∂μ` noise up to ±234% → adverse-selection spread 3× too wide (or zero)
 `packages/core/src/pricing.ts:104-105` routes `student_t` BINARY_CALL/BINARY_PUT/SPREAD
 through `expectF` (Simpson quadrature) even though exact closed forms exist via
 `belief.cdf` — and `expectF`'s own docstring (`:139-143`) says discontinuous payoffs must
@@ -125,7 +188,7 @@ is fine — verified 2.5e-5 worst error.)
 
 ## New — Open, Medium
 
-### C11 · [Medium] Last LP can withdraw everything and permanently brick an OPEN market
+### C11 · [Medium — fixed 2026-06-12] Last LP can withdraw everything and permanently brick an OPEN market
 With no open MM shorts, `requiredReserve = 0` so `maxCashOut = cash` (`lpSvc.ts:292-297`)
 and the last LP (including the creator burning the genesis R₀ shares — no carve-out, no
 min-remaining floor) can take the pool to `cash = 0, lpSharesTotal = 0, nav = 0` on an OPEN
@@ -172,7 +235,7 @@ guard is inactive).
 
 ## New — Open, Low
 
-### C14 · [Low — downgraded from Medium] Mixture `secondMoment` window can drop a far low-weight mode entirely
+### C14 · [Low — downgraded from Medium — fixed 2026-06-12] Mixture `secondMoment` window can drop a far low-weight mode entirely
 `packages/core/src/stats.ts:40` — non-Gaussian CALL/PUT second moments use `expectF` with
 window mean ± 10·*total* stddev; a component with π ≲ 1% contributes ~√π·d to total σ, so a
 far mode can sit wholly outside. Repro: {π=.995, μ=0, σ²=1} + {π=.005, μ=60, σ²=1}, CALL
@@ -187,7 +250,7 @@ does), or compute per-component closed forms. (Side observation: the first trade
 silently deletes a 0.5% far mode, moving that market's fair from 0.25 to ~0.0008 — an
 authoring footgun worth a creation-time π floor.)
 
-### C15 · [Low] Cancel can drive `markets.cash` negative
+### C15 · [Low — fixed 2026-06-12] Cancel can drive `markets.cash` negative
 `marketSvc.ts:212-213` — `patch.cash = subMoney(m.cash, refunded)` has no floor, and
 refunds (cost basis at avg entry) can exceed pool cash, e.g. when the belief moved against
 traders (reserve ≈ 0) and an LP withdrew mark-to-model profit before the cancel. Users are
@@ -223,21 +286,21 @@ mixture/student_t markets. Server-side companion to C2/C3. Partially structural 
 documented as an approximation anywhere. **Fix:** persist a belief snapshot per update, or
 label the series Gaussian-approximate.
 
-### C20 · [Low] `Phi(±∞)`, `erf(±∞)`, `erfc(±∞)` return NaN
+### C20 · [Low — fixed 2026-06-12] `Phi(±∞)`, `erf(±∞)`, `erfc(±∞)` return NaN
 `packages/core/src/numerics.ts:39-57` — with z = ∞ the Lentz iteration computes
 `∞·0 = NaN` and never converges; verified `Phi(Infinity) = NaN`. So `cdf(±Infinity)` on the
 exported beliefs is NaN instead of 0/1. Large *finite* args are fine (exact 0/1 from
 z ≈ 27). Latent — no current caller passes ±∞ — but it's exported API. **Fix:**
 early-return `erfc(∞) = 0`, `erfc(−∞) = 2`.
 
-### C21 · [Low] `StudentTBelief.quantile` bracket caps at μ ± 60·sd — wrong in extreme tails
+### C21 · [Low — fixed 2026-06-12] `StudentTBelief.quantile` bracket caps at μ ± 60·sd — wrong in extreme tails
 `packages/core/src/student_t.ts:170-172` — t tails are polynomial; for ν=3 the true
 1−1e-7 quantile is ≈224 standard units vs the 103.9 cap (verified: `cdf(quantile(1−1e-7))`
 = 0.9999990 ≠ 1−1e-7). Gets worse as ν→2. Currently latent (no callers outside the class),
 but part of the `BeliefModel` contract. **Fix:** expand the bracket geometrically until
 `cdf(hi) ≥ p` before bisecting.
 
-### C22 · [Low] Float money: `round8` degrades above ~9×10⁷ and ties round inexactly
+### C22 · [Low — documented 2026-06-12] Float money: `round8` degrades above ~9×10⁷ and ties round inexactly
 `packages/shared/src/money.ts:14-20` — `x·1e8` exceeds 2^53 once |x| > 90,071,992.54, so
 8-dp arithmetic silently coarsens (verified `round8(1e11 + 1e-8) === 1e11`) while
 `numeric(20,8)` advertises 12 integer digits (and the driver maps it through `Number()`,
@@ -263,14 +326,14 @@ links always dump on the markets list. **Fix:** read `location.state.from ?? '/'
 ## New — Open, Nits & info
 
 **Core / shared**
-- **C25** `mixture_ops.ts:123-130` — `splitComponent` docstring says split "at μ ± σ" but
+- **C25** *fixed 2026-06-12* — `mixture_ops.ts:123-130` — `splitComponent` docstring says split "at μ ± σ" but
   code seeds at μ ± σ/2; and the split is not moment-preserving (combined variance
   0.75·σ², a silent 25% shrink), unlike `mergeTwo` which is exact. Off-by-default feature.
   Fix the comment, or use ±σ/√2 offsets to preserve variance.
-- **C26** `shared/src/enums.ts:31-35` — shared `BeliefKind` still exposes only `GAUSSIAN`
+- **C26** *fixed 2026-06-12* — `shared/src/enums.ts:31-35` — shared `BeliefKind` still exposes only `GAUSSIAN`
   ("v2: MIXTURE, STUDENT_T" commented out) while dto/core ship all three. Unreferenced
   today (grep-verified) — a dormant trap for anyone importing it for validation.
-- **C27** `shared/src/money.ts:42-48` — `formatMoney` docstring claims "trims trailing
+- **C27** *fixed 2026-06-12* — `shared/src/money.ts:42-48` — `formatMoney` docstring claims "trims trailing
   zeros beyond 2"; `min = max = dp` renders fixed dp, nothing is trimmed.
 
 **API**

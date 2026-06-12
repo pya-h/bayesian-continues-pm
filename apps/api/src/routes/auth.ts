@@ -18,7 +18,20 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       return { error: 'Username already taken' };
     }
     const passwordHash = await Bun.password.hash(password);
-    const user = await userRepo.create({ username, passwordHash, balance: 0 });
+    let user: Awaited<ReturnType<typeof userRepo.create>>;
+    try {
+      user = await userRepo.create({ username, passwordHash, balance: 0 });
+    } catch (err) {
+      // Check-then-insert race: a concurrent register for the same name hits the
+      // unique constraint (pg 23505) — that's a 409 like the check above, not a 500.
+      const code =
+        (err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code;
+      if (code === '23505') {
+        set.status = 409;
+        return { error: 'Username already taken' };
+      }
+      throw err;
+    }
     const token = await jwt.sign({ sub: user.userId, role: user.role });
     set.status = 201;
     return { token, user: publicUser(user) };

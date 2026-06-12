@@ -14,7 +14,7 @@ import {
   makeEngineConfig,
 } from '@bmm/core';
 import type { CreateMarketDTO, MarketStatus } from '@bmm/shared';
-import { TransactionKind, round8, subMoney } from '@bmm/shared';
+import { TransactionKind, addMoney, round8, subMoney } from '@bmm/shared';
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../db/client.ts';
 import { type MarketRow, type UserRow, marketRepo } from '../db/repos.ts';
@@ -24,6 +24,7 @@ import { beliefPersistFields } from '../lib/belief.ts';
 import { HttpError } from '../lib/errors.ts';
 import { publish, topics } from '../realtime.ts';
 import { recordTx } from './ledgerSvc.ts';
+import { lpClaimAmount, lpSharePrice } from './lpMath.ts';
 import { withMarketLock } from './marketQueue.ts';
 import { recordClaims, refundPositions } from './settleSvc.ts';
 
@@ -149,19 +150,24 @@ export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Prom
       metadata: { title: dto.title, reserve },
     });
 
-    return m;
-  });
+    // Audit inside the tx — a post-commit insert failure would 5xx a market that
+    // was in fact created (and a retry would create a duplicate).
+    await writeAudit(
+      {
+        actorId: creator.userId,
+        action: 'market_create',
+        targetId: m.marketId,
+        payload: {
+          title: dto.title,
+          initialReserve: reserve,
+          mu: dto.initialMu,
+          sigma: dto.initialSigma,
+        },
+      },
+      tx,
+    );
 
-  await writeAudit({
-    actorId: creator.userId,
-    action: 'market_create',
-    targetId: market.marketId,
-    payload: {
-      title: dto.title,
-      initialReserve: reserve,
-      mu: dto.initialMu,
-      sigma: dto.initialSigma,
-    },
+    return m;
   });
 
   return market;
@@ -174,6 +180,9 @@ export async function transitionMarket(
   opts: { thetaStar?: number; oracleSource?: string } = {},
 ): Promise<MarketRow> {
   const rule = ACTIONS[action];
+
+  // Captured by the cancel branch for the audit trail (refund totals + any shortfall).
+  let cancelSummary: { refunded: number; lpReturned: number; shortfall: number } | null = null;
 
   const updated = await withMarketLock(marketId, () =>
     db.transaction(async (tx) => {
@@ -204,9 +213,72 @@ export async function transitionMarket(
         await recordClaims(tx, marketId, opts.thetaStar);
       }
       if (action === 'cancel') {
-        // Unwind: refund traders' open cost basis and shrink MM cash to match.
+        // Unwind: refund traders' open cost basis, then return the remaining pool
+        // to LPs pro-rata by shares (: "LP refunded deposits; everyone made
+        // whole"). CANCELLED is terminal — without this distribution LP cash would
+        // be stranded forever (no withdraw/claim path leaves CANCELLED).
         const refunded = await refundPositions(tx, marketId);
-        patch.cash = subMoney(m.cash, refunded);
+        const afterRefund = subMoney(m.cash, refunded);
+        // Refunds can exceed pool cash (an LP may have withdrawn mark-to-model
+        // profit earlier): floor at 0 and surface the gap instead of booking
+        // negative cash. Traders stay whole; the shortfall lands on LPs.
+        const lpPool = Math.max(0, afterRefund);
+        const shortfall = afterRefund < 0 ? round8(-afterRefund) : 0;
+
+        let distributed = 0;
+        if (m.lpSharesTotal > 0 && lpPool >= 0) {
+          const lps = await tx
+            .select()
+            .from(lpPositions)
+            .where(eq(lpPositions.marketId, marketId));
+          for (const lp of lps) {
+            if (lp.claimed || lp.shares <= 0) continue;
+            const credited = Math.max(0, lpClaimAmount(lp.shares, m.lpSharesTotal, lpPool));
+            const pnl = round8(credited + lp.totalWithdrawn - lp.totalDeposited);
+            await tx
+              .update(lpPositions)
+              .set({ claimed: true, updatedAt: new Date() })
+              .where(eq(lpPositions.lpId, lp.lpId));
+            const ins = await tx
+              .insert(lpLedger)
+              .values({
+                marketId,
+                userId: lp.userId,
+                kind: 'claim',
+                amount: credited,
+                sharesDelta: 0,
+                navBefore: lpPool,
+                sharePrice: lpSharePrice(lpPool, m.lpSharesTotal),
+              })
+              .returning({ entryId: lpLedger.entryId });
+            const urows = await tx
+              .select({ isInfinite: users.isInfinite })
+              .from(users)
+              .where(eq(users.userId, lp.userId));
+            let balanceAfter: number | null = null;
+            if (urows[0] && !urows[0].isInfinite && credited > 0) {
+              const bal = await tx
+                .update(users)
+                .set({ balance: sql`${users.balance} + ${credited}`, updatedAt: new Date() })
+                .where(eq(users.userId, lp.userId))
+                .returning({ balance: users.balance });
+              balanceAfter = round8(Number(bal[0]?.balance ?? 0));
+            }
+            await recordTx(tx, {
+              userId: lp.userId,
+              kind: TransactionKind.LP_CLAIM,
+              amount: round8(credited),
+              balanceAfter,
+              marketId,
+              refType: 'lp_ledger',
+              refId: ins[0]?.entryId ?? null,
+              metadata: { pnl, reason: 'market_cancelled' },
+            });
+            distributed = addMoney(distributed, credited);
+          }
+        }
+        patch.cash = Math.max(0, subMoney(lpPool, distributed));
+        cancelSummary = { refunded, lpReturned: distributed, shortfall };
       }
       if (action === 'open' && m.status === 'CREATED' && !m.opensAt) {
         patch.opensAt = new Date();
@@ -217,16 +289,27 @@ export async function transitionMarket(
         .set(patch)
         .where(eq(markets.marketId, marketId))
         .returning();
+
+      // Audit inside the tx so a post-commit insert failure can't 5xx a
+      // transition (refunds/claims included) that actually happened.
+      await writeAudit(
+        {
+          actorId: actor.userId,
+          action: `market_${action}`,
+          targetId: marketId,
+          payload:
+            action === 'resolve'
+              ? { thetaStar: opts.thetaStar }
+              : action === 'cancel' && cancelSummary
+                ? cancelSummary
+                : {},
+        },
+        tx,
+      );
+
       return res[0] as MarketRow;
     }),
   );
-
-  await writeAudit({
-    actorId: actor.userId,
-    action: `market_${action}`,
-    targetId: marketId,
-    payload: action === 'resolve' ? { thetaStar: opts.thetaStar } : {},
-  });
   publish(topics.market(marketId), { type: 'market_status', status: updated.status });
   return updated;
 }

@@ -79,9 +79,11 @@ export function withMmShort(
 }
 
 // Largest |size| ≤ |qDesired| (same sign as qDesired) such that the post-trade
-// reserve stays within `cashLimit`. Used for partial fills.
-// Reserve is sized at the pre-trade belief + new inventory (the engine recomputes
-// the exact post-commit reserve); binary search assumes reserve is ~monotone in size.
+// reserve stays within `cashLimit`. Reserve is sized at the
+// pre-trade belief + new inventory; binary search assumes reserve ~monotone in size.
+// `solveFill` (apps/api/src/services/tradeMath.ts), which adds the premium-backing
+// rule and the gate's 1e-6 slack. Kept for the core test-suite cross-check; do not
+// wire into new runtime code.
 export function maxExecutable(
   otherBook: BookEntry[],
   spec: ContractSpec,

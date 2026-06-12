@@ -333,6 +333,40 @@
     return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
   }
 
+  // student_t.ts: regularized incomplete beta (for the t CDF) -------
+  function betacf(a, b, x) {
+    const FPMIN = 1e-300;
+    const qab = a + b, qap = a + 1, qam = a - 1;
+    let c = 1;
+    let d = 1 - (qab * x) / qap;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    d = 1 / d;
+    let h = d;
+    for (let m = 1; m <= 200; m++) {
+      const m2 = 2 * m;
+      let aa = (m * (b - m) * x) / ((qam + m2) * (a + m2));
+      d = 1 + aa * d; if (Math.abs(d) < FPMIN) d = FPMIN;
+      c = 1 + aa / c; if (Math.abs(c) < FPMIN) c = FPMIN;
+      d = 1 / d;
+      h *= d * c;
+      aa = (-(a + m) * (qab + m) * x) / ((a + m2) * (qap + m2));
+      d = 1 + aa * d; if (Math.abs(d) < FPMIN) d = FPMIN;
+      c = 1 + aa / c; if (Math.abs(c) < FPMIN) c = FPMIN;
+      d = 1 / d;
+      const del = d * c;
+      h *= del;
+      if (Math.abs(del - 1) < 3e-12) break;
+    }
+    return h;
+  }
+  function betai(a, b, x) {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    const bt = Math.exp(lgamma(a + b) - lgamma(a) - lgamma(b) + a * Math.log(x) + b * Math.log(1 - x));
+    if (x < (a + 1) / (a + b + 2)) return (bt * betacf(a, b, x)) / a;
+    return 1 - (bt * betacf(b, a, 1 - x)) / b;
+  }
+
   // mixture.ts: MixtureBelief ---------------------------------------
   // components: [{ pi, mu, sigma2 }]. mu/sigma exposed (mean & total stddev) so
   // the kind-agnostic extractSignal/spread read them like a Gaussian.
@@ -394,6 +428,12 @@
     const logC = lgamma((this.nu + 1) / 2) - lgamma(this.nu / 2) - 0.5 * Math.log(this.nu * Math.PI) - Math.log(s);
     return Math.exp(logC) * Math.pow(1 + (x * x) / this.nu, -(this.nu + 1) / 2);
   };
+  StudentT.prototype.cdf = function (theta) {
+    const t = (theta - this.mu) / Math.sqrt(this.scale2);
+    const x = this.nu / (this.nu + t * t);
+    const ib = 0.5 * betai(this.nu / 2, 0.5, x);
+    return t >= 0 ? 1 - ib : ib;
+  };
   StudentT.prototype.sample = function (n, rng) {
     const s = Math.sqrt(this.scale2); const out = new Float64Array(n);
     // standard t = Z / √(χ²_ν/ν); χ²_ν via two normals only approximates — use the
@@ -422,13 +462,32 @@
     for (let i = 1; i < n; i++) sum += (i % 2 === 0 ? 2 : 4) * ig(a + i * h);
     return (sum * h) / 3;
   }
-  // Fair price for any belief kind: closed-form for Gaussian/mixture, quadrature for t.
+  // Fair price for any belief kind: closed-form for Gaussian/mixture/t (quadrature only for smooth no-closed-form payoffs).
   function priceAny(spec, belief) {
     if (!belief.kind || belief.kind === 'gaussian') return price(spec, belief);
     if (belief.kind === 'mixture') {
       let s = 0;
       for (const c of belief.components) s += c.pi * price(spec, new Belief(c.mu, Math.sqrt(c.sigma2)));
       return s;
+    }
+    if (belief.kind === 'student_t') {
+      // mirrors core pricing.ts priceUnderStudentT: quadrature is wrong for t on
+      // jumps (cell noise) and on unbounded payoffs (polynomial-tail truncation).
+      const K = spec.strike;
+      switch (spec.type) {
+        case 'LINEAR': return belief.mu;
+        case 'CALL':
+        case 'PUT': {
+          const s = Math.sqrt(belief.scale2);
+          const d = (K - belief.mu) / s;
+          const call = belief.scale2 * belief.pdf(K) * ((belief.nu + d * d) / (belief.nu - 1)) - (K - belief.mu) * (1 - belief.cdf(K));
+          return spec.type === 'CALL' ? call : call - (belief.mu - K);
+        }
+        case 'BINARY_CALL': return 1 - belief.cdf(K);
+        case 'BINARY_PUT': return belief.cdf(K);
+        case 'SPREAD': return belief.cdf(spec.upper) - belief.cdf(spec.lower);
+        default: break; // GAUSSIAN payoff: smooth, quadrature is fine
+      }
     }
     if (spec.type === 'LINEAR') return belief.mean(); // exact; avoids tail-truncation
     return expectF((t) => payoff(spec, t), belief);
@@ -439,6 +498,19 @@
       let s = 0;
       for (const c of belief.components) s += c.pi * dPriceDMu(spec, new Belief(c.mu, Math.sqrt(c.sigma2)));
       return s;
+    }
+    if (belief.kind === 'student_t') {
+      // location-family identities
+      const K = spec.strike;
+      switch (spec.type) {
+        case 'LINEAR': return 1;
+        case 'CALL': return 1 - belief.cdf(K);
+        case 'PUT': return -belief.cdf(K);
+        case 'BINARY_CALL': return belief.pdf(K);
+        case 'BINARY_PUT': return -belief.pdf(K);
+        case 'SPREAD': return belief.pdf(spec.lower) - belief.pdf(spec.upper);
+        default: break;
+      }
     }
     const h = Math.max(1e-3, belief.stddev() * 1e-3);
     const up = priceAny(spec, new StudentT(belief.nu, belief.mu + h, belief.scale2));

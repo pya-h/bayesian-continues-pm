@@ -34,6 +34,8 @@ function erfSeries(z: number): number {
 
 // Continued fraction for erfc, used for z ≥ 2 (fast, no cancellation). Modified Lentz.
 function erfcCF(z: number): number {
+  // ∞ would make the Lentz iteration compute ∞·0 = NaN and never converge.
+  if (z === Number.POSITIVE_INFINITY) return 0;
   const tiny = 1e-300;
   let f = tiny;
   let c = f;

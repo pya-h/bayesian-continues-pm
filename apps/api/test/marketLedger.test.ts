@@ -218,14 +218,21 @@ describe.if(hasEnv)('market ledger (integration)', () => {
 
     expect(ledger.status).toBe('CANCELLED');
     expect(ledger.rollup.refunds).toBeGreaterThan(0);
-    // Refund returns the buy premium, so cash settles back near the genesis reserve.
-    expect(ledger.rollup.currentCash).toBeCloseTo(STD.initialReserve, 3);
+    // Refunds return the buy premium, then the remaining pool goes back to LPs
+    // pro-rata, so the cancelled pool reconciles at 0.
+    expect(ledger.rollup.currentCash).toBeCloseTo(0, 3);
+    expect(ledger.rollup.lpClaimsPaid).toBeCloseTo(STD.initialReserve, 0);
     expect(ledger.rollup.reconciles).toBe(true);
 
     const refund = ledger.events.find((e) => e.kind === 'refund');
     expect(refund).toBeTruthy();
     expect(refund?.delta).toBeLessThan(0); // leaves the pool
     expect(refund?.affectsCash).toBe(true);
+
+    // Cancel-time LP returns really move cash (unlike settlement claims).
+    const lpReturn = ledger.events.find((e) => e.kind === 'lp_claim');
+    expect(lpReturn).toBeTruthy();
+    expect(lpReturn?.affectsCash).toBe(true);
   });
 
   test('404 for an unknown market', async () => {

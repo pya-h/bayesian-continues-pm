@@ -16,6 +16,11 @@
 // time). They carry `affectsCash: false` and don't advance the running balance
 // they appear in the rollup as `traderPayouts` / `lpClaimsPaid` for the full
 // economic picture.
+// Exception: on a CANCELLED market the LP `claim` rows are the cancel-time
+// pro-rata return of the pool, which DOES drain `markets.cash` to 0 — those carry
+// `affectsCash: true` so the statement still reconciles. (CANCELLED and SETTLED
+// are mutually exclusive terminal states, so the market status fully determines
+// which semantics a claim row has.)
 
 import { expectedLiability } from '@bmm/core';
 import { round8 } from '@bmm/shared';
@@ -179,17 +184,20 @@ export async function getMarketLedger(marketId: string): Promise<MarketLedger> {
         ref: { type: 'lp_ledger', id: r.entryId },
       });
     } else {
-      // kind === 'claim' — LP settlement distribution; markets.cash untouched.
+      // kind === 'claim' — on SETTLED markets a logical settlement distribution
+      // (markets.cash untouched); on CANCELLED markets the cancel-time pro-rata
+      // return of the pool, which really moved cash.
+      const isCancelReturn = m.status === 'CANCELLED';
       events.push({
         at: r.createdAt.toISOString(),
         kind: 'lp_claim',
         delta: round8(-r.amount),
-        affectsCash: false,
+        affectsCash: isCancelReturn,
         cashAfter: null,
         userId: r.userId,
         username: r.username,
         ref: { type: 'lp_ledger', id: r.entryId },
-        note: 'settlement claim',
+        note: isCancelReturn ? 'cancellation return' : 'settlement claim',
       });
     }
   }

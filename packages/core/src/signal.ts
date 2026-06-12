@@ -24,7 +24,9 @@ export function extractSignal(
   const sigma = belief.stddev();
   const absQ = Math.abs(q);
   const direction = q >= 0 ? 1 : -1;
-  const intensity = absQ / cfg.qMax;
+  // Clamped: solvency-gated fills can exceed qMax, and an unclamped intensity would
+  // push weight > 1 (bayes' simplified path multiplies σ² by (1 − decay·weight)).
+  const intensity = Math.min(1, absQ / cfg.qMax);
   const a = cfg.alpha;
 
   let signal: number;

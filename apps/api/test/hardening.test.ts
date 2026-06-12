@@ -218,9 +218,10 @@ describe.if(hasEnv)('Phase 11 hardening (integration)', () => {
     const balAfter = ((await meAfter.json()) as { user: { balance: number } }).user.balance;
     expect(balAfter).toBeCloseTo(balBefore, 4); // fully refunded
 
-    // MM cash shrank by the refund (premium flowed back out).
+    // Pool cash is fully distributed: refund left first, then the remainder was
+    // returned to LPs pro-rata, leaving the pool at 0.
     const mkt = await req('GET', `/markets/${id}`);
     const cash = ((await mkt.json()) as { market: { cash: number } }).market.cash;
-    expect(cash).toBeCloseTo(fill.cash - cost, 4);
+    expect(cash).toBeCloseTo(0, 4);
   });
 });

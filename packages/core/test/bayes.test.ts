@@ -175,3 +175,16 @@ describe('extractSignal (MODEL.md §5.2)', () => {
     expect(post.mu > belief.mu).toBe(true);
   });
 });
+
+describe('extractSignal intensity clamp (REVIEW-FINDINGS C6)', () => {
+  test('weight never exceeds 1, even for fills past qMax', () => {
+    const cfg = makeEngineConfig(100, 10);
+    const belief = new GaussianBelief(100, 100);
+    for (const q of [cfg.qMax, cfg.qMax * 3, 50_000]) {
+      const sig = extractSignal({ type: 'LINEAR' }, q, belief, cfg);
+      expect(sig.weight <= 1).toBe(true);
+      // simplified-update σ² shrink factor (1 − decay·weight) must stay positive
+      expect(1 - cfg.decay * sig.weight > 0).toBe(true);
+    }
+  });
+});

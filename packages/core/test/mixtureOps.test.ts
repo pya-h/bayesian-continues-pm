@@ -113,3 +113,14 @@ describe('mixture_ops — merge/prune invariants (V2-1)', () => {
     expect(approx((lo.mu + hi.mu) / 2, 100, 1e-9)).toBe(true);
   });
 });
+
+describe('splitComponent moment preservation (REVIEW-FINDINGS C25)', () => {
+  test('split halves preserve the component mean and total variance', () => {
+    const [lo, hi] = splitComponent({ pi: 0.6, mu: 100, sigma2: 16 });
+    const w = 0.5; // halves share the weight equally
+    const mean = w * lo.mu + w * hi.mu;
+    const ex2 = w * (lo.sigma2 + lo.mu ** 2) + w * (hi.sigma2 + hi.mu ** 2);
+    expect(approx(mean, 100, 1e-12)).toBe(true);
+    expect(approx(ex2 - mean ** 2, 16, 1e-9)).toBe(true);
+  });
+});

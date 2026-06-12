@@ -28,7 +28,8 @@ export type UserRole = (typeof UserRole)[keyof typeof UserRole];
 
 export const BeliefKind = {
   GAUSSIAN: 'gaussian',
-  // v2: MIXTURE: 'mixture', STUDENT_T: 'student_t'
+  MIXTURE: 'mixture',
+  STUDENT_T: 'student_t',
 } as const;
 export type BeliefKind = (typeof BeliefKind)[keyof typeof BeliefKind];
 
