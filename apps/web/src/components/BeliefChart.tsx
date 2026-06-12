@@ -160,11 +160,11 @@ function BeliefChartImpl({
   // or tighten (<1) the visible value RANGE of each axis; xOff slides the x-window
   // without changing its span. Defaults are the identity view; double-click resets.
   const [view, setView] = useState({ xMul: 1, xOff: 0, yMul: 1 });
-  // True while any drag (handle OR axis pan/scale) is live — used to shed the
   // Subscribe to display prefs: the formatters (fmt/fmtCompact) read module-level
   // precision/compact globals that memo can't see — context bypasses the memo
   // so a prefs change re-renders the chart's tick labels immediately.
   usePrefs();
+  // True while any drag (handle OR axis pan/scale) is live — used to shed the
   // costly glow filter and coarsen the curves so dragging stays smooth.
   const [dragging, setDragging] = useState(false);
   // While a handle is dragged we render from this LOCAL spec and only push the
@@ -665,8 +665,10 @@ function BeliefChartImpl({
       {/* mixture component modes — a tick at each μ_k labelled with its weight %, so
           the camps and how the order flow re-weights them are visible at a glance */}
       {isMixture &&
-        components?.map((c, k) => (
-          <g key={`comp-${k}-${c.mu}`} pointerEvents="none">
+        components
+          ?.filter((c) => c.mu >= lo && c.mu <= hi) // same visibility guard as μ/θ*
+          .map((c, k) => (
+            <g key={`comp-${k}-${c.mu}`} pointerEvents="none">
             <line
               x1={sx(c.mu)}
               x2={sx(c.mu)}

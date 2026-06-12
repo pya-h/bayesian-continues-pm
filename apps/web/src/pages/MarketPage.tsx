@@ -70,7 +70,9 @@ export function MarketPage() {
   // Error must be checked BEFORE the spinner: `spec` is only ever seeded from
   // market.data, so on a failed initial fetch (bad id, API down) `!spec` stays
   // true forever and a spinner-first guard spins infinitely instead of erroring.
-  if (market.error || (!market.isLoading && !market.data))
+  // Scoped to `!market.data`: a transient background-refetch failure with data
+  // already on screen keeps rendering the (stale) page rather than nuking it.
+  if (!market.data && (market.error || !market.isLoading))
     return (
       <ErrorNote>
         {market.error instanceof ApiError ? market.error.message : 'Market not found.'}

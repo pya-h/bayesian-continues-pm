@@ -5,7 +5,7 @@
 
 import { contractKey } from '@bmm/core';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useAuth } from '../auth/AuthContext.tsx';
 import { qk, usePortfolio } from '../hooks/queries.ts';
 import { ApiError, api } from '../lib/api.ts';
@@ -126,11 +126,23 @@ export function QuotePanel({
   });
   const quote = quoteQ.data;
   // A quote that is current for THIS spec/size. `isPlaceholderData` flags the
-  // keepPreviousData window where `quote` still belongs to the previous spec/qty.
-  // Without this gate an order could submit with no quote at all (maxPrice
-  // undefined ⇒ the checked slippage guard silently doesn't apply) or with a
-  // maxPrice derived from the wrong contract's exec price.
-  const quoteLive = !!quote && !quoteQ.isError && !quoteQ.isPlaceholderData;
+  // keepPreviousData window — but the quote key also churns on every (debounced)
+  // belief tick from other traders' fills, and during THOSE windows the previous
+  // quote is for the same contract/size and its maxPrice is still a valid bound
+  // (the server re-checks at execution). So the gate only trips when the
+  // placeholder belongs to a different spec/qty: without it an order could submit
+  // with no quote at all (maxPrice undefined ⇒ the checked slippage guard silently
+  // doesn't apply) or with a maxPrice from the wrong contract's exec price — and
+  // gating belief ticks too would flicker-disable the button on busy markets.
+  const orderKey = JSON.stringify([spec, signedQ]);
+  const quoteOrderKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (quoteQ.isSuccess && !quoteQ.isPlaceholderData) quoteOrderKey.current = orderKey;
+  }, [quoteQ.isSuccess, quoteQ.isPlaceholderData, orderKey]);
+  const quoteLive =
+    !!quote &&
+    !quoteQ.isError &&
+    (!quoteQ.isPlaceholderData || quoteOrderKey.current === orderKey);
 
   // Subscribe to the chart's in-progress drag spec — but ONLY in live-preview
   // mode, so an ordinary drag never re-renders this panel (subscribe is a no-op
@@ -404,7 +416,16 @@ export function QuotePanel({
                 live estimate — spread held from last server quote
               </div>
             )}
-            <Row label="Fair (mid)" value={`${fmt((view ?? quote).fair)} ${outcomeUnit}`} />
+            {/* The unit only applies where fair = E[payoff] is in outcome units
+                (LINEAR/CALL/PUT); binary/spread/bell fairs are unitless 0–1 prices. */}
+            <Row
+              label="Fair (mid)"
+              value={`${fmt((view ?? quote).fair)}${
+                ['LINEAR', 'CALL', 'PUT'].includes((view?.spec ?? spec).type)
+                  ? ` ${outcomeUnit}`
+                  : ''
+              }`}
+            />
             <div className="my-1 border-t border-edge pt-1.5 text-xs text-muted">
               <Row label="base" value={fmt(quote.spread.base, 4)} small />
               <Row label="inventory" value={fmt(quote.spread.inventory, 4)} small />

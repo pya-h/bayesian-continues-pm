@@ -162,9 +162,10 @@ export async function getMarketLedger(marketId: string): Promise<MarketLedger> {
 
   const events: MarketLedgerEvent[] = [];
 
-  // Genesis = the chronologically FIRST zero-NAV deposit. A re-genesis deposit
-  // into an emptied pool (lpSvc's S_total = 0 branch) also records navBefore = 0
-  // but is a plain lp_deposit, not the market's initial liquidity.
+  // Genesis = the chronologically FIRST deposit row (market creation always
+  // writes it, with navBefore = 0). A re-genesis deposit into an emptied pool
+  // (lpSvc's S_total = 0 branch) also records navBefore = 0 but comes later —
+  // it's a plain lp_deposit, not the market's initial liquidity.
   const firstDepositAt = lpRows
     .filter((r) => r.kind === 'deposit')
     .reduce<number | null>((min, r) => {
