@@ -72,7 +72,15 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   }
 
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  // A non-JSON body (proxy/gateway HTML error page) must not throw a raw
+  // SyntaxError — that loses the status code at every `instanceof ApiError` site.
+  let data: { error?: string; detail?: string } | null = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    if (!res.ok) throw new ApiError(res.status, `Request failed (${res.status})`);
+    throw new ApiError(res.status, 'Malformed response from the API');
+  }
   if (!res.ok) {
     const msg = (data && (data.error || data.detail)) || `Request failed (${res.status})`;
     throw new ApiError(res.status, msg);

@@ -1,7 +1,7 @@
 // Combined sign-in / register screen.
 
 import { type FormEvent, useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.tsx';
 import { SettingsDialog } from '../components/SettingsDialog.tsx';
 import { Button, ErrorNote } from '../components/ui.tsx';
@@ -10,6 +10,10 @@ import { ApiError } from '../lib/api.ts';
 export function LoginPage() {
   const { login, register, user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  // RequireAuth/RequireAdmin preserve the page that bounced us here — honor it
+  // so a shared deep link (e.g. /markets/:id) lands back there after sign-in.
+  const from = (location.state as { from?: string } | null)?.from ?? '/';
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -17,8 +21,8 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // Already signed in → straight to markets.
-  if (user) return <Navigate to="/" replace />;
+  // Already signed in → straight to the page that sent us here (or markets).
+  if (user) return <Navigate to={from} replace />;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -27,7 +31,7 @@ export function LoginPage() {
     try {
       if (mode === 'login') await login(username, password);
       else await register(username, password);
-      navigate('/', { replace: true });
+      navigate(from, { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {

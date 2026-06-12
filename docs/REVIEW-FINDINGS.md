@@ -68,25 +68,25 @@ lands with tests green.
 - [x] C33 — `JWT_SECRET` fallback refuses to boot when `NODE_ENV === 'production'`
 - [x] C34 — `system`-topic subscriptions re-read the role from the DB, so demotion/deletion takes effect on new subscribes without a reconnect (already-held subscriptions persist for the socket lifetime — full revocation needs session infra, noted for V2-7)
 
-**Phase 5 — Web correctness**
-- [ ] C2 — win-chance priced from the real belief model
-- [ ] C3 — belief shape refreshed on others' trades (non-Gaussian markets)
-- [ ] C12 — market-page error state rendered (no infinite spinner)
-- [ ] C13 — trade button gated on a live quote (slippage guard can't silently drop)
-- [ ] C23 — API error parsing tolerant of non-JSON bodies
-- [ ] C24 — login honors the deep-link redirect target
+**Phase 5 — Web correctness** *(all fixed 2026-06-12)*
+- [x] C2 — `tradeStats` takes the real `BeliefModel`; pProfit integrates the actual shape via `belief.cdf`, with edge regions extended to ±∞ on unbounded markets so Student-t tails aren't clipped at the 10σ scan window (regression-tested: bimodal mixture exact at 0.30 where the Gaussian fallback is provably off)
+- [x] C3 — `belief_update` now refetches the market when the cached belief is a mixture, so components stay fresh after OTHER traders' fills (gaussian needs nothing; Student-t is fully determined by (ν, μ, σ) with ν immutable)
+- [x] C12 — market-page error guard moved BEFORE the spinner guard; failed initial loads (bad id, API down) show the error instead of spinning forever
+- [x] C13 — trade button requires a live quote (`!!quote && !isError && !isPlaceholderData`) — an order can no longer submit with the slippage guard silently dropped, and `isPlaceholderData` precisely covers the keepPreviousData window where the quote belongs to the previous spec/qty; button shows "Quoting…"/"Quote unavailable" meanwhile
+- [x] C23 — API error parsing wraps `JSON.parse` so non-JSON bodies (proxy HTML 502s) become proper `ApiError`s with the status code preserved
+- [x] C24 — login honors `location.state.from` on both redirect paths (post-submit and already-authed), so deep links land back where they pointed
 
-**Phase 6 — Web nits + docs**
-- [ ] C7 — Fair (mid) row shows the outcome unit
-- [ ] C35 — history-chart duplicate keys at n=2
-- [ ] C36 — mixture mode markers on the mixture curve
-- [ ] C37 — μ line hidden when panned out of domain
-- [ ] C38 — history invalidation key made a true prefix
-- [ ] C39 — "max" button no longer floors fractional sells
-- [ ] C40 — prefs reach memoized components
-- [ ] C41 — §20 legend swatch gated on the soft-cap toggle
-- [ ] C32 — v2/TDD §10 spec drift corrected
-- [ ] O1 — docs/README index completed
+**Phase 6 — Web nits + docs** *(all fixed 2026-06-12)*
+- [x] C7 — Fair (mid) row renders `${outcomeUnit}` (the dead `&& ''` expression removed)
+- [x] C35 — x-tick indices deduped (`[...new Set(...)]`) — no duplicate React keys at n = 2
+- [x] C36 — mixture mode dots placed at `mixturePdf(μ_k, components)` so they sit ON the drawn curve when bumps overlap
+- [x] C37 — μ line/label hidden when panned/zoomed out of the visible domain (same guard as θ*)
+- [x] C38 — invalidations use a new `qk.historyAll(id)` true prefix (`['history', id]`), covering keyless AND contract-keyed history queries
+- [x] C39 — "max" floors to whole contracts on buys only; sells keep the fractional size so a fractional holding fully closes
+- [x] C40 — `BeliefChart` subscribes to the prefs context (context bypasses `memo`), so precision/compact changes re-render tick labels immediately
+- [x] C41 — the "BMM today" legend swatch (`#mech-legend-baseline`) shows only while the soft-cap toggle is on
+- [x] C32 — v1/TDD §10 updated to the implemented surface: `POST /markets/:id/trade` (not `/trades`), quote marked `(auth)`, claim takes no body (credits all pending), `settle` added to the lifecycle routes, WS list now matches the events actually emitted (no `position_update`; `claim_paid`/`lp_claim` added)
+- [x] O1 — docs/README index now lists `v3/HEDGING.md`, the v2 explainers, the `multi model/` track, the interactive math doc, and this findings file
 
 ---
 
@@ -206,7 +206,7 @@ guards only NAV ≤ 0.
 **Fix:** treat `lpSharesTotal === 0` as genesis in `deposit` (mint ΔS = amount at price 1)
 and gate on `nav < 0` instead of `<= 0` when the pool is empty.
 
-### C12 · [Medium] Market page shows an infinite spinner on load failure
+### C12 · [Medium — fixed 2026-06-12] Market page shows an infinite spinner on load failure
 `apps/web/src/pages/MarketPage.tsx:72` — `if (market.isLoading || !spec) return <Spinner/>`
 precedes the error check (`:73-78`), and `spec` is only ever seeded from `market.data`
 (`:59-61`). On a failed initial fetch (bad id, API down): react-query v5 settles with
@@ -216,7 +216,7 @@ precedes the error check (`:73-78`), and `spec` is only ever seeded from `market
 renders in the secondary case where the page loaded once and a background refetch later
 fails. **Fix:** check `market.error` before the `!spec` spinner guard.
 
-### C13 · [Medium] Trade can be submitted with no (or a stale) quote — slippage guard silently dropped
+### C13 · [Medium — fixed 2026-06-12] Trade can be submitted with no (or a stale) quote — slippage guard silently dropped
 `apps/web/src/components/QuotePanel.tsx:548` — the Buy/Sell button's `disabled` checks
 `!tradable || qty <= 0 || trade.isPending || sellWithoutHolding`, never whether a quote
 exists. The mutation (`:148-156`) computes `maxPrice = slippageOn && quote ? … : undefined`,
@@ -309,13 +309,13 @@ non-representable ties: `round8(1.5e-8)` → 1e-8 (float is 1.4999999999999998) 
 `round8(2.5e-8)` → 2e-8. Inherent to float money — worth documenting a balance cap (or
 scaled integers) rather than a point fix.
 
-### C23 · [Low] `JSON.parse` runs before the `res.ok` check
+### C23 · [Low — fixed 2026-06-12] `JSON.parse` runs before the `res.ok` check
 `apps/web/src/lib/api.ts:76-78` — a non-JSON error body (proxy/gateway HTML 502) throws a
 raw `SyntaxError` instead of `ApiError`; every `instanceof ApiError` site degrades to its
 generic message and the status code is lost. **Fix:** try/catch the parse and fall back to
 `new ApiError(res.status, …)`.
 
-### C24 · [Low] Deep-link redirect target captured but never used
+### C24 · [Low — fixed 2026-06-12] Deep-link redirect target captured but never used
 `RequireAuth.tsx:15`/`:29` pass `state={{ from: location.pathname }}` ("preserving the
 target"), but `LoginPage.tsx` hardcodes `/` in **both** redirect paths (`:21` `<Navigate
 to="/">` when already authed, `:30` `navigate('/')` after login/register). Shared deep
@@ -345,7 +345,7 @@ links always dump on the markets list. **Fix:** read `location.state.from ?? '/'
 - **C31** *fixed 2026-06-12* — `fundingSvc.ts:57-65` — a grant from a hypothetical non-infinite admin records
   `−amount` with an unchanged `balanceAfter` and never debits the admin (row doesn't
   balance). Benign while all admins are infinite.
-- **C32** Spec drift vs TDD §10 (mismatches, not bugs): route is `POST /markets/:id/trade`
+- **C32** *fixed 2026-06-12 (v1/TDD §10 updated to the implemented surface)* — Spec drift vs TDD §10 (mismatches, not bugs): route is `POST /markets/:id/trade`
   not `/trades`; claim takes no `{positionId}` body (claims all); `position_update` WS
   event documented but never emitted; `/quote` requires auth though TDD marks only trades.
 - **C33** *fixed 2026-06-12* — `config.ts:18` — `JWT_SECRET` silently falls back to a hardcoded dev secret in
@@ -354,32 +354,32 @@ links always dump on the markets list. **Fix:** read `location.state.from ?? '/'
   reflected until reconnect (an ex-admin keeps the `system` topic for the socket lifetime).
 
 **Web**
-- **C35** `BeliefHistoryChart.tsx:54,141` — with exactly 2 history points the x-tick index
+- **C35** *fixed 2026-06-12* — `BeliefHistoryChart.tsx:54,141` — with exactly 2 history points the x-tick index
   list is `[0, 0, 1]` → duplicate React keys, double-drawn tick. Dedupe the indices.
-- **C36** `BeliefChart.tsx:672-677` — mixture mode markers placed at the *component's own*
+- **C36** *fixed 2026-06-12* — `BeliefChart.tsx:672-677` — mixture mode markers placed at the *component's own*
   density `π·N(μ;μ,σ)`, not the mixture pdf the curve draws; dots float off the curve when
   bumps overlap. Use `mixturePdf(c.mu, components)` (or document as a contribution marker).
-- **C37** `BeliefChart.tsx:643-655` — the μ mean line/label draw at raw `sx(mu)` even when
+- **C37** *fixed 2026-06-12* — `BeliefChart.tsx:643-655` — the μ mean line/label draw at raw `sx(mu)` even when
   μ is panned/zoomed out of the visible domain (θ* and the handles are guarded/clamped;
   μ is not). Hide when outside `[lo, hi]` like θ*.
-- **C38** `hooks/queries.ts:10` — `qk.history(id)` = `['history', id, null]` is *not* a
+- **C38** *fixed 2026-06-12* — `hooks/queries.ts:10` — `qk.history(id)` = `['history', id, null]` is *not* a
   prefix of contract-keyed history queries, so the invalidations in `useMarketSocket:127` /
   `QuotePanel:164` can't match them. Latent (only the keyless variant is used today);
   invalidate with `['history', marketId]`.
-- **C39** `QuotePanel.tsx:348` — the "max" button does `Math.floor(quote.maxExecutable)`,
+- **C39** *fixed 2026-06-12* — `QuotePanel.tsx:348` — the "max" button does `Math.floor(quote.maxExecutable)`,
   so a fractional sell position (e.g. 2.5 held, label prints "max ≈ 2.50") can never be
   fully closed via the button. Floor only on buys.
-- **C40** `PrefsContext`/`format.ts` — precision/compact prefs mutate module globals and
+- **C40** *fixed 2026-06-12* — `PrefsContext`/`format.ts` — precision/compact prefs mutate module globals and
   rely on re-render; `memo`-ized components (BeliefChart tick labels) keep old formatting
   until their data props change. Cosmetic, self-corrects on the next belief tick.
 
 **Math doc**
-- **C41** `docs/math/index.html:1690` — the §20 legend always shows the "BMM today
+- **C41** *fixed 2026-06-12* — `docs/math/index.html:1690` — the §20 legend always shows the "BMM today
   (soft-cap baseline)" swatch even though that curve only renders when the default-off
   toggle is on. Cosmetic.
 
 **Docs (open)**
-- **O1** [Low] `docs/README.md` presents itself as the documentation index but omits
+- **O1** [Low] *fixed 2026-06-12* — `docs/README.md` presents itself as the documentation index but omits
   `v3/HEDGING.md` (the official hedging companion, linked from four other docs), the
   active `multi model/` track, the v2 explainers (`belief-and-exposure.md`,
   `trade-to-signal.md`), and `docs/math/`.

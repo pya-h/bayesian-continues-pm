@@ -51,7 +51,9 @@ export function BeliefHistoryChart({ points }: { points: BeliefHistoryPoint[] })
     .join(' ')} Z`;
 
   const yTicks = niceTicks(lo, hiY, 3);
-  const xIdx = [0, Math.floor((n - 1) / 2), n - 1];
+  // Dedupe: with exactly 2 points the naive [0, mid, last] is [0, 0, 1] —
+  // duplicate React keys and a double-drawn tick.
+  const xIdx = [...new Set([0, Math.floor((n - 1) / 2), n - 1])];
 
   const onMove = (e: React.PointerEvent) => {
     const svg = svgRef.current;

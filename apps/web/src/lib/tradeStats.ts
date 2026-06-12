@@ -5,7 +5,7 @@
 // (totalCost is what the user pays: positive on a buy, negative — a premium
 // received — on a sell), so the same formula covers longs and shorts.
 
-import { payoff, payoffBounds } from '@bmm/core';
+import { type BeliefModel, payoff, payoffBounds } from '@bmm/core';
 import type { ContractSpec } from './types.ts';
 import { type Interval, probInRegions } from './viz.ts';
 
@@ -81,8 +81,13 @@ export function tradeStats(args: {
   sigma: number;
   outcomeMin?: number | null;
   outcomeMax?: number | null;
+  // The market's real belief model. When provided, the win chance integrates the
+  // actual shape (mixture modes / Student-t tails) via its CDF; without it the
+  // computation falls back to a same-moments Gaussian — wrong on non-Gaussian
+  // markets (same μ/σ, very different mass placement).
+  belief?: BeliefModel;
 }): TradeStats {
-  const { spec, signedQ, totalCost, fair, mu, sigma, outcomeMin, outcomeMax } = args;
+  const { spec, signedQ, totalCost, fair, mu, sigma, outcomeMin, outcomeMax, belief } = args;
   const q = Math.abs(signedQ);
   const { min: pMin, max: pMax } = payoffRange(spec, outcomeMin, outcomeMax);
 
@@ -135,7 +140,21 @@ export function tradeStats(args: {
   }
   if (inProfit) regions.push([regStart, hi]);
 
-  const pProfit = probInRegions(mu, sd, regions);
+  let pProfit: number;
+  if (belief) {
+    // Real-shape mass. Regions touching the scan edges on an unbounded market are
+    // extended to ±∞ so fat tails (Student-t) aren't clipped at the 10σ window —
+    // cdf(±∞) is exact for every belief kind.
+    let p = 0;
+    for (const [a, b] of regions) {
+      const aEff = a === lo && outcomeMin == null ? Number.NEGATIVE_INFINITY : a;
+      const bEff = b === hi && outcomeMax == null ? Number.POSITIVE_INFINITY : b;
+      p += belief.cdf(bEff) - belief.cdf(aEff);
+    }
+    pProfit = Math.min(1, Math.max(0, p));
+  } else {
+    pProfit = probInRegions(mu, sd, regions);
+  }
   const riskReward =
     Number.isFinite(maxProfit) && Number.isFinite(maxLoss) && maxLoss > 0
       ? maxProfit / maxLoss

@@ -321,13 +321,13 @@ GET  /markets/:id/trades                    recent trades
 GET  /markets/:id/stats                     market-level stats (§8)
 
 # quoting & trading
-POST /markets/:id/quote        {type,params,q} -> quote w/ spread breakdown (no state)
-POST /markets/:id/trades       {type,params,q,maxPrice} -> fill (auth)  [serialized]
+POST /markets/:id/quote        {spec,q} -> quote w/ spread breakdown (no state) (auth)
+POST /markets/:id/trade        {spec,q,maxPrice?} -> fill (auth)  [serialized]
 
 # positions / portfolio
 GET  /users/me/portfolio                    all markets + positions + PnL + stats
 GET  /users/me/positions/:contractId        position detail + payout distribution
-POST /markets/:id/claim        {positionId} -> credited payout (SETTLED only)
+POST /markets/:id/claim        (no body) -> credits ALL pending payouts (SETTLED only)
 
 # LP
 GET  /markets/:id/lp                         pool NAV, share price, your position
@@ -337,13 +337,13 @@ POST /markets/:id/lp/claim                   (SETTLED) [serialized]
 
 # admin (role=admin only)
 POST /admin/markets                          create market (+R0 from creator)
-POST /admin/markets/:id/open|suspend|resume|resolve|cancel|close
+POST /admin/markets/:id/open|suspend|resume|resolve|settle|cancel|close
 POST /admin/users/:id/topup    {amount}      grant play money
 GET  /admin/markets/:id/overview             creator-side PnL, trades, exposure, reserve
 GET  /admin/users                            list/manage
 ```
 
-**WebSocket** (`/ws`): client subscribes by market/user. Server pushes `belief_update`, `trade_executed`, `price_change`, `reserve_update`, `lp_update`, `position_update`, `market_status`, `system:alert` (`MODEL.md §13.2`).
+**WebSocket** (`/ws`): client subscribes by market/user. Server pushes `belief_update`, `trade_executed`, `price_change`, `reserve_update`, `lp_update`, `market_status`, `claim_paid`, `lp_claim`, `system:alert` (`MODEL.md §13.2`; position state rides on `trade_executed` + a portfolio refetch rather than a dedicated `position_update` event).
 
 DTOs validated with **zod** schemas in `packages/shared`, reused by Elysia (`t`/typebox bridge or zod) and the web client.
 

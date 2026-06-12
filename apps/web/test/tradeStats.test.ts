@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { MixtureBelief, StudentTBelief } from '@bmm/core';
 import { payoffRange, sellCloseStats, tradeStats } from '../src/lib/tradeStats.ts';
 import type { ContractSpec } from '../src/lib/types.ts';
 
@@ -119,5 +120,51 @@ describe('tradeStats — short binary call (premium received)', () => {
   });
   test('win chance is the complement of the long ≈ 0.5', () => {
     expect(close(s.pProfit, 0.5, 0.02)).toBe(true);
+  });
+});
+
+describe('tradeStats — belief-aware win chance (REVIEW-FINDINGS C2)', () => {
+  // Bimodal mixture: modes at 80 and 120, nearly no mass near 100. A long binary
+  // call at K=100 wins on the upper mode only → true win chance ≈ upper weight.
+  const spec: ContractSpec = { type: 'BINARY_CALL', strike: 100 };
+  const mix = new MixtureBelief([
+    { pi: 0.7, mu: 80, sigma2: 9 },
+    { pi: 0.3, mu: 120, sigma2: 9 },
+  ]);
+  const args = {
+    spec,
+    signedQ: 10,
+    totalCost: 3, // exec 0.30/unit, the mixture fair P(θ>100) = 0.3
+    fair: 0.3,
+    mu: mix.mean(), // 92
+    sigma: mix.stddev(),
+  };
+
+  test('with the real belief, pProfit is the upper-mode mass (≈0.30)', () => {
+    const s = tradeStats({ ...args, belief: mix });
+    expect(close(s.pProfit, 0.3, 0.01)).toBe(true);
+  });
+
+  test('the Gaussian fallback gets it visibly wrong on the same μ/σ', () => {
+    const s = tradeStats(args); // no belief → same-moments Gaussian
+    // N(92, 18.5²): P(θ>100) ≈ 0.33; profit needs payoff 1 (θ>100) for a long
+    // at 0.30 — the Gaussian smears mass into the dead zone between the modes
+    // so it must differ from the exact 0.30 by a real margin.
+    expect(Math.abs(s.pProfit - 0.3) > 0.02).toBe(true);
+  });
+
+  test('fat Student-t tails are not clipped at the 10σ scan window', () => {
+    const t = StudentTBelief.fromVariance(2.5, 100, 400);
+    // Long CALL K=100 at cost 2/unit: profit needs θ > 102. Exact: 1 − cdf(102).
+    const s = tradeStats({
+      spec: { type: 'CALL', strike: 100 },
+      signedQ: 1,
+      totalCost: 2,
+      fair: 6,
+      mu: 100,
+      sigma: 20,
+      belief: t,
+    });
+    expect(close(s.pProfit, 1 - t.cdf(102), 1e-3)).toBe(true);
   });
 });

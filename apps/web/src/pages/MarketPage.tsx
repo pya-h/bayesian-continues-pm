@@ -67,13 +67,16 @@ export function MarketPage() {
     [mu, sigma, market.data?.outcomeMin, market.data?.outcomeMax],
   );
 
-  if (market.isLoading || !spec) return <Spinner label="Loading market…" />;
-  if (market.error || !market.data)
+  // Error must be checked BEFORE the spinner: `spec` is only ever seeded from
+  // market.data, so on a failed initial fetch (bad id, API down) `!spec` stays
+  // true forever and a spinner-first guard spins infinitely instead of erroring.
+  if (market.error || (!market.isLoading && !market.data))
     return (
       <ErrorNote>
         {market.error instanceof ApiError ? market.error.message : 'Market not found.'}
       </ErrorNote>
     );
+  if (market.isLoading || !spec || !market.data) return <Spinner label="Loading market…" />;
 
   const m = market.data;
   const tradable = m.status === 'OPEN';

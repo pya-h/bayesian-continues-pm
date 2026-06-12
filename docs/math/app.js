@@ -728,6 +728,10 @@
 
     function draw() {
       const L = Lval(), p = params(L), qm = sQ.get(), soft = softSeg.get() === 'on';
+      // The baseline curve only renders when the toggle is on — keep its legend
+      // swatch in sync so the legend never lists an invisible series.
+      const legendBaseline = document.getElementById('mech-legend-baseline');
+      if (legendBaseline) legendBaseline.style.display = soft ? '' : 'none';
       const cA = PI.COL.accent, cW = PI.COL.warn, cB = PI.COL.buy, cS = PI.COL.sell, cM = PI.COL.muted;
       const xcap = capacityOf(L);
 

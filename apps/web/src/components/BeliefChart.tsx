@@ -17,6 +17,7 @@ import { payoff } from '@bmm/core';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fmt, fmtCompact } from '../lib/format.ts';
 import { setLiveSpec } from '../lib/liveSpec.ts';
+import { usePrefs } from '../prefs/PrefsContext.tsx';
 import type { BeliefComponent, ContractSpec } from '../lib/types.ts';
 import {
   type Domain,
@@ -160,6 +161,10 @@ function BeliefChartImpl({
   // without changing its span. Defaults are the identity view; double-click resets.
   const [view, setView] = useState({ xMul: 1, xOff: 0, yMul: 1 });
   // True while any drag (handle OR axis pan/scale) is live — used to shed the
+  // Subscribe to display prefs: the formatters (fmt/fmtCompact) read module-level
+  // precision/compact globals that memo can't see — context bypasses the memo
+  // so a prefs change re-renders the chart's tick labels immediately.
+  usePrefs();
   // costly glow filter and coarsen the curves so dragging stays smooth.
   const [dragging, setDragging] = useState(false);
   // While a handle is dragged we render from this LOCAL spec and only push the
@@ -633,19 +638,29 @@ function BeliefChartImpl({
         filter={dragging ? undefined : 'url(#bc-glow)'}
       />
 
-      {/* mean line */}
-      <line
-        x1={sx(mu)}
-        x2={sx(mu)}
-        y1={PLOT.t}
-        y2={PLOT.b}
-        stroke="var(--color-accent)"
-        strokeWidth={1.5}
-        strokeDasharray="4 3"
-      />
-      <text x={sx(mu) + 4} y={PLOT.t + 11} className="fill-[var(--color-accent)]" fontSize={11}>
-        μ {fmt(mu, xDec)}
-      </text>
+      {/* mean line — hidden when panned/zoomed out of the visible domain (same
+          guard as the θ* marker), so it never draws into the axis gutters */}
+      {mu >= lo && mu <= hi && (
+        <>
+          <line
+            x1={sx(mu)}
+            x2={sx(mu)}
+            y1={PLOT.t}
+            y2={PLOT.b}
+            stroke="var(--color-accent)"
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
+          />
+          <text
+            x={sx(mu) + 4}
+            y={PLOT.t + 11}
+            className="fill-[var(--color-accent)]"
+            fontSize={11}
+          >
+            μ {fmt(mu, xDec)}
+          </text>
+        </>
+      )}
 
       {/* mixture component modes — a tick at each μ_k labelled with its weight %, so
           the camps and how the order flow re-weights them are visible at a glance */}
@@ -664,7 +679,7 @@ function BeliefChartImpl({
             />
             <circle
               cx={sx(c.mu)}
-              cy={syPdf(c.pi * gaussianPdf(c.mu, c.mu, c.sigma))}
+              cy={syPdf(mixturePdf(c.mu, components))}
               r={2.5}
               fill="var(--color-accent)"
               opacity={0.7}

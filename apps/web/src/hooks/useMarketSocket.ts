@@ -73,12 +73,22 @@ export function useMarketSocket(marketId: string, userId?: string) {
         const at = ++seq.current;
 
         switch (msg.type) {
-          case 'belief_update':
+          case 'belief_update': {
             patchMarket((m) => ({
               ...m,
               belief: { ...m.belief, mu: msg.mu as number, sigma: msg.sigma as number },
             }));
+            // The event carries only μ/σ. For a mixture market that leaves the
+            // *shape* (components) at the page-load snapshot after OTHER traders'
+            // fills (own trades refetch via the mutation) — refetch the market to
+            // pull the real components. Gaussian needs nothing more, and a
+            // Student-t is fully determined by (ν, μ, σ) with ν immutable.
+            const cached = qc.getQueryData<MarketView>(qk.market(marketId));
+            if (cached?.belief.kind === 'mixture') {
+              qc.invalidateQueries({ queryKey: qk.market(marketId) });
+            }
             break;
+          }
           case 'reserve_update':
             patchMarket((m) => ({
               ...m,
@@ -122,7 +132,7 @@ export function useMarketSocket(marketId: string, userId?: string) {
                 ].slice(0, 30),
               );
               qc.invalidateQueries({ queryKey: qk.stats(marketId) });
-              qc.invalidateQueries({ queryKey: qk.history(marketId) });
+              qc.invalidateQueries({ queryKey: qk.historyAll(marketId) });
             } else {
               qc.invalidateQueries({ queryKey: qk.portfolio });
             }

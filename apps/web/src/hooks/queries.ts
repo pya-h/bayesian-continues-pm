@@ -8,6 +8,11 @@ export const qk = {
   market: (id: string) => ['market', id] as const,
   stats: (id: string) => ['stats', id] as const,
   history: (id: string, key?: string) => ['history', id, key ?? null] as const,
+  // Invalidation prefix matching EVERY history query for a market (keyless and
+  // contract-keyed). `history(id)` ends in `null`, which is not a prefix of
+  // `['history', id, '<contractKey>']` — invalidating with it would leave
+  // contract-keyed history queries stale.
+  historyAll: (id: string) => ['history', id] as const,
   portfolio: ['portfolio'] as const,
   transactions: ['transactions'] as const,
   position: (contractId: string) => ['position', contractId] as const,

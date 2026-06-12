@@ -125,6 +125,12 @@ export function QuotePanel({
     refetchInterval: 30_000,
   });
   const quote = quoteQ.data;
+  // A quote that is current for THIS spec/size. `isPlaceholderData` flags the
+  // keepPreviousData window where `quote` still belongs to the previous spec/qty.
+  // Without this gate an order could submit with no quote at all (maxPrice
+  // undefined ⇒ the checked slippage guard silently doesn't apply) or with a
+  // maxPrice derived from the wrong contract's exec price.
+  const quoteLive = !!quote && !quoteQ.isError && !quoteQ.isPlaceholderData;
 
   // Subscribe to the chart's in-progress drag spec — but ONLY in live-preview
   // mode, so an ordinary drag never re-renders this panel (subscribe is a no-op
@@ -154,7 +160,7 @@ export function QuotePanel({
       if (user) setUser({ ...user, balance: fill.balance ?? user.balance });
       qc.invalidateQueries({ queryKey: qk.market(marketId) });
       qc.invalidateQueries({ queryKey: qk.stats(marketId) });
-      qc.invalidateQueries({ queryKey: qk.history(marketId) });
+      qc.invalidateQueries({ queryKey: qk.historyAll(marketId) });
       qc.invalidateQueries({ queryKey: qk.portfolio });
     },
   });
@@ -186,7 +192,7 @@ export function QuotePanel({
       if (user) setUser({ ...user, balance: result.balance ?? user.balance });
       qc.invalidateQueries({ queryKey: qk.market(marketId) });
       qc.invalidateQueries({ queryKey: qk.stats(marketId) });
-      qc.invalidateQueries({ queryKey: qk.history(marketId) });
+      qc.invalidateQueries({ queryKey: qk.historyAll(marketId) });
       qc.invalidateQueries({ queryKey: qk.portfolio });
     },
   });
@@ -251,9 +257,10 @@ export function QuotePanel({
             sigma,
             outcomeMin,
             outcomeMax,
+            belief: beliefModel,
           })
         : null,
-    [view, signedQ, mu, sigma, outcomeMin, outcomeMax],
+    [view, signedQ, mu, sigma, outcomeMin, outcomeMax, beliefModel],
   );
 
   // Projected next belief if this order fills (exact: same extractSignal→bayesUpdate
@@ -338,7 +345,10 @@ export function QuotePanel({
           <button
             type="button"
             className="self-start text-xs text-accent hover:underline"
-            onClick={() => setQty(Math.floor(quote.maxExecutable))}
+            // Buys floor to whole contracts; sells keep the fractional size so a
+            // fractional holding (e.g. 2.5 from a partial fill) can be fully closed
+            // the label prints the unfloored value either way.
+            onClick={() => setQty(isBuy ? Math.floor(quote.maxExecutable) : quote.maxExecutable)}
           >
             max ≈ {fmt(quote.maxExecutable, 2)}
           </button>
@@ -394,7 +404,7 @@ export function QuotePanel({
                 live estimate — spread held from last server quote
               </div>
             )}
-            <Row label="Fair (mid)" value={`${fmt((view ?? quote).fair)} ${outcomeUnit && ''}`} />
+            <Row label="Fair (mid)" value={`${fmt((view ?? quote).fair)} ${outcomeUnit}`} />
             <div className="my-1 border-t border-edge pt-1.5 text-xs text-muted">
               <Row label="base" value={fmt(quote.spread.base, 4)} small />
               <Row label="inventory" value={fmt(quote.spread.inventory, 4)} small />
@@ -538,14 +548,18 @@ export function QuotePanel({
 
       <Button
         variant={isBuy ? 'buy' : 'sell'}
-        disabled={!tradable || qty <= 0 || trade.isPending || sellWithoutHolding}
+        disabled={!tradable || qty <= 0 || trade.isPending || sellWithoutHolding || !quoteLive}
         onClick={() => trade.mutate()}
       >
         {trade.isPending
           ? 'Submitting…'
           : sellWithoutHolding
             ? 'Nothing to sell'
-            : `${isBuy ? 'Buy' : 'Sell'} ${fmt(qty, 2)} contract${qty === 1 ? '' : 's'}`}
+            : !quoteLive
+              ? quoteQ.isError
+                ? 'Quote unavailable'
+                : 'Quoting…'
+              : `${isBuy ? 'Buy' : 'Sell'} ${fmt(qty, 2)} contract${qty === 1 ? '' : 's'}`}
       </Button>
 
       {trade.isError && (
