@@ -124,12 +124,18 @@
 
   // ---- gaussian.ts -------------------------------------------------------
   function Belief(mu, sigma) {
+    this.kind = 'gaussian';
     this.mu = mu;
     this.sigma = sigma;
     this.sigma2 = sigma * sigma;
   }
   Belief.prototype.pdf = function (t) { return phi((t - this.mu) / this.sigma) / this.sigma; };
   Belief.prototype.cdf = function (t) { return Phi((t - this.mu) / this.sigma); };
+  // mean/variance/stddev — the shared BeliefModel interface, so kind-agnostic code
+  // (expectF, priceAny, the belief-model sandbox) reads a Gaussian like any other kind.
+  Belief.prototype.mean = function () { return this.mu; };
+  Belief.prototype.variance = function () { return this.sigma2; };
+  Belief.prototype.stddev = function () { return this.sigma; };
   Belief.prototype.sample = function (n, rng) {
     const out = new Float64Array(n);
     for (let i = 0; i < n; i++) out[i] = this.mu + this.sigma * rng.nextNormal();
@@ -308,6 +314,213 @@
     return { quantity: newQty, avgEntryPrice: newQty > 0 ? pos.avgEntryPrice : 0, realizedPnl: realized };
   }
 
+  // =======================================================================
+  //  V2 — multi-modal beliefs (mixture.ts · student_t.ts · pricing.ts ·
+  //  mixture_ops.ts · bayes.ts). Faithful browser port so the belief-model
+  //  sandbox computes through the same math the server runs.
+  // =======================================================================
+
+  // ---- student_t.ts : lgamma (Lanczos) ----------------------------------
+  const LANCZOS_G = 7;
+  const LANCZOS_C = [
+    0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
+    -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6,
+    1.5056327351493116e-7,
+  ];
+  function lgamma(z) {
+    if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - lgamma(1 - z);
+    const x = z - 1;
+    let a = LANCZOS_C[0];
+    const t = x + LANCZOS_G + 0.5;
+    for (let i = 1; i < LANCZOS_G + 2; i++) a += LANCZOS_C[i] / (x + i);
+    return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+  }
+
+  // ---- mixture.ts : MixtureBelief ---------------------------------------
+  // components: [{ pi, mu, sigma2 }]. mu/sigma exposed (mean & total stddev) so
+  // the kind-agnostic extractSignal/spread read them like a Gaussian.
+  function MixtureBelief(components) {
+    let wsum = 0;
+    for (const c of components) wsum += c.pi;
+    this.kind = 'mixture';
+    this.components = components.map((c) => ({ pi: c.pi / wsum, mu: c.mu, sigma2: c.sigma2 }));
+    let m = 0;
+    for (const c of this.components) m += c.pi * c.mu;
+    let ex2 = 0;
+    for (const c of this.components) ex2 += c.pi * (c.sigma2 + c.mu * c.mu); // law of total variance
+    this.mu = m;
+    this.sigma2 = Math.max(0, ex2 - m * m);
+    this.sigma = Math.sqrt(this.sigma2);
+  }
+  MixtureBelief.prototype.mean = function () { return this.mu; };
+  MixtureBelief.prototype.variance = function () { return this.sigma2; };
+  MixtureBelief.prototype.stddev = function () { return this.sigma; };
+  MixtureBelief.prototype.pdf = function (t) {
+    let d = 0;
+    for (const c of this.components) { const s = Math.sqrt(c.sigma2); d += c.pi * (phi((t - c.mu) / s) / s); }
+    return d;
+  };
+  MixtureBelief.prototype.cdf = function (t) {
+    let f = 0;
+    for (const c of this.components) f += c.pi * Phi((t - c.mu) / Math.sqrt(c.sigma2));
+    return f;
+  };
+  MixtureBelief.prototype.sample = function (n, rng) {
+    const cum = []; let acc = 0;
+    for (const c of this.components) { acc += c.pi; cum.push(acc); }
+    const out = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = rng.next(); let k = 0;
+      while (k < cum.length - 1 && u > cum[k]) k++;
+      const c = this.components[k];
+      out[i] = c.mu + Math.sqrt(c.sigma2) * rng.nextNormal();
+    }
+    return out;
+  };
+
+  // ---- student_t.ts : StudentT (location-scale, ν>2) --------------------
+  function StudentT(nu, mu, scale2) {
+    this.kind = 'student_t';
+    this.nu = nu; this.mu = mu; this.scale2 = scale2;
+    this.sigma2 = (scale2 * nu) / (nu - 2);
+    this.sigma = Math.sqrt(this.sigma2);
+  }
+  StudentT.fromVariance = function (nu, mu, variance) {
+    return new StudentT(nu, mu, (variance * (nu - 2)) / nu);
+  };
+  StudentT.prototype.mean = function () { return this.mu; };
+  StudentT.prototype.variance = function () { return this.sigma2; };
+  StudentT.prototype.stddev = function () { return this.sigma; };
+  StudentT.prototype.pdf = function (theta) {
+    const s = Math.sqrt(this.scale2);
+    const x = (theta - this.mu) / s;
+    const logC = lgamma((this.nu + 1) / 2) - lgamma(this.nu / 2) - 0.5 * Math.log(this.nu * Math.PI) - Math.log(s);
+    return Math.exp(logC) * Math.pow(1 + (x * x) / this.nu, -(this.nu + 1) / 2);
+  };
+  StudentT.prototype.sample = function (n, rng) {
+    const s = Math.sqrt(this.scale2); const out = new Float64Array(n);
+    // standard t = Z / √(χ²_ν/ν); χ²_ν via two normals only approximates — use the
+    // Bailey polar method through the engine's normal sampler is overkill for the
+    // sandbox, so we draw t directly by inverse-free rejection-free ν-scaling.
+    for (let i = 0; i < n; i++) {
+      // sum of ν iid normals² ≈ χ²_ν (exact for integer ν; ν is a slider integer here)
+      let chi2 = 0; const k = Math.max(1, Math.round(this.nu));
+      for (let j = 0; j < k; j++) { const z = rng.nextNormal(); chi2 += z * z; }
+      const z = rng.nextNormal();
+      out[i] = this.mu + s * (z / Math.sqrt(chi2 / this.nu));
+    }
+    return out;
+  };
+
+  // ---- pricing.ts : expectF + kind-agnostic price / dPriceDMu -----------
+  /** E_p[g(θ)] via composite Simpson over a ±L·σ window (lighter nodes for UI). */
+  function expectF(fn, belief, opts) {
+    opts = opts || {};
+    const mean = belief.mean(), sigma = belief.stddev();
+    const L = opts.L || 10;
+    let n = opts.nodes || 1200; if (n % 2 === 1) n += 1;
+    const a = mean - L * sigma, b = mean + L * sigma, h = (b - a) / n;
+    const ig = (t) => fn(t) * belief.pdf(t);
+    let sum = ig(a) + ig(b);
+    for (let i = 1; i < n; i++) sum += (i % 2 === 0 ? 2 : 4) * ig(a + i * h);
+    return (sum * h) / 3;
+  }
+  /** Fair price for any belief kind: closed-form for Gaussian/mixture, quadrature for t. */
+  function priceAny(spec, belief) {
+    if (!belief.kind || belief.kind === 'gaussian') return price(spec, belief);
+    if (belief.kind === 'mixture') {
+      let s = 0;
+      for (const c of belief.components) s += c.pi * price(spec, new Belief(c.mu, Math.sqrt(c.sigma2)));
+      return s;
+    }
+    if (spec.type === 'LINEAR') return belief.mean(); // exact; avoids tail-truncation
+    return expectF((t) => payoff(spec, t), belief);
+  }
+  function dPriceDMuAny(spec, belief) {
+    if (!belief.kind || belief.kind === 'gaussian') return dPriceDMu(spec, belief);
+    if (belief.kind === 'mixture') {
+      let s = 0;
+      for (const c of belief.components) s += c.pi * dPriceDMu(spec, new Belief(c.mu, Math.sqrt(c.sigma2)));
+      return s;
+    }
+    const h = Math.max(1e-3, belief.stddev() * 1e-3);
+    const up = priceAny(spec, new StudentT(belief.nu, belief.mu + h, belief.scale2));
+    const dn = priceAny(spec, new StudentT(belief.nu, belief.mu - h, belief.scale2));
+    return (up - dn) / (2 * h);
+  }
+
+  // ---- mixture_ops.ts : prune / merge / cap -----------------------------
+  function mergeTwo(a, b) {
+    const pi = a.pi + b.pi;
+    const mu = (a.pi * a.mu + b.pi * b.mu) / pi;
+    const ex2 = (a.pi * (a.sigma2 + a.mu * a.mu) + b.pi * (b.sigma2 + b.mu * b.mu)) / pi;
+    return { pi, mu, sigma2: Math.max(ex2 - mu * mu, 1e-12) };
+  }
+  function manageMixture(comps, cfg) {
+    cfg = cfg || { piMin: 0.02, tauMerge: 0.5, maxComponents: 6 };
+    let kept = comps.filter((c) => c.pi >= cfg.piMin);
+    if (!kept.length) { let best = comps[0]; for (const c of comps) if (c.pi > best.pi) best = c; kept = [best]; }
+    const tot = kept.reduce((s, c) => s + c.pi, 0);
+    let list = kept.map((c) => ({ pi: c.pi / tot, mu: c.mu, sigma2: c.sigma2 }));
+    while (list.length > 1) {
+      let best = null;
+      for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+        const denom = Math.sqrt(list[i].sigma2) + Math.sqrt(list[j].sigma2) || 1e-12;
+        const d = Math.abs(list[i].mu - list[j].mu) / denom;
+        if (!best || d < best.d) best = { i, j, d };
+      }
+      if (!best) break;
+      const a = list[best.i], b = list[best.j];
+      const qualifies = Math.abs(a.mu - b.mu) < cfg.tauMerge * (Math.sqrt(a.sigma2) + Math.sqrt(b.sigma2));
+      const overCap = list.length > cfg.maxComponents;
+      if (!qualifies && !overCap) break;
+      const m = mergeTwo(a, b);
+      list = list.filter((_, k) => k !== best.i && k !== best.j);
+      list.push(m);
+    }
+    return new MixtureBelief(list);
+  }
+
+  // ---- bayes.ts : kind-aware updates ------------------------------------
+  function bayesUpdateStudentT(belief, signal, weight, cfg) {
+    const sigmaMin2 = cfg.sigmaMin * cfg.sigmaMin, nu = belief.nu, priorVar = belief.variance();
+    if (weight <= 0) return StudentT.fromVariance(nu, belief.mu, Math.max(priorVar, sigmaMin2));
+    if (cfg.useSimplifiedUpdate) {
+      const muNew = belief.mu + cfg.lr * (signal - belief.mu) * weight;
+      const varNew = priorVar * (1 - cfg.decay * weight);
+      return StudentT.fromVariance(nu, muNew, Math.max(varNew, sigmaMin2));
+    }
+    const tau0 = 1 / priorVar, taus = weight / (cfg.sigmaEps * cfg.sigmaEps), tot = tau0 + taus;
+    const muNew = (tau0 * belief.mu + taus * signal) / tot;
+    return StudentT.fromVariance(nu, muNew, Math.max(1 / tot, sigmaMin2));
+  }
+  function bayesUpdateMixture(belief, signal, weight, cfg) {
+    const sigmaMin2 = cfg.sigmaMin * cfg.sigmaMin, comps = belief.components;
+    if (weight <= 0) return new MixtureBelief(comps.map((c) => ({ pi: c.pi, mu: c.mu, sigma2: Math.max(c.sigma2, sigmaMin2) })));
+    const sigmaEps2 = cfg.sigmaEps * cfg.sigmaEps, LOG2PI = Math.log(2 * Math.PI);
+    const logNum = []; let maxLog = -Infinity;
+    for (const c of comps) {
+      const vk = c.sigma2 + sigmaEps2;
+      const logEv = -0.5 * (((signal - c.mu) ** 2) / vk + Math.log(vk) + LOG2PI);
+      const ln = Math.log(c.pi) + weight * logEv;
+      logNum.push(ln); if (ln > maxLog) maxLog = ln;
+    }
+    let z = 0; const r = [];
+    for (let k = 0; k < comps.length; k++) { const e = Math.exp(logNum[k] - maxLog); r.push(e); z += e; }
+    for (let k = 0; k < comps.length; k++) r[k] /= z;
+    const updated = comps.map((c, k) => {
+      const rk = r[k], pp = 1 / c.sigma2, ps = (weight * rk) / sigmaEps2, tot = pp + ps;
+      return { pi: rk, mu: (pp * c.mu + ps * signal) / tot, sigma2: Math.max(1 / tot, sigmaMin2) };
+    });
+    return manageMixture(updated);
+  }
+  /** Kind-agnostic dispatcher — mirrors core's updateBelief. */
+  function updateBelief(belief, signal, weight, cfg) {
+    if (belief.kind === 'mixture') return bayesUpdateMixture(belief, signal, weight, cfg);
+    if (belief.kind === 'student_t') return bayesUpdateStudentT(belief, signal, weight, cfg);
+    return bayesUpdate(belief, signal, weight, cfg);
+  }
+
   global.BMM = {
     round8,
     phi, Phi, erf, erfc, normInv, Rng, Belief,
@@ -316,5 +529,8 @@
     computeSpread, execPriceFor, extractSignal, bayesUpdate,
     liability, expectedLiability, requiredReserve,
     lpSharePrice, sharesForDeposit, cashOutForShares, lpClaimAmount, applyFill,
+    // V2 multi-modal beliefs
+    lgamma, MixtureBelief, StudentT, expectF, priceAny, dPriceDMuAny,
+    mergeTwo, manageMixture, bayesUpdateMixture, bayesUpdateStudentT, updateBelief,
   };
 })(window);

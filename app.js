@@ -197,6 +197,221 @@
   }
 
   /* ===================================================================== */
+  /*  Widget 1b — Belief-model sandbox (Gaussian vs Mixture vs Student-t)   */
+  /*  Shows each model against the equal-(μ,σ) Gaussian, how its fair price */
+  /*  diverges, and how a trade reshapes it under the kind-aware update.    */
+  /* ===================================================================== */
+  function vizBeliefModels() {
+    const root = $('#viz-models'); if (!root) return;
+    const cv = $('canvas', root), controls = $('.controls', root), out = $('.readout', root);
+    const P = Plot(cv);
+    const cfg = M.makeEngineConfig(100, 12);
+
+    const kindSeg = seg(controls, {
+      label: 'Belief model', value: 'mixture',
+      options: [
+        { label: 'Gaussian', value: 'gaussian' },
+        { label: 'Mixture', value: 'mixture' },
+        { label: 'Student-t', value: 'student_t' },
+      ],
+    });
+    const sMu = slider(controls, { label: 'μ — center', min: 70, max: 130, step: 0.5, value: 100 });
+    const sSg = slider(controls, { label: 'σ — uncertainty', min: 4, max: 26, step: 0.5, value: 12 });
+    const sGap = slider(controls, { label: 'mode separation (mixture)', min: 0, max: 28, step: 0.5, value: 16 });
+    const sW = slider(controls, { label: 'left-camp weight π₁ (mixture)', min: 0.1, max: 0.9, step: 0.05, value: 0.5, fmt: (v) => fmt(v, 2) });
+    const sNu = slider(controls, { label: 'ν — degrees of freedom (Student-t)', min: 3, max: 40, step: 0.5, value: 5 });
+    const cSeg = seg(controls, {
+      label: 'Contract', value: 'BINARY_CALL',
+      options: [{ label: 'Call', value: 'CALL' }, { label: 'Bin·Call', value: 'BINARY_CALL' }, { label: 'Spread', value: 'SPREAD' }],
+    });
+    const sK = slider(controls, { label: 'strike / center K', min: 70, max: 145, step: 1, value: 122 });
+    const btns = document.createElement('div');
+    btns.style.cssText = 'display:flex;gap:.5rem;margin-top:.4rem;flex-wrap:wrap';
+    btns.innerHTML = '<button class="seg" id="bm-buy">Buy K ↑ & commit</button>'
+      + '<button class="seg" id="bm-sell">Sell K ↓ & commit</button>'
+      + '<button class="seg" id="bm-reset">Reset prior</button>';
+    controls.appendChild(btns);
+
+    function prior() {
+      const mu = sMu.get(), sg = sSg.get(), kind = kindSeg.get();
+      if (kind === 'gaussian') return new M.Belief(mu, sg);
+      if (kind === 'student_t') return M.StudentT.fromVariance(sNu.get(), mu, sg * sg);
+      const gap = sGap.get(), w = sW.get();
+      return new M.MixtureBelief([
+        { pi: w, mu: mu - gap, sigma2: sg * sg },
+        { pi: 1 - w, mu: mu + gap, sigma2: sg * sg },
+      ]);
+    }
+    let cur = prior();
+    function specOf() { const t = cSeg.get(), K = sK.get(); return t === 'SPREAD' ? { type: 'SPREAD', lower: K - 8, upper: K + 8 } : { type: t, strike: K }; }
+    function commit(side) {
+      const q = (side === 'buy' ? 1 : -1) * 180;
+      const sig = M.extractSignal(specOf(), q, cur, cfg);
+      cur = M.updateBelief(cur, sig.signal, sig.weight, cfg);
+      draw();
+    }
+    function shapeNote() {
+      if (cur.kind === 'mixture') { const n = cur.components.length; return n > 1 ? n + ' camps (multi-modal)' : 'merged → 1 camp'; }
+      if (cur.kind === 'student_t') return 'fat tails · ν=' + fmt(cur.nu, 1);
+      return 'single symmetric bump';
+    }
+    function relevance() {
+      const kind = kindSeg.get();
+      sGap.el.closest('.control').style.opacity = kind === 'mixture' ? 1 : 0.35;
+      sW.el.closest('.control').style.opacity = kind === 'mixture' ? 1 : 0.35;
+      sNu.el.closest('.control').style.opacity = kind === 'student_t' ? 1 : 0.35;
+    }
+    function draw() {
+      const spec = specOf();
+      const gRef = new M.Belief(cur.mean(), cur.stddev()); // identical μ AND σ — isolates shape
+      const sg = cur.stddev(), c0 = cur.mean();
+      const x0 = c0 - 4.2 * sg, x1 = c0 + 4.2 * sg;
+      let pmax = 1e-9, fmax = 1e-9;
+      for (let i = 0; i <= 220; i++) {
+        const x = x0 + (i / 220) * (x1 - x0);
+        pmax = Math.max(pmax, cur.pdf(x), gRef.pdf(x));
+        fmax = Math.max(fmax, M.payoff(spec, x));
+      }
+      P.clear().domain(x0, x1, 0, pmax * 1.14);
+      P.grid([x0, (x0 + x1) / 2, x1], [], { xfmt: (v) => fmt(v, 0) });
+      // contract payoff, normalised into the plot (green) — the "market" context
+      P.curve((x) => (M.payoff(spec, x) / fmax) * pmax * 0.9, 'rgba(52,211,153,0.5)', 1.3);
+      // equal-(μ,σ) Gaussian reference (muted) vs the model belief (accent, filled)
+      P.curve((x) => gRef.pdf(x), P.COL.muted, 1.5);
+      P.area((x) => cur.pdf(x), 'rgba(91,157,255,0.12)');
+      P.curve((x) => cur.pdf(x), P.COL.accent, 2.6);
+      if (cur.kind === 'mixture') for (const c of cur.components) P.vline(c.mu, P.COL.accent, '', true);
+      P.vline(c0, P.COL.buy, 'μ', true);
+      P.vline(sK.get(), P.COL.warn, 'K');
+      const fairM = M.priceAny(spec, cur), fairG = M.price(spec, gRef);
+      const diff = fairG !== 0 ? ((fairM - fairG) / Math.abs(fairG)) * 100 : 0;
+      out.innerHTML =
+        cell('mean μ', fmt(cur.mean(), 2)) + cell('σ (std-dev)', fmt(cur.stddev(), 2)) +
+        cell('Fair — this model', fmt(fairM, 4), 'accent') +
+        cell('Fair — Gaussian(μ,σ)', fmt(fairG, 4)) +
+        cell('model vs Gaussian', (diff >= 0 ? '+' : '') + fmt(diff, 1) + '%', Math.abs(diff) > 1 ? 'warn' : '') +
+        cell('belief shape', shapeNote());
+      relevance();
+    }
+    function rebuild() { cur = prior(); draw(); }
+    [kindSeg, sMu, sSg, sGap, sW, sNu].forEach((c) => c.on(rebuild));
+    [cSeg, sK].forEach((c) => c.on(draw));
+    $('#bm-buy', btns).onclick = () => commit('buy');
+    $('#bm-sell', btns).onclick = () => commit('sell');
+    $('#bm-reset', btns).onclick = () => rebuild();
+    redraws.push(draw); draw();
+  }
+
+  /* ===================================================================== */
+  /*  Widget 1c — Flexible parametric families (design study, §19)          */
+  /*  Morph each candidate family + read its flexibility-vs-implementation  */
+  /*  scorecard (shape DOF, pricing path, update, off-chain / on-chain).    */
+  /* ===================================================================== */
+  function vizFlexBeliefs() {
+    const root = $('#viz-flex'); if (!root) return;
+    const MM = window.MMODEL; if (!MM) return;
+    const cv = $('canvas', root), controls = $('.controls', root), out = $('.readout', root);
+    const P = Plot(cv);
+
+    const famSeg = seg(controls, {
+      label: 'Belief family  ·  (⛓ on-chain-feasible, ★ off-chain)', value: 'basis',
+      options: [
+        { label: 'Gaussian', value: 'gaussian' },
+        { label: 'Skew', value: 'skew_normal' },
+        { label: 'Gen-norm', value: 'gen_normal' },
+        { label: 'Student-t', value: 'student_t' },
+        { label: 'Beta', value: 'beta' },
+        { label: 'Mixture', value: 'mixture' },
+        { label: 'Gen·basis ⛓', value: 'basis' },
+        { label: 'Gen·exact ★', value: 'maxent' },
+      ],
+    });
+    const sMu = slider(controls, { label: 'center', min: 60, max: 140, step: 0.5, value: 100 });
+    const sScale = slider(controls, { label: 'width σ', min: 3, max: 32, step: 0.5, value: 12 });
+    const sSkew = slider(controls, { label: 'α — skew (skew · general)', min: -14, max: 14, step: 0.5, value: 5 });
+    const sPeak = slider(controls, { label: 'β — peak↔flat (gen-normal)', min: 0.3, max: 10, step: 0.1, value: 1.3, fmt: (v) => fmt(v, 1) });
+    const sNu = slider(controls, { label: 'ν — d.o.f. (Student-t)', min: 2.2, max: 80, step: 0.5, value: 5, fmt: (v) => fmt(v, 1) });
+    const sA = slider(controls, { label: 'a (Beta)', min: 0.2, max: 14, step: 0.1, value: 2, fmt: (v) => fmt(v, 1) });
+    const sB = slider(controls, { label: 'b (Beta)', min: 0.2, max: 14, step: 0.1, value: 5, fmt: (v) => fmt(v, 1) });
+    const sModes = slider(controls, { label: 'peaks / camps (mixture · basis)', min: 1, max: 9, step: 1, value: 3, fmt: (v) => fmt(v, 0) });
+    const sSpread = slider(controls, { label: 'separation / spread (mixture · basis)', min: 0, max: 46, step: 1, value: 22, fmt: (v) => fmt(v, 0) });
+    const sWell = slider(controls, { label: 'λ₂ — well depth (Gen·exact): <0 ⇒ bimodal', min: -4, max: 4, step: 0.1, value: 1, fmt: (v) => fmt(v, 1) });
+    const sQuart = slider(controls, { label: 'λ₄ — fat tails ↔ flat-top (Gen·exact)', min: 0, max: 1.6, step: 0.05, value: 0, fmt: (v) => fmt(v, 2) });
+
+    function build() {
+      const mu = sMu.get(), sg = sScale.get(), fam = famSeg.get();
+      switch (fam) {
+        case 'skew_normal': return MM.skewNormal(mu, sg, sSkew.get());
+        case 'gen_normal': return MM.genNormal(mu, sg, sPeak.get());
+        case 'student_t': return M.StudentT.fromVariance(sNu.get(), mu, sg * sg);
+        case 'beta': return MM.betaScaled(mu - 3 * sg, mu + 3 * sg, sA.get(), sB.get());
+        case 'mixture': return MM.fewCamps(mu, sSpread.get(), sModes.get(), sg);
+        case 'basis': { const half = sSpread.get() + 16; return MM.fixedBasis(mu - half, mu + half, 27, sModes.get(), sg / 12, sSkew.get() / 14); }
+        case 'maxent': return MM.maxEnt(mu, sg, sWell.get(), sSkew.get() / 40, sQuart.get());
+        default: return new M.Belief(mu, sg);
+      }
+    }
+    function relevance() {
+      const f = famSeg.get();
+      const dim = (ctl, on) => { ctl.el.closest('.control').style.opacity = on ? 1 : 0.32; };
+      dim(sSkew, f === 'skew_normal' || f === 'maxent' || f === 'basis');
+      dim(sPeak, f === 'gen_normal'); dim(sNu, f === 'student_t');
+      dim(sA, f === 'beta'); dim(sB, f === 'beta');
+      dim(sModes, f === 'mixture' || f === 'basis');
+      dim(sSpread, f === 'mixture' || f === 'basis');
+      dim(sWell, f === 'maxent'); dim(sQuart, f === 'maxent');
+    }
+    function stars(n) { return '★'.repeat(n) + '☆'.repeat(5 - n); }
+
+    function draw() {
+      const b = build();
+      const meta = MM.META[famSeg.get()];
+      const mean = b.mean(), sd = b.stddev();
+      const x0 = b.lo != null ? b.lo : mean - 4 * sd;
+      const x1 = b.hi != null ? b.hi : mean + 4 * sd;
+      const gRef = new M.Belief(mean, sd);
+      let pmax = 1e-9;
+      for (let i = 0; i <= 240; i++) { const x = x0 + (i / 240) * (x1 - x0); pmax = Math.max(pmax, b.pdf(x), gRef.pdf(x)); }
+      P.clear().domain(x0, x1, 0, pmax * 1.14);
+      P.grid([x0, (x0 + x1) / 2, x1], [], { xfmt: (v) => fmt(v, 0) });
+      P.curve((x) => gRef.pdf(x), P.COL.muted, 1.5);          // equal-(μ,σ) Gaussian reference
+      P.area((x) => b.pdf(x), 'rgba(91,157,255,0.12)');
+      P.curve((x) => b.pdf(x), P.COL.accent, 2.6);            // the candidate family
+      P.vline(mean, P.COL.buy, 'μ', true);
+      const K = mean + 1.5 * sd;
+      P.vline(K, P.COL.warn, 'K');
+      const fair = MM.priceFlex({ type: 'BINARY_CALL', strike: K }, b);
+      // Compact, grouped scorecard (overrides the default 2-col readout grid so the
+      // long descriptive values don't blow up into giant wrapped mono text).
+      out.style.display = 'block';
+      const onWarn = /hard|very|infeasible/.test(meta.on);
+      const onGood = /feasible|shipped|^low|moderate/.test(meta.on);
+      const row = (k, v, col) =>
+        `<div class="k" style="align-self:center">${k}</div>`
+        + `<div style="font-size:.84rem;font-weight:500;line-height:1.25${col ? `;color:${col}` : ''}">${v}</div>`;
+      const grp = (t) =>
+        `<div style="grid-column:1/-1;font-size:.6rem;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);opacity:.7;margin-top:.55rem;padding-top:.3rem;border-top:1px solid var(--edge)">${t}</div>`;
+      out.innerHTML =
+        '<div style="display:grid;grid-template-columns:7rem 1fr;gap:.26rem .8rem;align-items:baseline">'
+        + grp('Shape')
+        + row('Flexibility', stars(meta.flex), 'var(--accent)')
+        + row('Shape DOF', meta.dof)
+        + row('Makes', meta.shapes)
+        + grp('Engine')
+        + row('Pricing', meta.price)
+        + row('Update', meta.update)
+        + row('Tail&#8209;binary fair', fmt(fair, 4))
+        + grp('Implementation')
+        + row('Off&#8209;chain', meta.off)
+        + row('On&#8209;chain', meta.on, onWarn ? 'var(--warn)' : onGood ? 'var(--buy)' : '')
+        + '</div>';
+      relevance();
+    }
+    [famSeg, sMu, sScale, sSkew, sPeak, sNu, sA, sB, sModes, sSpread, sWell, sQuart].forEach((c) => c.on(draw));
+    redraws.push(draw); draw();
+  }
+
+  /* ===================================================================== */
   /*  Widget 2 — Pricing: fair = E[payoff]                                  */
   /* ===================================================================== */
   function vizPricing() {
@@ -421,6 +636,188 @@
   }
 
   /* ===================================================================== */
+  /*  Widget 7 — Price impact: size · count · liquidity (one buy/sell switch)*/
+  /*  Same probe (Bin·Call @ μ, so price = P(θ≥K) ∈ [0,1]); each chart       */
+  /*  isolates one lever of ΔFair ≈ (∂P/∂μ)·Δμ, driven by ι = |q|/Q_max.     */
+  /* ===================================================================== */
+  function vizImpact() {
+    const root = $('#viz-impact'); if (!root) return;
+    const MU = 100, SG = 12, BASE_Q = 500;        // market N(100,12²), baseline depth
+    const base = () => new M.Belief(MU, SG);
+    const cfgWith = (qMax) => M.makeEngineConfig(MU, SG, { qMax });
+    const spec = { type: 'BINARY_CALL', strike: MU }; // fair reads as a probability
+    const fair0 = M.price(spec, base());           // = 0.50
+
+    const sideSeg = seg($('.impact-controls', root), {
+      label: 'Trade side — drives all three charts', value: 'buy',
+      options: [{ label: 'Buy ▲', value: 'buy' }, { label: 'Sell ▼', value: 'sell' }],
+    });
+
+    const POPT = { w: 340, h: 300, pad: { l: 38, r: 12, t: 14, b: 30 } };
+    const P1 = Plot($('#impact-amt canvas', root), POPT), o1 = $('#impact-amt .readout', root);
+    const P2 = Plot($('#impact-cnt canvas', root), POPT), o2 = $('#impact-cnt .readout', root);
+    const P3 = Plot($('#impact-lp canvas', root), POPT), o3 = $('#impact-lp .readout', root);
+    const YT = [0, 0.25, 0.5, 0.75, 1], yfmt = (v) => fmt(v, 2);
+
+    // one trade of size q (signed) → fair price on the post-trade belief
+    function fairAfter(q, cfg) {
+      const sig = M.extractSignal(spec, q, base(), cfg);
+      return M.price(spec, M.bayesUpdate(base(), sig.signal, sig.weight, cfg));
+    }
+
+    function draw() {
+      const buy = sideSeg.get() === 'buy', sgn = buy ? 1 : -1;
+      const col = buy ? P1.COL.buy : P1.COL.sell;
+      const tone = buy ? 'buy' : 'sell';
+      const cfg = cfgWith(BASE_Q);
+
+      /* ① price vs trade size --------------------------------------------- */
+      P1.clear().domain(0, BASE_Q, 0, 1);
+      P1.grid([0, 250, 500], YT, { xfmt: (v) => fmt(v, 0), yfmt });
+      P1.hline(fair0, P1.COL.muted, '', true);
+      P1.curve((q) => (q <= 0 ? fair0 : fairAfter(sgn * q, cfg)), col, 2.4, 90);
+      const qm = 150, pm = fairAfter(sgn * qm, cfg);
+      P1.vline(qm, P1.COL.faint, '', true); P1.dot(qm, pm, col, 4);
+      o1.innerHTML = cell('price @150u', fmt(pm, 3), tone) + cell('Δ from 0.50', fmtS(pm - fair0, 3));
+
+      /* ② price over trade count ------------------------------------------ */
+      const Q2 = 120, NMAX = 24;
+      let bel = base(); const seq = [fair0];
+      for (let n = 1; n <= NMAX; n++) {
+        const sig = M.extractSignal(spec, sgn * Q2, bel, cfg);
+        bel = M.bayesUpdate(bel, sig.signal, sig.weight, cfg);
+        seq.push(M.price(spec, bel));
+      }
+      P2.clear().domain(0, NMAX, 0, 1);
+      P2.grid([0, 8, 16, 24], YT, { xfmt: (v) => fmt(v, 0), yfmt });
+      P2.hline(fair0, P2.COL.muted, '', true);
+      P2.curve((x) => { const i = Math.floor(x), t = x - i; return i >= NMAX ? seq[NMAX] : seq[i] * (1 - t) + seq[i + 1] * t; }, col, 2.4, 96);
+      seq.forEach((p, n) => P2.dot(n, p, col, 2.2));
+      o2.innerHTML = cell('after 24× 120u', fmt(seq[NMAX], 3), tone) + cell('per-trade now', fmtS(seq[NMAX] - seq[NMAX - 1], 4));
+
+      /* ③ price impact vs liquidity (LP → depth Q ≈ 0.5·LP) --------------- */
+      const QF = 150, LP0 = 200, LP1 = 4000;
+      const f3 = (lp) => fairAfter(sgn * QF, cfgWith(Math.max(20, BASE_Q * lp / 1000)));
+      P3.clear().domain(LP0, LP1, 0, 1);
+      P3.grid([LP0, 2000, LP1], YT, { xfmt: (v) => fmt(v, 0), yfmt });
+      P3.hline(fair0, P3.COL.muted, '', true);
+      P3.curve(f3, col, 2.4, 90);
+      P3.vline(1000, P3.COL.faint, 'base', true); P3.dot(1000, f3(1000), col, 4);
+      o3.innerHTML = cell('@thin (LP 400)', fmt(f3(400), 3), tone) + cell('@deep (LP 4k)', fmt(f3(LP1), 3), tone);
+    }
+    sideSeg.on(draw); redraws.push(draw); draw();
+  }
+
+  /* ===================================================================== */
+  /*  Widget 8 — Continuous (BMM) vs discrete markets: impact & slippage    */
+  /*  All four mechanisms on a binary @ mid 0.5, matched to one liquidity    */
+  /*  budget L. Shows impact ∝ 1/liquidity (curves flatten as L grows) and   */
+  /*  the cost-packaging difference (single-price spread vs walk-the-curve). */
+  /* ===================================================================== */
+  function vizMechCompare() {
+    const root = $('#viz-mech'); if (!root) return;
+    const MU = 100, SG = 12, K = 100, spec = { type: 'BINARY_CALL', strike: K };
+    const base = () => new M.Belief(MU, SG);
+    const XMAX = 1200;                              // fixed x-axis so liquidity-flattening is visible
+    const sig = (z) => 1 / (1 + Math.exp(-z));
+    // compact money label so the log slider can span $400 → billions legibly
+    const fmtL = (v) => v >= 1e9 ? fmt(v / 1e9, 2) + 'B' : v >= 1e6 ? fmt(v / 1e6, 2) + 'M' : v >= 1e3 ? fmt(v / 1e3, 1) + 'k' : fmt(v, 0);
+
+    const ctrls = $('.impact-controls', root);
+    // Liquidity is LOG-scaled: the slider carries log10(L) so one drag sweeps
+    // $400 → ~$2B. Lval() exponentiates back to real LP capital.
+    const LMIN = Math.log10(400), LMAX = Math.log10(2e9);
+    const sLiq = slider(ctrls, { label: 'Liquidity — LP capital (log scale, scales every mechanism)', min: LMIN, max: LMAX, step: 0.01, value: Math.log10(1500), fmt: (e) => '$' + fmtL(Math.pow(10, e)) });
+    const Lval = () => Math.pow(10, sLiq.get());
+    const sQ = slider(ctrls, { label: 'Trade size — reference order (shares)', min: 50, max: XMAX, step: 10, value: 400, fmt: (v) => fmt(v, 0) });
+    // Soft-cap fix (default OFF): the capacity-aware congestion premium from
+    // docs/capacity/soft-cap.md, folded into the BMM curves so you can A/B the
+    // "gentle drift then a hard wall" of today against the smooth price ramp.
+    const softSeg = seg(ctrls, { label: 'Soft-cap fix — capacity congestion premium', value: 'off', options: [{ label: 'Off · today', value: 'off' }, { label: 'On · soft cap', value: 'on' }] });
+
+    const POPT = { w: 360, h: 300, pad: { l: 40, r: 12, t: 14, b: 30 } };
+    const PI = Plot($('#mech-impact canvas', root), POPT), oI = $('#mech-impact .readout', root);
+    const PS = Plot($('#mech-slip canvas', root), POPT), oS = $('#mech-slip .readout', root);
+    const YT = [0, 0.25, 0.5, 0.75, 1];
+
+    // matched-liquidity mappings (canonical depth ∝ L; ratios tuned so initial slopes line up)
+    const params = (L) => ({ Q: 2 * L, b: 2 * L, R: 2 * L, rho: 8 * L });
+    // --- marginal price after buying x shares ---
+    function bmmImpact(x, Q) { const c = M.makeEngineConfig(MU, SG, { qMax: Q }); const s = M.extractSignal(spec, x, base(), c); return M.price(spec, M.bayesUpdate(base(), s.signal, s.weight, c)); }
+    const lmsrImpact = (x, b) => sig(x / b);
+    function cpmmT(x, R) { return ((x - 2 * R) + Math.sqrt(x * x + 4 * R * R)) / 2; }
+    function cpmmImpact(x, R) { const t = cpmmT(x, R); const u = (R + t) * (R + t); return u / (R * R + u); }
+    const bookImpact = (x, rho) => Math.min(1, 0.5 + x / rho);
+    // --- premium over mid to FILL x shares (slippage) ---
+    function bmmSlip(x, Q) { const c = M.makeEngineConfig(MU, SG, { qMax: Q }); return M.computeSpread(spec, x, 0, base(), c).total; }
+    const lmsrSlip = (x, b) => (x < 1 ? 0 : (b * Math.log(Math.exp(x / b) + 1) - b * Math.LN2) / x - 0.5);
+    const cpmmSlip = (x, R) => (x < 1 ? 0 : cpmmT(x, R) / x - 0.5);
+    const bookSlip = (x, rho) => Math.min(0.5, x / (2 * rho));
+
+    // --- soft-cap congestion premium (docs/capacity/soft-cap.md §3) ---------
+    // u = utilisation toward the solvency frontier; capacity (in shares) ∝ L.
+    // congestion = κ·|fair|·u^a /(1−min(u,1−ε)), ≈0 with headroom, →∞ at the wall.
+    const CAP_C = 0.7;                              // capacity ≈ CAP_C · L  (stylised: shares the pool can underwrite)
+    const capacityOf = (L) => CAP_C * L;
+    function congestion(x, L) {
+      const u = x / capacityOf(L);
+      if (u <= 0.02) return 0;
+      const a = 2.2, eps = 0.02, kappa = 0.16, fairAbs = 0.5;
+      return kappa * fairAbs * Math.pow(u, a) / (1 - Math.min(u, 1 - eps));
+    }
+    const bmmImpactEff = (x, p, L, soft) => soft ? Math.min(1, bmmImpact(x, p.Q) + congestion(x, L)) : bmmImpact(x, p.Q);
+    const bmmSlipEff = (x, p, L, soft) => soft ? bmmSlip(x, p.Q) + congestion(x, L) : bmmSlip(x, p.Q);
+
+    function draw() {
+      const L = Lval(), p = params(L), qm = sQ.get(), soft = softSeg.get() === 'on';
+      const cA = PI.COL.accent, cW = PI.COL.warn, cB = PI.COL.buy, cS = PI.COL.sell, cM = PI.COL.muted;
+      const xcap = capacityOf(L);
+
+      /* LEFT — price impact (marginal price) ------------------------------ */
+      PI.clear().domain(0, XMAX, 0, 1);
+      PI.grid([0, 400, 800, 1200], YT, { xfmt: (v) => fmt(v, 0), yfmt: (v) => fmt(v, 2) });
+      PI.hline(0.5, PI.COL.muted, '', true);
+      PI.curve((x) => bookImpact(x, p.rho), cS, 2, 90);
+      PI.curve((x) => lmsrImpact(x, p.b), cW, 2, 90);
+      PI.curve((x) => cpmmImpact(x, p.R), cB, 2, 90);
+      if (soft) {
+        PI.curve((x) => bmmImpact(x, p.Q), cM, 1.4, 90);          // faint "BMM today" baseline
+        if (xcap < XMAX) PI.vline(xcap, cA, 'capacity', true);
+      }
+      PI.curve((x) => bmmImpactEff(x, p, L, soft), cA, 2.6, 90);
+      PI.vline(qm, PI.COL.faint, '', true);
+      oI.innerHTML =
+        cell(soft ? 'BMM+cap @' + fmt(qm, 0) : 'BMM @' + fmt(qm, 0), fmt(bmmImpactEff(qm, p, L, soft), 3), 'accent') +
+        cell('LMSR', fmt(lmsrImpact(qm, p.b), 3)) +
+        cell('CPMM', fmt(cpmmImpact(qm, p.R), 3), 'buy') +
+        cell('Order book', fmt(bookImpact(qm, p.rho), 3), 'sell');
+
+      /* RIGHT — slippage (premium to fill) -------------------------------- */
+      let smax = 1e-3;
+      for (let i = 1; i <= 60; i++) { const x = (i / 60) * XMAX; smax = Math.max(smax, bmmSlipEff(x, p, L, soft), lmsrSlip(x, p.b), cpmmSlip(x, p.R), bookSlip(x, p.rho)); }
+      smax = Math.min(0.5, smax) * 1.12;
+      const clampS = (v) => Math.min(v, smax);
+      PS.clear().domain(0, XMAX, 0, smax);
+      PS.grid([0, 400, 800, 1200], [0, smax / 2, smax], { xfmt: (v) => fmt(v, 0), yfmt: (v) => fmt(v, 3) });
+      PS.curve((x) => bookSlip(x, p.rho), cS, 2, 90);
+      PS.curve((x) => lmsrSlip(x, p.b), cW, 2, 90);
+      PS.curve((x) => cpmmSlip(x, p.R), cB, 2, 90);
+      if (soft) {
+        PS.curve((x) => clampS(bmmSlip(x, p.Q)), cM, 1.4, 90);    // faint "BMM today" baseline
+        if (xcap < XMAX) PS.vline(xcap, cA, 'capacity', true);
+      }
+      PS.curve((x) => clampS(bmmSlipEff(x, p, L, soft)), cA, 2.6, 90);
+      PS.vline(qm, PS.COL.faint, '', true);
+      oS.innerHTML =
+        cell(soft ? 'BMM+cap spread' : 'BMM spread', fmt(bmmSlipEff(qm, p, L, soft), 4), 'accent') +
+        cell('LMSR', fmt(lmsrSlip(qm, p.b), 4)) +
+        cell('CPMM', fmt(cpmmSlip(qm, p.R), 4), 'buy') +
+        cell('Order book', fmt(bookSlip(qm, p.rho), 4), 'sell');
+    }
+    [sLiq, sQ, softSeg].forEach((c) => c.on(draw)); redraws.push(draw); draw();
+  }
+
+  /* ===================================================================== */
   /*  Trader widget A — "the price is the chance" (no formulas shown)        */
   /* ===================================================================== */
   function vizUserPrice() {
@@ -562,7 +959,8 @@
     theme();
     modeSwitch();
     progress();
-    vizBelief(); vizPricing(); vizBayes(); vizSpread(); vizReserve(); vizLp();
+    vizBelief(); vizBeliefModels(); vizFlexBeliefs(); vizPricing(); vizBayes(); vizSpread(); vizReserve(); vizLp();
+    vizImpact(); vizMechCompare();
     vizUserPrice(); vizUserTrade();
     reveal();
   }

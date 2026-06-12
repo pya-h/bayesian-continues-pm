@@ -72,6 +72,11 @@
       <a href="#numerics">17 · Numerics &amp; rounding</a>
       <div class="group">Validation</div>
       <a href="#sim">18 · Model validation (Monte-Carlo)</a>
+      <div class="group">Price dynamics</div>
+      <a href="#impact-dyn">19 · Price impact — trades &amp; liquidity</a>
+      <a href="#mech-compare">20 · Slippage vs standard markets</a>
+      <div class="group">Design studies</div>
+      <a href="#flexible">21 · Flexible parametric beliefs</a>
     </div>
 
     <!-- trader TOC -->
@@ -575,6 +580,79 @@
       <div class="dev"><span class="callout-title">Implementation</span>
       <code>GaussianBelief(mu, sigma2)</code> stores the variance and exposes <code>pdf/cdf/quantile/sample</code>.
       Sampling uses the inverse-CDF of a seeded PRNG so Monte-Carlo results are reproducible (§17).</div>
+
+      <details class="dev">
+        <summary><strong>V2 — multi-modal beliefs (Gaussian mixture &amp; Student-t)</strong></summary>
+        <p>The single Gaussian can only ever be one symmetric bump, so genuine disagreement
+        (“half the market expects 60, half expects 80”) collapses into an average nobody holds.
+        V2 keeps the same <code>BeliefModel</code> interface but adds two richer kinds; every pricing /
+        reserve / stats caller is unchanged because they only touch
+        <code>mean/variance/pdf/cdf/quantile/sample</code>.</p>
+
+        <p><strong>Gaussian mixture</strong> — a weighted sum of \(K\) Gaussian components,
+        \(\pi_k\ge 0,\ \sum_k\pi_k=1\):</p>
+        <div class="eqbox named">
+          <span>$$ p(\theta)=\sum_{k=1}^{K}\pi_k\,\mathcal N(\theta;\mu_k,\sigma_k^2),\qquad
+          \text{cdf}(\theta)=\sum_k \pi_k\,\Phi\!\left(\frac{\theta-\mu_k}{\sigma_k}\right) $$</span>
+          <span class="eqlabel">mixture.ts</span>
+        </div>
+        <p>Its moments follow from the <em>law of total variance</em> — a between-component spread
+        added to the average within-component spread:</p>
+        <div class="eqbox">$$ \mu=\mathbb E[\theta]=\sum_k\pi_k\mu_k,\qquad
+        \operatorname{Var}[\theta]=\underbrace{\sum_k\pi_k\sigma_k^2}_{\text{within}}
+        +\underbrace{\sum_k\pi_k\mu_k^2-\mu^2}_{\text{between}} $$</div>
+        <p>There is no closed-form quantile, so it is found by bisection on the (monotone) cdf; a draw
+        picks a component with probability \(\pi_k\) then samples that Gaussian.</p>
+
+        <p><strong>Student-t</strong> — same center \(\mu\) but <em>fat tails</em> set by the degrees of
+        freedom \(\nu\) (small \(\nu\) → heavy tails, \(\nu\to\infty\) → Gaussian). Location–scale form
+        with scale \(s\) (we require \(\nu&gt;2\) so the variance is finite):</p>
+        <div class="eqbox named">
+          <span>$$ p(\theta)=\frac{1}{s}\,t_\nu\!\Big(\tfrac{\theta-\mu}{s}\Big),\qquad
+          \operatorname{Var}[\theta]=s^2\,\frac{\nu}{\nu-2} $$</span>
+          <span class="eqlabel">student_t.ts</span>
+        </div>
+        <p>The cdf uses the regularized incomplete beta \(I_x(\tfrac{\nu}{2},\tfrac12)\) with
+        \(x=\tfrac{\nu}{\nu+t^2}\); a draw is \( \theta=\mu+s\,Z/\sqrt{W/\nu} \) with \(Z\sim\mathcal N(0,1)\),
+        \(W\sim\chi^2_\nu\) (a seeded gamma sampler).</p>
+        <p class="small">A market’s kind is fixed at creation (<code>belief_kind</code>); existing Gaussian
+        markets are byte-for-byte unchanged.</p>
+      </details>
+
+      <div class="note" style="margin:1rem 0">
+        <strong>“Why do my markets still look Gaussian?”</strong> Two reasons, both by design.
+        <strong>(1) The kind is chosen at creation and never changes.</strong> A Gaussian market stays a
+        single bump <em>no matter what trades arrive</em> — trades move \(\mu\) and \(\sigma\), they do
+        not grow a second mode or fatten the tails. To see multi-modal or fat-tailed behaviour you must
+        <em>create</em> the market as <code>mixture</code> or <code>student_t</code>. <strong>(2) A
+        Student-t with moderate \(\nu\) genuinely looks almost Gaussian</strong> — its difference is in
+        the far tails, not the body, so the eye reads it as “Gaussian-ish” even though it prices
+        tail-heavy contracts differently. The sandbox below makes both effects visible: it draws each
+        model against the <em>equal-(μ, σ)</em> Gaussian, so any gap you see is pure <em>shape</em> —
+        the part a single Gaussian can never capture.
+      </div>
+
+      <div class="viz" id="viz-models">
+        <div class="viz-head"><div class="viz-title">Belief-model sandbox — Gaussian vs Mixture vs Student-t<span class="tag">live</span></div><div class="viz-hint">pick a model · compare to the equal-(μ,σ) Gaussian · commit a trade</div></div>
+        <div class="viz-grid">
+          <div>
+            <canvas></canvas>
+            <div class="legend"><span><i style="background:var(--accent)"></i>this model p(θ)</span><span><i style="background:var(--muted)"></i>Gaussian(μ,σ)</span><span><i style="background:rgba(52,211,153,.6)"></i>contract payoff</span><span><i style="background:var(--warn)"></i>strike K</span></div>
+          </div>
+          <div><div class="controls"></div><div class="readout"></div></div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:.6rem">
+        <strong>What to look for.</strong> <em>Mixture</em>: crank <em>mode separation</em> up and the one
+        bump splits into two camps — the equal-σ Gaussian fills the valley between them with mass nobody
+        believes in, and the fair price of a contract straddling the gap diverges (watch <em>model vs
+        Gaussian %</em>). Tilt <em>π₁</em> and the camps reweight. <em>Student-t</em>: drop \(\nu\) toward
+        3 and the body barely moves while the tails lift — push the strike \(K\) far out and the t prices
+        the long-shot contract well above the Gaussian, because it never dismissed the tail. <em>Commit a
+        trade</em> and each model updates by <em>its own</em> rule: the Gaussian just slides, the mixture
+        concentrates weight on the camp the order flow favours (and merges back toward consensus), the
+        Student-t re-centres while keeping ν — its tails — fixed.
+      </div>
     </section>
 
     <!-- =============================================================== -->
@@ -683,6 +761,32 @@
       </div>
       <p class="small">For arbitrary or custom payoffs without a closed form, the engine falls back to
       composite Simpson integration over \( \mu\pm10\sigma \) (<code>expectF</code>, 4000 nodes).</p>
+
+      <details class="dev">
+        <summary><strong>V2 — pricing a mixture or Student-t belief</strong></summary>
+        <p>Because expectation is <em>linear</em>, the fair price under a mixture is just the
+        weight-sum of the per-component prices — and each component is a Gaussian, so we reuse the
+        exact closed forms above with <strong>no new integration</strong>:</p>
+        <div class="eqbox named">
+          <span>$$ \text{Price}\Big(f,\ \textstyle\sum_k\pi_k\mathcal N_k\Big)=\sum_k \pi_k\,\text{Price}(f,\mathcal N_k) $$</span>
+          <span class="eqlabel">pricing.ts</span>
+        </div>
+        <p>The mean-sensitivity generalizes the same way — a rigid shift of all component means by
+        \(d\mu\) (which moves the belief mean by \(d\mu\)):
+        \( \partial\text{Price}/\partial\mu=\sum_k\pi_k\,\partial\text{Price}_k/\partial\mu_k \).
+        For a Student-t belief there is no general closed form, so the price uses the same Simpson
+        quadrature on the payoff and \( \partial\text{Price}/\partial\mu \) is a central difference in \(\mu\).</p>
+        <div class="ex"><span class="callout-title">Worked example — why multi-modal matters</span>
+        Take the bimodal belief \( \tfrac12\mathcal N(60,5^2)+\tfrac12\mathcal N(80,5^2) \) (mean 70).
+        A <code>BINARY_CALL</code> at \(K=75\) prices to
+        \( \tfrac12\Phi(\tfrac{60-75}{5})+\tfrac12\Phi(\tfrac{80-75}{5})=\tfrac12\Phi(-3)+\tfrac12\Phi(1)
+        =\tfrac12(0.00135)+\tfrac12(0.84134)=\mathbf{0.4213} \).
+        A <em>single</em> Gaussian with the same mean and variance
+        (\( \sigma^2=25+100=125,\ \sigma\approx11.18 \)) would price it at
+        \( \Phi(\tfrac{70-75}{11.18})=\Phi(-0.447)=\mathbf{0.327} \). The mixture knows a whole camp sits
+        above 75, so it rates “clears 75” far higher than the moment-matched bump — exactly the structure
+        v1 had to throw away.</div>
+      </details>
     </section>
 
     <!-- =============================================================== -->
@@ -833,6 +937,55 @@
         <p>When <code>useSimplifiedUpdate</code> is set, the engine instead uses
         \( \mu'=\mu+\text{lr}\,(s-\mu)\,w \) and \( \sigma'^2=\sigma^2(1-\text{decay}\cdot w) \).
         Cheaper, less principled; off by default.</p>
+      </details>
+
+      <details class="dev">
+        <summary><strong>V2 — updating a mixture belief</strong></summary>
+        <p>The same scalar \((s,w)\) drives a mixture, but two things happen at once. First a
+        <strong>membership</strong> update treats the component label as latent with prior \(\pi_k\):
+        the signal’s evidence under each component’s predictive
+        \( \mathcal N(s;\mu_k,\sigma_k^2+\sigma_\varepsilon^2) \) re-weights the mixture (tempered by the
+        reliability \(w\), then renormalized into responsibilities \(r_k\)):</p>
+        <div class="eqbox named">
+          <span>$$ r_k\ \propto\ \pi_k\,\Big[\mathcal N\!\big(s;\mu_k,\sigma_k^2+\sigma_\varepsilon^2\big)\Big]^{w},
+          \qquad \sum_k r_k=1,\qquad \pi_k'\leftarrow r_k $$</span>
+          <span class="eqlabel">bayes.ts</span>
+        </div>
+        <p>This is what makes a <em>consistent stream of signals concentrate weight on the nearest mode</em>
+        instead of averaging the modes together. Second, each component runs the ordinary Normal–Normal
+        update above, but with its signal precision scaled by its own responsibility, so the component that
+        <em>owns</em> the signal absorbs it while the others barely move:</p>
+        <div class="eqbox">$$ \tau_{s,k}=\frac{w\,r_k}{\sigma_\varepsilon^2},\qquad
+        \mu_k'=\frac{\tau_{0,k}\mu_k+\tau_{s,k}\,s}{\tau_{0,k}+\tau_{s,k}},\qquad
+        \sigma_k'^2=\frac{1}{\tau_{0,k}+\tau_{s,k}} $$</div>
+        <p>Finally the mixture is kept tractable by <strong>component management</strong>
+        (<code>mixture_ops.ts</code>): <em>prune</em> components with \(\pi_k&lt;\pi_\text{min}\),
+        <em>merge</em> near-duplicates \(|\mu_i-\mu_j|&lt;\tau(\sigma_i+\sigma_j)\) by moment-matching (which
+        preserves the pair’s combined weight, mean and variance exactly), and <em>cap</em> the count \(K\).
+        The whole step is computed in log-space so well-separated modes don’t underflow.</p>
+      </details>
+
+      <details class="dev">
+        <summary><strong>V2 — updating a Student-t belief</strong></summary>
+        <p>The Student-t is not self-conjugate, so a t prior under the trade likelihood has no exact t
+        posterior. We keep \(\nu\) — the <em>structural</em> tail weight, fixed at creation — and move
+        only the location and scale, running the very same precision-weighted step as the Gaussian but
+        carried out in the <strong>variance domain</strong>. Moment-match the prior to a Gaussian of
+        equal variance \(V=s_t^2\,\tfrac{\nu}{\nu-2}\) (here \(s_t\) is the t scale written \(s\) in §6,
+        renamed so \(s\) stays the signal), run the Normal–Normal update, then map the posterior
+        variance back to a t scale:</p>
+        <div class="eqbox named">
+          <span>$$ \tau_0=\frac1V,\quad \tau_s=\frac{w}{\sigma_\varepsilon^2},\qquad
+          \mu'=\frac{\tau_0\,\mu+\tau_s\,s}{\tau_0+\tau_s},\qquad
+          V'=\frac{1}{\tau_0+\tau_s},\qquad s_t'^2=V'\,\frac{\nu-2}{\nu} $$</span>
+          <span class="eqlabel">bayes.ts</span>
+        </div>
+        <p>This is byte-for-byte the §7 arithmetic (the floor \(V'\ge\sigma_\text{min}^2\) still applies),
+        so a Student-t market <em>learns at the Gaussian rate</em> while keeping its fat tails, and
+        degrades smoothly to the exact Normal–Normal update as \(\nu\to\infty\) (where \(V\to s_t^2\)).
+        Because \(\nu\) never changes, the tails stay as heavy as the market was created with; only the
+        centre and width move. The <code>useSimplifiedUpdate</code> variant applies the same
+        \(\mu'=\mu+\text{lr}\,(s-\mu)\,w\) and \(V'=V\,(1-\text{decay}\cdot w)\) in the variance domain.</p>
       </details>
     </section>
 
@@ -1184,7 +1337,7 @@ losses.sort();
           <tr><td><strong>Soft cap</strong> ★</td><td>price the crowded side up steeply so demand chokes off — cliff → ramp</td><td>none (the price bears it); preserves every guarantee</td></tr>
           <tr><td>Solvency-factor haircut</td><td>let exposure exceed cash; scale payouts by \( s=\min(1,\,\text{cash}/\text{owed}) \)</td><td>winning traders (payouts become contingent)</td></tr>
           <tr><td>Insurance fund (V2-H)</td><td>shared pre-funded backstop tops up shortfalls</td><td>the fund (mutualized across markets)</td></tr>
-          <tr><td>Hedging / reinsurance (V2-D)</td><td>offload tail risk → lower reserve per unit of exposure</td><td>external counterparty; basis risk</td></tr>
+          <tr><td>Hedging / reinsurance (V3-D)</td><td>offload tail risk → lower reserve per unit of exposure</td><td>external counterparty; basis risk</td></tr>
           <tr><td>Auto-deleverage</td><td>force-close opposing positions to reclaim capacity</td><td>opposing traders (forced)</td></tr>
           <tr><td>Bounded contracts</td><td>cap payoff types so tails are known / smaller</td><td>narrower product menu</td></tr>
           <tr><td>Parimutuel</td><td>winners split losers' stakes (endogenous payouts)</td><td>redefines the product entirely</td></tr>
@@ -1413,6 +1566,293 @@ losses.sort();
       tool: vary <code>cfg</code>, compare summaries, and pick the engine defaults of §16.</div>
     </section>
 
+    <!-- =============================================================== -->
+    <section id="impact-dyn">
+      <h2><span class="section-num">19</span>Price impact — how trades &amp; liquidity move price<a class="anchor" href="#impact-dyn">#</a></h2>
+      <p>This section ties the earlier pieces together into the one thing a trader actually feels:
+      <strong>how much the price moves</strong>. There are two distinct effects. A trade leaves a
+      <strong>lasting</strong> mark — it shifts the belief, so the <em>fair</em> price stays moved after the
+      trade (this is <em>price impact</em>). It also pays a <strong>transient</strong> round-trip cost — the
+      spread (§8) — that is not a price move at all, just a fee around the mid. We focus on the lasting part.</p>
+
+      <p>The lasting move is just the fair price (§4) re-evaluated on the <em>post-trade</em> belief (§7). To
+      first order it factors cleanly into a <strong>delta</strong> (§5, how much price reacts to the mean) times
+      a <strong>mean shift</strong> (§7, how far the trade drags the mean):</p>
+      <div class="eqbox named"><span>$$
+        \Delta\text{Fair}=\text{Fair}(\text{belief}')-\text{Fair}(\text{belief})
+        \ \approx\ \underbrace{\frac{\partial\text{Price}}{\partial\mu}}_{\text{delta}}\cdot
+        \underbrace{\Delta\mu}_{\text{mean shift}},\qquad
+        \Delta\mu=\kappa\,(s-\mu),\quad \kappa=\frac{\tau_s}{\tau_0+\tau_s}=\frac{w}{w+\sigma_\varepsilon^2/\sigma^2}
+      $$</span><span class="eqlabel">§5 × §7</span></div>
+      <p>Both halves are driven by the trade <strong>intensity</strong> \( \iota=|q|/Q_\text{max} \): the signal
+      reach \( s-\mu \) grows with \( \iota \) (§6) and so does the trust weight \( w \) (§6), which lifts the
+      blend factor \( \kappa \). That single ratio is the lever behind all three charts below — and notice
+      \( Q_\text{max} \) (market <strong>depth</strong>) sits in the denominator, so <strong>more liquidity
+      shrinks every trade’s intensity</strong>, hence its impact.</p>
+
+      <p>All three plots price the same probe contract — a <code>BINARY_CALL</code> struck at the mean, so its
+      fair price reads directly as the crowd’s probability \( P(\theta\ge K)\in[0,1] \), starting at
+      <strong>0.50</strong>. Flip the one switch to see a <span class="buyx">buy</span> push it up vs a
+      <span class="sellx">sell</span> push it down:</p>
+
+      <div class="viz" id="viz-impact">
+        <div class="viz-head">
+          <div class="viz-title">Price impact — three views<span class="tag">live</span></div>
+          <div class="viz-hint">market N(100, 12²) · probe = Bin·Call @100</div>
+        </div>
+        <div class="impact-controls controls"></div>
+        <div class="impact-grid">
+          <div class="impact-cell" id="impact-amt">
+            <h4>① Trade size</h4>
+            <p class="cap">One trade of growing size. Bigger order ⇒ higher intensity ⇒ bigger lasting move.</p>
+            <canvas></canvas>
+            <div class="legend"><span><i style="background:var(--accent)"></i>post-trade price</span><span><i style="background:var(--muted)"></i>start 0.50</span></div>
+            <div class="readout"></div>
+          </div>
+          <div class="impact-cell" id="impact-cnt">
+            <h4>② Trade count</h4>
+            <p class="cap">Many same-size, same-side trades in a row. Each adds a move; σ shrinks, so they fade.</p>
+            <canvas></canvas>
+            <div class="legend"><span><i style="background:var(--accent)"></i>price after n trades</span><span><i style="background:var(--muted)"></i>start 0.50</span></div>
+            <div class="readout"></div>
+          </div>
+          <div class="impact-cell" id="impact-lp">
+            <h4>③ Liquidity (LP)</h4>
+            <p class="cap">Same fixed trade into a deeper pool. More LP ⇒ depth Q≈0.5·LP ⇒ less impact.</p>
+            <canvas></canvas>
+            <div class="legend"><span><i style="background:var(--accent)"></i>impact vs liquidity</span><span><i style="background:var(--muted)"></i>start 0.50</span></div>
+            <div class="readout"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dev"><span class="callout-title">How each chart reads off the formula</span>
+      <strong>① Size</strong> sweeps \( |q| \) (so \( \iota \) and \( w \)) with depth fixed: the move grows
+      with size but bends over as the weight saturates. <strong>② Count</strong> applies the same trade
+      repeatedly — every fill nudges \( \mu \) again, but each Bayesian update also <em>shrinks</em> \( \sigma \)
+      (§7), so later trades carry less reach and the binary saturates toward 1 (or 0). <strong>③ Liquidity</strong>
+      holds the trade fixed and grows the pool: deeper liquidity raises \( Q_\text{max} \), which divides down the
+      intensity \( \iota=|q|/Q_\text{max} \), so the very same order barely moves a deep market. This is the
+      precise sense in which <em>liquidity does not set the price — it sets how hard the price is to move.</em></div>
+
+      <div class="note"><span class="callout-title">Why liquidity touches impact, not the level</span>
+      The fair price is \( \mathbb E_\text{belief}[f(\theta)] \) — a pure function of the <em>belief</em>, with no
+      cash term. So an LP deposit never changes today’s price; it changes the market’s <strong>depth</strong>
+      (modelled here as \( Q_\text{max}\propto \) pool liquidity), which is what every trade’s intensity is measured
+      against. Chart ③ is therefore flat-ish on the right: past a point, more capital just makes the line harder to
+      bend, exactly as a deep order book resists slippage. (Liquidity’s other job — backing the reserve gate of
+      §10 so large trades are <em>admitted</em> at all — is covered there.)</div>
+    </section>
+
+    <!-- =============================================================== -->
+    <section id="mech-compare">
+      <h2><span class="section-num">20</span>Slippage &amp; price impact vs standard prediction markets<a class="anchor" href="#mech-compare">#</a></h2>
+      <p>Is a <strong>continuous</strong> belief market economically competitive with the well-known
+      <strong>discrete</strong> platforms — Polymarket, Kalshi, Augur (central limit order books), and
+      Manifold, Gnosis/Omen, Futuur (automated market makers)? The two costs a trader actually pays are:</p>
+      <ul>
+        <li><strong>Price impact</strong> — how far the trade <em>leaves the price moved</em> (where the
+        marginal price ends up). This is a lasting effect and a cost to the <em>next</em> trader / to you
+        on the round trip.</li>
+        <li><strong>Slippage</strong> — the premium <em>you</em> pay over the pre-trade price to fill your
+        order (your average fill minus the mid).</li>
+      </ul>
+      <p>Every automated mechanism shares one law: <strong>impact and slippage scale like</strong>
+      \( 1/\text{liquidity} \). What differs is the <em>shape</em> of the curve and, crucially, <em>how the
+      cost is packaged</em>. The four families:</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Family · platforms</th><th>Mechanism</th><th>Marginal price after buying \(x\)</th><th>Liquidity knob</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Order book (CLOB)</strong><br><span class="small">Polymarket · Kalshi · Augur</span></td><td>match against resting limit orders</td><td>\( 0.5+x/\rho \) (linear, then a <em>gap</em> when the book runs out)</td><td>posted depth \( \rho \) — <strong>only what makers choose to post</strong></td></tr>
+          <tr><td><strong>LMSR</strong><br><span class="small">Manifold · Gnosis · Hanson</span></td><td>logarithmic scoring rule</td><td>\( \sigma(x/b) \) (logistic; smooth saturation)</td><td>\( b \) — set by the LP subsidy \( b\ln 2 \)</td></tr>
+          <tr><td><strong>CPMM</strong><br><span class="small">Omen · Futuur · Uniswap-style</span></td><td>constant product \( R_yR_n{=}k \)</td><td>\( (R{+}t)^2/\!\big(R^2{+}(R{+}t)^2\big) \) (convex)</td><td>reserves \( R \) — the LP collateral</td></tr>
+          <tr><td><strong>BMM (ours)</strong><br><span class="small">continuous belief MM</span></td><td>re-price on the updated belief</td><td>\( \Phi\big((\mu'{-}K)/\sigma'\big) \) — Bayesian move (§19)</td><td>depth \( Q_\text{max}\propto \) LP capital</td></tr>
+        </tbody>
+      </table></div>
+
+      <p>Drag <strong>liquidity</strong> — now <em>log-scaled all the way to the billions</em>, so you can watch
+      every curve collapse toward dead-flat as LP capital grows — and drag <strong>trade size</strong> to read each
+      mechanism at a chosen order. Flip the <strong>soft-cap fix</strong> switch (off by default) to overlay the
+      capacity-congestion premium from <a href="../capacity/soft-cap.md">the soft-cap design</a> onto the BMM line:
+      the faint line is BMM <em>today</em>, the bold line is BMM <em>with the fix</em>, and the dashed marker is the
+      pool's capacity. All start at the same mid (\(0.5\)) on a binary, matched to a common liquidity budget so the
+      comparison is apples-to-apples (calibration is approximate — the <em>shapes</em> and the
+      \(1/\text{liquidity}\) scaling are the real lesson):</p>
+
+      <div class="viz" id="viz-mech">
+        <div class="viz-head">
+          <div class="viz-title">Continuous vs discrete — impact &amp; slippage<span class="tag">live</span></div>
+          <div class="viz-hint">binary @ mid 0.50 · matched liquidity</div>
+        </div>
+        <div class="impact-controls controls"></div>
+        <div class="legend" style="margin:0 0 0.8rem">
+          <span><i style="background:var(--accent)"></i>BMM (ours)</span>
+          <span><i style="background:var(--muted)"></i>BMM today <span class="small">(soft-cap baseline)</span></span>
+          <span><i style="background:var(--warn)"></i>LMSR</span>
+          <span><i style="background:var(--buy)"></i>CPMM</span>
+          <span><i style="background:var(--sell)"></i>Order book</span>
+        </div>
+        <div class="impact-grid duo">
+          <div class="impact-cell" id="mech-impact">
+            <h4>Price impact</h4>
+            <p class="cap">Marginal price left behind after buying \(x\) shares. Higher ⇒ the trade moved the market more.</p>
+            <canvas></canvas>
+            <div class="readout"></div>
+          </div>
+          <div class="impact-cell" id="mech-slip">
+            <h4>Slippage — cost to fill</h4>
+            <p class="cap">Average premium over the mid to acquire \(x\) shares. Ours is a single-price <em>spread</em>; AMMs/books make you walk the curve.</p>
+            <canvas></canvas>
+            <div class="readout"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dev"><span class="callout-title">What the two charts show</span>
+      <strong>Impact (left).</strong> All four obey \(\text{impact}\propto x/\text{liquidity}\), so they overlap
+      for small orders near the mid — <em>a continuous belief market is in the same economic regime as the
+      standard AMMs, not worse.</em> They part company on big orders: LMSR/CPMM saturate smoothly toward 1, the
+      order book is dead-linear until it <em>runs out of resting orders</em> (then a price gap), and BMM bends up
+      a little faster because each fill also <em>sharpens</em> the belief (σ shrinks, §19).
+      <strong>Slippage (right).</strong> Here the <em>packaging</em> differs. On an AMM or order book you
+      <strong>eat your own impact</strong>: you walk up the curve and your average fill is the integral under it,
+      so slippage grows with size and there is no separate fee. On BMM you fill the <strong>whole order at one
+      quoted price</strong> (mid + spread) and the price moves <em>afterwards</em> — so there is <strong>no
+      intra-order slippage</strong>; the cost is an explicit, tunable maker spread that becomes LP revenue, and
+      the impact is deferred to the next trade.</div>
+
+      <div class="note"><span class="callout-title">The economic verdict — and the real risk difference</span>
+      <strong>Cost regime: comparable.</strong> Impact scales as \(1/\text{liquidity}\) in every system, so with
+      matched LP capital our continuous market is neither cheaper nor dearer in kind — it sits in the same band as
+      LMSR and CPMM. (Its explicit spread is a tunable config; the engine defaults here are conservative.)
+      <strong>The decisive advantage is always-on, continuous liquidity.</strong> Order-book venues
+      (Polymarket, Kalshi) only have the depth makers <em>choose</em> to post — a thin or one-sided book means a
+      huge gap or simply <em>no fill</em>, and a trader can be stuck unable to exit. AMMs and BMM
+      <strong>always quote a two-sided price</strong>, so liquidity never disappears. <strong>And BMM prices a
+      <em>continuum</em></strong>: one belief prices any strike or range (§3–§4), where a discrete market only
+      offers fixed buckets — so a “between 100 and 105” bet that has no contract elsewhere is just another query
+      here. <strong>How much risk does a user take?</strong> The same \(1/\text{liquidity}\) slippage risk as a
+      standard AMM, <em>minus</em> the order-book’s thin-market / no-exit risk, <em>plus</em> a known spread fee
+      instead of unknown curve-walking. Initial liquidity is the single dial that makes all of it acceptable —
+      exactly as the left chart shows every curve collapsing toward flat as LP capital grows.</div>
+
+      <div class="dev"><span class="callout-title">The soft-cap switch — cliff → ramp at the capacity frontier</span>
+      Today, BMM's cost drifts gently and then a <strong>separate, binary gate</strong> (\(\text{cash}\ge 1.2\times\)
+      reserve) slams shut: a market can look open and still refuse <em>every</em> buy. Turn the switch <strong>on</strong>
+      and the BMM line picks up a fifth spread term — the <em>capacity-congestion premium</em>
+      \( \kappa\,|\text{fair}|\;u^{a}/(1-u) \), where utilisation \( u=mR_1/C \) rises toward \(1\) as the pool nears
+      its solvency frontier (capacity \(\propto\) liquidity). Watch what changes: with headroom the bold line sits
+      <strong>right on top of</strong> the faint "today" baseline (healthy markets are untouched), but as the order
+      approaches the dashed <em>capacity</em> marker the price <strong>ramps up convexly</strong> instead of hitting a
+      wall — demand prices itself out smoothly and the market <em>never has to issue a hard rejection</em>. Drag
+      liquidity up and the capacity marker shoots off the chart: with deep books the premium is invisible. This is a
+      <em>UX-at-the-limit</em> fix, not a bigger ceiling — it converts the cliff into a ramp without touching the
+      solvency guarantee or any payout (see <a href="../capacity/soft-cap.md">soft-cap.md</a>).</div>
+    </section>
+
+    <!-- =============================================================== -->
+    <section id="flexible">
+      <h2><span class="section-num">21</span>Flexible parametric beliefs — a design study<a class="anchor" href="#flexible">#</a></h2>
+      <div class="note"><span class="callout-title">Status: exploration, not shipped</span>
+      Some markets let traders <em>paint</em> almost any curve by clicking to place predictions — a
+      <strong>non-parametric, per-bucket</strong> design (LMSR / pari-mutuel over bins). This section asks
+      the opposite question: how much shape flexibility can we get <strong>while staying parametric</strong>
+      — continuous \(\theta\), contract-composition, Bayesian-from-signal updates, closed-form-or-quadrature
+      pricing — without going bin-based? Full write-up in <code>docs/multi&nbsp;model/</code>.</div>
+
+      <p>The key reframe: in a parametric world <strong>flexibility = the number of shape degrees of freedom
+      (DOF)</strong>, and there is a continuous spectrum between a Gaussian and a histogram:</p>
+      <div class="eqbox">$$ \underbrace{\text{Gaussian}}_{2}\ \to\ \underbrace{\text{skew / peaked}}_{3}\ \to\
+      \underbrace{\text{skew-}t\,/\,\text{gen-hyperbolic}}_{4}\ \to\ \underbrace{\text{mixture}}_{3K}\ \to\
+      \underbrace{\text{fixed-basis}}_{N\ \text{weights}}\ \to\ \cdots\ \to\ \underbrace{\text{bins}}_{\infty} $$</div>
+      <p>Every family below already fits the engine: <code>BeliefModel</code> needs only
+      <code>pdf/cdf/mean/variance/sample</code>, and <code>expectF</code> prices <em>any</em> pdf by quadrature
+      when no closed form exists. So the question is <em>which family</em>, traded off along four axes —
+      <strong>shape power</strong>, <strong>pricing cost</strong>, <strong>update difficulty</strong>, and
+      <strong>on-chain feasibility</strong>. Pick a family and morph it; the scorecard reads its tradeoff live
+      (drawn against the equal-\((\mu,\sigma)\) Gaussian, so any gap is pure <em>shape</em>):</p>
+
+      <div class="viz" id="viz-flex">
+        <div class="viz-head"><div class="viz-title">Flexible-beliefs scorecard<span class="tag">live</span></div><div class="viz-hint">morph each family · read flexibility vs implementation cost</div></div>
+        <div class="viz-grid">
+          <div>
+            <canvas></canvas>
+            <div class="legend"><span><i style="background:var(--accent)"></i>candidate p(θ)</span><span><i style="background:var(--muted)"></i>Gaussian(μ,σ)</span><span><i style="background:var(--warn)"></i>tail strike K</span></div>
+          </div>
+          <div><div class="controls"></div><div class="readout"></div></div>
+        </div>
+      </div>
+
+      <details class="dev" open>
+        <summary><strong>The menu — flexibility vs implementation cost</strong></summary>
+        <table>
+          <thead><tr><th>Family</th><th>DOF</th><th>Adds</th><th>Pricing</th><th>Update</th><th>Off-chain</th><th>On-chain</th></tr></thead>
+          <tbody>
+            <tr><td>Gaussian</td><td>2</td><td>baseline bump</td><td>closed-form</td><td>conjugate (exact)</td><td>shipped</td><td>moderate — Φ approx</td></tr>
+            <tr><td>Skew-normal</td><td>3</td><td>asymmetry</td><td>quadrature</td><td>moment-match</td><td>low</td><td>hard — Φ inside ∫</td></tr>
+            <tr><td>Generalized-normal</td><td>3</td><td>peak ↔ flat</td><td>quadrature + Γ</td><td>moment-match</td><td>low</td><td>hard — Γ, frac. powers</td></tr>
+            <tr><td>Student-t</td><td>3</td><td>fat tails</td><td>quadrature + Γ</td><td>variance-domain <em>(shipped)</em></td><td>shipped</td><td>hard — Γ, pow</td></tr>
+            <tr><td>Beta (bounded)</td><td>2–3</td><td>U / J / skew / flat</td><td>incomplete-β</td><td>near-conjugate</td><td>low–med</td><td>hard — incomplete-β</td></tr>
+            <tr><td>Mixture</td><td>3K</td><td>K distinct camps</td><td><strong>closed-form Σ</strong></td><td>responsibility <em>(shipped)</em></td><td>shipped</td><td>moderate — K·Φ</td></tr>
+            <tr><td><strong>Gen·basis ⛓ <span style="font-weight:400;color:var(--muted)">(on-chain)</span></strong></td><td>N&nbsp;weights</td><td><strong>ANY # bumps · skew · flat</strong></td><td><strong>closed-form Σ·Φ · fast</strong></td><td>weight-only</td><td>low</td><td><strong>feasible</strong> — N·Φ, linear</td></tr>
+            <tr><td><strong>Gen·exact ★ <span style="font-weight:400;color:var(--muted)">(off-chain)</span></strong></td><td>2 + M</td><td>skew·peak·flat·<strong>bimodal</strong></td><td>quadrature</td><td>moment-projection</td><td>med</td><td>very hard — numeric ∫</td></tr>
+          </tbody>
+        </table>
+      </details>
+
+      <p>Two threads run through that table. First, <strong>pricing path decides on-chain feasibility.</strong>
+      Fixed-point chains can afford a polynomial approximation of \(\Phi\) but not \(\Gamma\), the incomplete
+      beta, or a 4000-node quadrature run deterministically across nodes. So the only families whose price is a
+      finite \(\sum_k w_k\,\Phi(\cdot)\) — <strong>Gaussian, mixture, and fixed-basis</strong> — are realistic
+      on-chain; the special-function families are off-chain-only without heroic effort.</p>
+
+      <p>Second, the recommended sweet spot is the <strong>fixed-basis Gaussian density</strong>: \(N\) narrow
+      bumps on a fixed grid with learnable weights,</p>
+      <div class="eqbox named"><span>$$ p(\theta)=\frac{1}{\sum_k w_k}\sum_{k=1}^{N} w_k\,\mathcal N(\theta;\,c_k,\,\sigma^2) $$</span><span class="eqlabel">design study</span></div>
+      <p>It gives near-arbitrary smooth shapes (universal approximation as the grid densifies), prices in
+      <strong>closed form</strong> as \(\sum_k w_k\cdot\text{price}_k\) — so no quadrature lag and the most
+      on-chain-feasible flexible option — and updates by a trivial <strong>weight-only</strong> step. Best of all,
+      a “click near \(\theta\)” maps directly onto “raise the weights of nearby bumps”, which is the parametric
+      way to get the <em>paint-the-curve</em> feel without bins.</p>
+
+      <details class="dev">
+        <summary><strong>One general form for every shape — the creator picks nothing</strong></summary>
+        <p>A creator can’t know whether the crowd will converge, split into camps, or fear a fat-tailed
+        surprise. The ideal is a single <strong>general</strong> belief that supports (almost) any shape with
+        as many parameters as the data demands. Two forms qualify (full write-up:
+        <code>docs/multi&nbsp;model/general-belief-form.md</code>):</p>
+        <p><strong>(A) Adaptive Gaussian mixture / basis ⛓ — the on-chain-feasible general mode.</strong>
+        Finite Gaussian mixtures are <em>dense in the space of distributions</em>, so the mixture <em>is</em> the
+        general model and every family above is a special case (one component → Gaussian; offset pair → skew; a
+        scale-mixture → Student-t tails; \(K\) separated bumps → <strong>any number of modes</strong>). With
+        component <strong>split/merge</strong> the <em>parameter count is data-driven</em> — it grows modes on
+        disagreement, collapses on consensus. Crucially it <strong>drops the one thing that makes a general form
+        expensive</strong> — numerical normalisation — because pricing stays <strong>closed-form</strong>
+        (`Σ πₖ·Φ`, linear in the weights). That is the <em>less-complex mode</em> for on-chain: a finite sum of
+        one well-approximated function (Φ), no quadrature, no Γ. It is the <strong>Gen·basis ⛓</strong> option in
+        the sandbox — and the form to ship as a <code>general</code> kind the creator selects without choosing a shape.</p>
+        <p><strong>(B) Max-entropy / moment expansion</strong> — the literal “\(N\) parameters describe the
+        belief” dial:</p>
+        <div class="eqbox named"><span>$$ p(\theta)\ \propto\ \exp\!\Big(-\big[\tfrac12\lambda_2 u^2+\lambda_3 u^3+\lambda_4 u^4+\cdots\big]\Big),\quad u=\tfrac{\theta-\mu}{\sigma} $$</span><span class="eqlabel">General ★</span></div>
+        <p>Each polynomial term is one more shape knob: \(\lambda_2\) → Gaussian, \(+\lambda_3\) → skew,
+        \(+\lambda_4&gt;0\) → fat tails / flat-top, and \(\lambda_2&lt;0\) → a double-well → <strong>bimodal</strong>.
+        The <strong>mode count is bounded by the polynomial degree</strong> (degree \(2m\) → up to \(m\) modes), and
+        3+ visible modes need a higher-degree poly with <em>finely-balanced</em> wells — so for arbitrary multi-bump
+        the basis form (A) is the practical tool. One formula, a continuum of shapes — always a valid (max-entropy)
+        density, but normalised by <strong>numerical integration</strong>, so it prices by quadrature and is an
+        off-chain tool. It is the <strong>Gen·exact ★</strong> option in the sandbox above — sweep \(\lambda_2\)
+        negative to split one bump into two from a single exponential family.</p>
+      </details>
+
+      <div class="note"><span class="callout-title">The half nobody mentions — the interaction</span>
+      A flexible family is inert unless trades can <em>excite</em> its DOF. Today a trade collapses to one scalar
+      signal (§6), which can only slide or reweight — it cannot grow a bump where a user is betting. To let users
+      sculpt the curve you also need richer input: enable mixture component <strong>split/spawn</strong>, lean on
+      the <strong>bell contract</strong> (it already bets “a bump at \(c\)”), or add a thin <strong>placement
+      primitive</strong> that nudges nearby basis weights. The representation and the interaction are two halves
+      of the same lever.</div>
+    </section>
+
     <div class="footer">
       <p>BMM — The Mathematics · generated as living documentation. Every figure is computed
       client-side by <code>math.js</code>, a direct port of <code>packages/core</code>; formulas are
@@ -1427,6 +1867,7 @@ losses.sort();
 <script src="vendor/katex/katex.min.js" defer></script>
 <script src="vendor/katex/auto-render.min.js" defer></script>
 <script src="math.js" defer></script>
+<script src="multimodel.js" defer></script>
 <script src="app.js" defer></script>
 <script src="capacity-engine.js" defer></script>
 <script src="capacity-sandbox.js" defer></script>
