@@ -17,7 +17,6 @@ import { payoff } from '@bmm/core';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fmt, fmtCompact } from '../lib/format.ts';
 import { setLiveSpec } from '../lib/liveSpec.ts';
-import { usePrefs } from '../prefs/PrefsContext.tsx';
 import type { BeliefComponent, ContractSpec } from '../lib/types.ts';
 import {
   type Domain,
@@ -39,6 +38,7 @@ import {
   winningRegions,
   zoomMul,
 } from '../lib/viz.ts';
+import { usePrefs } from '../prefs/PrefsContext.tsx';
 
 const W = 720;
 const H = 340;
@@ -651,12 +651,7 @@ function BeliefChartImpl({
             strokeWidth={1.5}
             strokeDasharray="4 3"
           />
-          <text
-            x={sx(mu) + 4}
-            y={PLOT.t + 11}
-            className="fill-[var(--color-accent)]"
-            fontSize={11}
-          >
+          <text x={sx(mu) + 4} y={PLOT.t + 11} className="fill-[var(--color-accent)]" fontSize={11}>
             μ {fmt(mu, xDec)}
           </text>
         </>
@@ -669,34 +664,34 @@ function BeliefChartImpl({
           ?.filter((c) => c.mu >= lo && c.mu <= hi) // same visibility guard as μ/θ*
           .map((c, k) => (
             <g key={`comp-${k}-${c.mu}`} pointerEvents="none">
-            <line
-              x1={sx(c.mu)}
-              x2={sx(c.mu)}
-              y1={PLOT.t + 14}
-              y2={PLOT.b}
-              stroke="var(--color-accent)"
-              strokeWidth={1}
-              strokeDasharray="2 4"
-              opacity={0.4 + 0.5 * c.pi}
-            />
-            <circle
-              cx={sx(c.mu)}
-              cy={syPdf(mixturePdf(c.mu, components))}
-              r={2.5}
-              fill="var(--color-accent)"
-              opacity={0.7}
-            />
-            <text
-              x={sx(c.mu)}
-              y={PLOT.b - 4}
-              textAnchor="middle"
-              fontSize={9}
-              className="fill-[var(--color-muted)]"
-            >
-              {Math.round(c.pi * 100)}%
-            </text>
-          </g>
-        ))}
+              <line
+                x1={sx(c.mu)}
+                x2={sx(c.mu)}
+                y1={PLOT.t + 14}
+                y2={PLOT.b}
+                stroke="var(--color-accent)"
+                strokeWidth={1}
+                strokeDasharray="2 4"
+                opacity={0.4 + 0.5 * c.pi}
+              />
+              <circle
+                cx={sx(c.mu)}
+                cy={syPdf(mixturePdf(c.mu, components))}
+                r={2.5}
+                fill="var(--color-accent)"
+                opacity={0.7}
+              />
+              <text
+                x={sx(c.mu)}
+                y={PLOT.b - 4}
+                textAnchor="middle"
+                fontSize={9}
+                className="fill-[var(--color-muted)]"
+              >
+                {Math.round(c.pi * 100)}%
+              </text>
+            </g>
+          ))}
 
       {/* payoff overlay */}
       <path

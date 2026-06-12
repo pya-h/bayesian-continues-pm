@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { GaussianBelief } from '../src/gaussian.ts';
+import { MixtureBelief } from '../src/mixture.ts';
 import { price } from '../src/pricing.ts';
 import { positionStats, secondMoment } from '../src/stats.ts';
-import { MixtureBelief } from '../src/mixture.ts';
 import { StudentTBelief } from '../src/student_t.ts';
 import type { ContractSpec } from '../src/types.ts';
 
@@ -108,7 +108,9 @@ describe('secondMoment — non-Gaussian closed forms (REVIEW-FINDINGS C5/C14)', 
       { pi: 0.7, mu: 95, sigma2: 9 },
       { pi: 0.3, mu: 115, sigma2: 16 },
     ]);
-    expect(approx(secondMoment({ type: 'LINEAR' }, m), m.mean() ** 2 + m.variance(), 1e-9)).toBe(true);
+    expect(approx(secondMoment({ type: 'LINEAR' }, m), m.mean() ** 2 + m.variance(), 1e-9)).toBe(
+      true,
+    );
     const t = StudentTBelief.fromVariance(4, 50, 100);
     expect(approx(secondMoment({ type: 'LINEAR' }, t), 50 ** 2 + 100, 1e-9)).toBe(true);
   });

@@ -140,9 +140,7 @@ export function QuotePanel({
     if (quoteQ.isSuccess && !quoteQ.isPlaceholderData) quoteOrderKey.current = orderKey;
   }, [quoteQ.isSuccess, quoteQ.isPlaceholderData, orderKey]);
   const quoteLive =
-    !!quote &&
-    !quoteQ.isError &&
-    (!quoteQ.isPlaceholderData || quoteOrderKey.current === orderKey);
+    !!quote && !quoteQ.isError && (!quoteQ.isPlaceholderData || quoteOrderKey.current === orderKey);
 
   // Subscribe to the chart's in-progress drag spec — but ONLY in live-preview
   // mode, so an ordinary drag never re-renders this panel (subscribe is a no-op

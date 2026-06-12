@@ -121,10 +121,7 @@ describe.if(hasEnv)('LP recovery paths (integration)', () => {
     for (const lp of lps) expect(lp.claimed).toBe(true);
 
     // Cancel distribution is ledgered as LP_CLAIM rows.
-    const txRows = await db
-      .select()
-      .from(transactions)
-      .where(eq(transactions.marketId, id));
+    const txRows = await db.select().from(transactions).where(eq(transactions.marketId, id));
     const lpClaims = txRows.filter((t) => t.kind === 'lp_claim');
     expect(lpClaims.length).toBe(2);
   });

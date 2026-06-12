@@ -1,5 +1,9 @@
 # Project & docs review — findings (finalized 2026-06-12, pass 2)
 
+> **Status:** every item in this file (C1–C41, D1–D6, O1) has been **fixed and
+> independently verified** — see the checklist below. The closing round-3 review and
+> its (new, open) findings live in [REVIEW-FINDINGS-2.md](REVIEW-FINDINGS-2.md).
+
 Two review passes, same day. **Pass 1**: automated checks + manual cross-check of the core
 engine, API trade pipeline, web app, math-doc widgets, and all documentation. **Pass 2**
 (this finalization): an independent fresh review of every area, a re-verification of every
@@ -130,7 +134,7 @@ tick-label band (verified: `bmmSlip(1200, Q=800) = 0.607 > smax = 0.56`). Now wr
 
 ---
 
-## New — Open, High
+## Pass-2 findings — High *(all since fixed — see the checklist above)*
 
 ### C9 · [High — fixed 2026-06-12] Cancelling a market permanently strands all LP funds
 `apps/api/src/services/marketSvc.ts:210-214` — the `cancel` branch calls `refundPositions`
@@ -186,7 +190,7 @@ is fine — verified 2.5e-5 worst error.)
 
 ---
 
-## New — Open, Medium
+## Pass-2 findings — Medium *(all since fixed)*
 
 ### C11 · [Medium — fixed 2026-06-12] Last LP can withdraw everything and permanently brick an OPEN market
 With no open MM shorts, `requiredReserve = 0` so `maxCashOut = cash` (`lpSvc.ts:292-297`)
@@ -233,7 +237,7 @@ guard is inactive).
 
 ---
 
-## New — Open, Low
+## Pass-2 findings — Low *(all since fixed)*
 
 ### C14 · [Low — downgraded from Medium — fixed 2026-06-12] Mixture `secondMoment` window can drop a far low-weight mode entirely
 `packages/core/src/stats.ts:40` — non-Gaussian CALL/PUT second moments use `expectF` with
@@ -323,7 +327,7 @@ links always dump on the markets list. **Fix:** read `location.state.from ?? '/'
 
 ---
 
-## New — Open, Nits & info
+## Pass-2 findings — Nits & info *(all since fixed)*
 
 **Core / shared**
 - **C25** *fixed 2026-06-12* — `mixture_ops.ts:123-130` — `splitComponent` docstring says split "at μ ± σ" but
@@ -378,7 +382,7 @@ links always dump on the markets list. **Fix:** read `location.state.from ?? '/'
   (soft-cap baseline)" swatch even though that curve only renders when the default-off
   toggle is on. Cosmetic.
 
-**Docs (open)**
+**Docs** *(since fixed)*
 - **O1** [Low] *fixed 2026-06-12* — `docs/README.md` presents itself as the documentation index but omits
   `v3/HEDGING.md` (the official hedging companion, linked from four other docs), the
   active `multi model/` track, the v2 explainers (`belief-and-exposure.md`,

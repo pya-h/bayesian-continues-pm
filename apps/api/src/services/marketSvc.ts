@@ -227,10 +227,7 @@ export async function transitionMarket(
 
         let distributed = 0;
         if (m.lpSharesTotal > 0 && lpPool >= 0) {
-          const lps = await tx
-            .select()
-            .from(lpPositions)
-            .where(eq(lpPositions.marketId, marketId));
+          const lps = await tx.select().from(lpPositions).where(eq(lpPositions.marketId, marketId));
           for (const lp of lps) {
             if (lp.claimed || lp.shares <= 0) continue;
             const credited = Math.max(0, lpClaimAmount(lp.shares, m.lpSharesTotal, lpPool));

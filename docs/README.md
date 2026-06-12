@@ -16,7 +16,8 @@
 | [capacity/](capacity/README.md) | **Market capacity & the solvency gate** — why buys get gated, the options to relax it, the chosen **soft-cap** design, and its build plan. See the folder index. |
 | [multi model/](multi%20model/README.md) | **Flexible-beliefs track** — generalizing beyond Gaussian/mixture/Student-t (parametric families, general belief form), with its own plan (G0…G6). |
 | [math/](math/index.html) | **Interactive math doc** — every formula of the engine as a live widget (open `math/index.html` in a browser). |
-| [REVIEW-FINDINGS.md](REVIEW-FINDINGS.md) | **Audit findings & fix log** — the full-project review results and the phased bug-fix progress. |
+| [REVIEW-FINDINGS.md](REVIEW-FINDINGS.md) | **Audit findings & fix log** — the full-project review results and the phased bug-fix progress (all 48 items fixed). |
+| [REVIEW-FINDINGS-2.md](REVIEW-FINDINGS-2.md) | **Round-3 closing review** — verification that all prior fixes hold, plus the new (open) findings C42–C56. |
 
 **Precedence:** where a TDD disagrees with `MODEL.md`, the TDD wins (deviations are documented in each TDD's §1 / §2). V2 and V3 are additive — V1 markets keep behaving as V1, and V2 markets keep behaving at 1× under V3.
 
