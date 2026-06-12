@@ -10,6 +10,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db } from '../db/client.ts';
 import { type UserRow, userRepo } from '../db/repos.ts';
 import { users } from '../db/schema.ts';
+import { writeAudit } from '../lib/audit.ts';
 import { recordTx } from './ledgerSvc.ts';
 
 export interface TopupResult {
@@ -71,6 +72,18 @@ export async function adminTopup(
       refType: 'topup',
       metadata: { to: target.username },
     });
+
+    // Audit inside the tx — a post-commit audit failure would 5xx a credit that
+    // landed, inviting a double-crediting retry.
+    await writeAudit(
+      {
+        actorId: admin.userId,
+        action: 'topup',
+        targetId: target.userId,
+        payload: { amount, infinite: target.isInfinite },
+      },
+      tx,
+    );
 
     return { user: updated, credited: target.isInfinite ? 0 : round8(amount) };
   });

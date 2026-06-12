@@ -235,7 +235,7 @@
     const mu = b.mu, sigma = b.sigma;
     const absQ = Math.abs(q);
     const direction = q >= 0 ? 1 : -1;
-    const intensity = absQ / cfg.qMax;
+    const intensity = Math.min(1, absQ / cfg.qMax); // clamped, mirrors core signal.ts
     const a = cfg.alpha;
     let signal;
     switch (spec.type) {

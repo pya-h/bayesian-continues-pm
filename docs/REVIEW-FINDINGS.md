@@ -51,22 +51,22 @@ lands with tests green.
 - [x] C8 — `maxExecutable` marked `@internal` reference-only, pointing at the live `solveFill`
 
 **Phase 3 — API money & lifecycle** *(all fixed 2026-06-12)*
-- [x] C9 — cancel now distributes the post-refund pool to LPs pro-rata inside the same tx (lpLedger `claim` rows + `LP_CLAIM` transactions, `claimed` flags, audit payload carries `{refunded, lpReturned, shortfall}`); market-ledger view treats CANCELLED-market claim rows as cash-affecting so the statement still reconciles (at 0)
+- [x] C9 — cancel now distributes the post-refund pool to LPs pro-rata inside the same tx (lpLedger `claim` rows + `LP_CLAIM` transactions, `claimed` flags, audit payload carries `{refunded, lpReturned, shortfall}`); market-ledger view treats CANCELLED-market claim rows as cash-affecting so the statement reconciles at 0. Known corner (intentional): a *shortfall* cancel shows `reconciles: false` with running ≈ −shortfall — those refunds really did mint unbacked balance, and the statement is supposed to say so (documented in `marketLedgerSvc.ts`)
 - [x] C15 — cancel floors pool cash at 0; any refund-over-cash gap is surfaced as `shortfall` in the audit instead of booking negative cash
 - [x] C11 — `deposit` takes a genesis branch when `lpSharesTotal ≤ 0` (mint at price 1, gate on `nav < 0` instead of `≤ 0`) — an emptied pool is re-fundable and the revived market trades again (integration-tested)
 - [x] C4 — admin top-up writes an atomic SQL delta (`balance = balance + amount`) and reads `balanceAfter` from `.returning()` — no more lost updates from stale snapshots
 
-**Phase 4 — API robustness**
-- [ ] C16 — seed refreshes admin password
-- [ ] C17 — duplicate-registration race → 409
-- [ ] C18 — audit writes inside the tx (trade + transition)
-- [ ] C19 — history reconstruction kind-aware (t exact; mixture labeled approximate)
-- [ ] C28 — spread income clamped to what the floored bid actually captured
-- [ ] C29 — sell-all passes real `priceMovePct` to breakers
-- [ ] C30 — market queue pruned
-- [ ] C31 — non-infinite admin grant debits/records consistently
-- [ ] C33 — `JWT_SECRET` fails hard outside dev
-- [ ] C34 — WS identity re-checked (role changes take effect)
+**Phase 4 — API robustness** *(all fixed 2026-06-12)*
+- [x] C16 — seed's `onConflictDoUpdate` now includes `passwordHash` (rotating `ADMIN_PASSWORD` + reseed takes effect)
+- [x] C17 — register maps the check-then-insert race (pg 23505, incl. wrapped `cause.code`) to 409
+- [x] C18 — audit rows write inside the transaction for trade, sell-all, every lifecycle transition, market create, AND admin top-up (the top-up had the same retry-double-credit shape) — `writeAudit` takes the tx as a param
+- [x] C19 — history/mark-path reconstruction is kind-aware: student-t exact (ν immutable for a market's life — verified against the bayes update paths; `fromVariance(ν, μ, σ²)` recovers the state), mixture stays a same-moments Gaussian flagged `gaussianApprox: true` on the series
+- [x] C28 — `spreadIncome` now sums `|exec − fair|·|q|` (what the MM actually captured; a zero-floored sell bid keeps `min(spread, fair)`)
+- [x] C29 — sell-all tracks the largest signed relative fair move across closed contracts and feeds it to the breakers (was hardcoded 0)
+- [x] C30 — market queue entries self-prune when idle (guarded `chains.get === tail` check — verified race-free)
+- [x] C31 — a non-infinite admin is actually debited (atomic delta) and the grant row records the true `balanceAfter`
+- [x] C33 — `JWT_SECRET` fallback refuses to boot when `NODE_ENV === 'production'`
+- [x] C34 — `system`-topic subscriptions re-read the role from the DB, so demotion/deletion takes effect on new subscribes without a reconnect (already-held subscriptions persist for the socket lifetime — full revocation needs session infra, noted for V2-7)
 
 **Phase 5 — Web correctness**
 - [ ] C2 — win-chance priced from the real belief model
@@ -258,18 +258,18 @@ still credited, so the pool record goes negative — unbacked balance, and it co
 (the escaped LP is made whole at everyone else's expense). **Fix:** clamp at 0 and surface
 the shortfall, or cap refunds pro-rata by available cash.
 
-### C16 · [Low] Seed never refreshes the admin password despite saying it does
+### C16 · [Low — fixed 2026-06-12] Seed never refreshes the admin password despite saying it does
 `apps/api/src/db/seed.ts:28-32` — comment says "refresh password" but `onConflictDoUpdate`'s
 `set` omits `passwordHash` (computed at `:18`, used only on insert). Rotating
 `ADMIN_PASSWORD` + reseeding silently keeps the old hash (TDD §12 says the admin is
 upserted "from .env"). **Fix:** include `passwordHash` in the conflict `set`.
 
-### C17 · [Low] Concurrent duplicate registration → 500 instead of 409
+### C17 · [Low — fixed 2026-06-12] Concurrent duplicate registration → 500 instead of 409
 `apps/api/src/routes/auth.ts:18-23` is check-then-insert on a unique `username`; the pg
 23505 from the race isn't an `HttpError`, so `index.ts` onError returns "Internal error".
 **Fix:** catch unique-violation and map to 409.
 
-### C18 · [Low] Post-commit audit failure misreports an executed trade; no idempotency key
+### C18 · [Low — fixed 2026-06-12] Post-commit audit failure misreports an executed trade; no idempotency key
 `tradeSvc.ts` — the tx commits at `:441`, WS events publish, then `await writeAudit(…)` at
 `:495-505` (`lib/audit.ts` has no try/catch). If the audit insert fails, the client gets a
 5xx for a trade that executed and was broadcast — and `POST /markets/:id/trade` has no
@@ -277,7 +277,7 @@ idempotency key (`tradeSchema` carries only `{spec, q, maxPrice?}`), so a natura
 double-trades. Same pattern in `transitionMarket` (`marketSvc.ts:228-233`). **Fix:** write
 the audit row inside the transaction, or fire-and-forget post-commit side effects.
 
-### C19 · [Low] Server price history / mark path are Gaussian-only on non-Gaussian markets
+### C19 · [Low — fixed 2026-06-12] Server price history / mark path are Gaussian-only on non-Gaussian markets
 `statsSvc.ts:189-192` and `:373-375` reconstruct historical fairs with
 `new GaussianBelief(mu, σ²)` regardless of `beliefKind`, so the charted price series and
 `positionDetail.markPath` (peak/drawdown) won't match the prices actually traded on
@@ -337,20 +337,20 @@ links always dump on the markets list. **Fix:** read `location.state.from ?? '/'
   zeros beyond 2"; `min = max = dp` renders fixed dp, nothing is trimmed.
 
 **API**
-- **C28** `statsSvc.ts:94` — `spreadIncome += spreadTotal·|q|` overstates MM income when a
+- **C28** *fixed 2026-06-12* — `statsSvc.ts:94` — `spreadIncome += spreadTotal·|q|` overstates MM income when a
   sell's bid was floored at 0 (`tradeMath.ts:33`): recorded spread > captured spread.
-- **C29** `tradeSvc.ts:810-815` — `sellAllPositions` calls `evalBreakers` with
+- **C29** *fixed 2026-06-12* — `tradeSvc.ts:810-815` — `sellAllPositions` calls `evalBreakers` with
   `priceMovePct: 0`, so the rapid-move breaker can never fire on a sell-all.
-- **C30** `marketQueue.ts:9` — per-market promise-chain map never pruned (unbounded, tiny).
-- **C31** `fundingSvc.ts:57-65` — a grant from a hypothetical non-infinite admin records
+- **C30** *fixed 2026-06-12* — `marketQueue.ts:9` — per-market promise-chain map never pruned (unbounded, tiny).
+- **C31** *fixed 2026-06-12* — `fundingSvc.ts:57-65` — a grant from a hypothetical non-infinite admin records
   `−amount` with an unchanged `balanceAfter` and never debits the admin (row doesn't
   balance). Benign while all admins are infinite.
 - **C32** Spec drift vs TDD §10 (mismatches, not bugs): route is `POST /markets/:id/trade`
   not `/trades`; claim takes no `{positionId}` body (claims all); `position_update` WS
   event documented but never emitted; `/quote` requires auth though TDD marks only trades.
-- **C33** `config.ts:18` — `JWT_SECRET` silently falls back to a hardcoded dev secret in
+- **C33** *fixed 2026-06-12* — `config.ts:18` — `JWT_SECRET` silently falls back to a hardcoded dev secret in
   any environment; should fail hard outside dev.
-- **C34** `ws.ts:46-56` — WS identity captured at upgrade; role demotion/user deletion not
+- **C34** *fixed 2026-06-12 (subscribe-time re-check; held subscriptions still persist — full revocation deferred to V2-7)* — `ws.ts:46-56` — WS identity captured at upgrade; role demotion/user deletion not
   reflected until reconnect (an ex-admin keeps the `system` topic for the socket lifetime).
 
 **Web**

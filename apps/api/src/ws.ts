@@ -75,7 +75,6 @@ export const wsRoutes = new Elysia()
         if (topic === 'system' && identity) {
           const fresh = (await userRepo.byId(identity.userId)) as UserRow | undefined;
           identity = fresh ? { userId: fresh.userId, role: fresh.role } : null;
-          ws.data.wsIdentity = identity;
         }
         if (!canSubscribeTopic(topic, identity)) {
           ws.send({ type: 'error', topic, error: 'forbidden' });

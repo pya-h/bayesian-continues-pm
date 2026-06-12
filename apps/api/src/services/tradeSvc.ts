@@ -523,6 +523,7 @@ export interface SellAllResult {
   cash: number; // pool cash after
   reserveRequired: number;
   balance: number | null; // trader balance after (null for infinite)
+  priceMovePct: number;
   beliefAfter: { mu: number; sigma: number };
 }
 

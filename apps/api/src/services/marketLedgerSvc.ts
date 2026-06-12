@@ -21,6 +21,10 @@
 // `affectsCash: true` so the statement still reconciles. (CANCELLED and SETTLED
 // are mutually exclusive terminal states, so the market status fully determines
 // which semantics a claim row has.)
+// Known corner: a *shortfall* cancel (refunds exceeded pool cash; cash floored at
+// 0, gap surfaced in the cancel audit row) intentionally shows `reconciles: false`
+// with running ≈ −shortfall — the refunds really did mint unbacked balance, and
+// hiding that here would defeat the statement's purpose.
 
 import { expectedLiability } from '@bmm/core';
 import { round8 } from '@bmm/shared';
@@ -158,9 +162,19 @@ export async function getMarketLedger(marketId: string): Promise<MarketLedger> {
 
   const events: MarketLedgerEvent[] = [];
 
+  // Genesis = the chronologically FIRST zero-NAV deposit. A re-genesis deposit
+  // into an emptied pool (lpSvc's S_total = 0 branch) also records navBefore = 0
+  // but is a plain lp_deposit, not the market's initial liquidity.
+  const firstDepositAt = lpRows
+    .filter((r) => r.kind === 'deposit')
+    .reduce<number | null>((min, r) => {
+      const t = r.createdAt.getTime();
+      return min === null || t < min ? t : min;
+    }, null);
+
   for (const r of lpRows) {
     if (r.kind === 'deposit') {
-      const genesis = r.navBefore === 0;
+      const genesis = r.navBefore === 0 && r.createdAt.getTime() === firstDepositAt;
       events.push({
         at: r.createdAt.toISOString(),
         kind: genesis ? 'genesis' : 'lp_deposit',

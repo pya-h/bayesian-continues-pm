@@ -41,6 +41,7 @@ import { loadBelief } from '../lib/belief.ts';
 import { specFromRow } from '../lib/contract.ts';
 import { HttpError } from '../lib/errors.ts';
 import { loadBook } from './marketView.ts';
+import { aggregatePnl, ci80, inCi80, seriesStats } from './statsMath.ts';
 
 // Reconstruct the belief at a historical (μ, σ) point for price-history / mark-path
 // charts. `belief_updates` stores only the summary μ/σ, so
@@ -62,7 +63,6 @@ function historicalBelief(
   }
   return new GaussianBelief(mu, sigma * sigma);
 }
-import { aggregatePnl, ci80, inCi80, seriesStats } from './statsMath.ts';
 
 const LINEAR: ContractSpec = { type: 'LINEAR' };
 

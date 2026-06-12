@@ -147,8 +147,11 @@ describe('each fix bends the gate as documented', () => {
     const { tape } = freshBlocked();
     const modD = CAP.modifierFor('D');
     const st = CAP.replay(tape, 5000, modD);
-    // The gate is gone — a large buy fills regardless of reserve.
-    const r = CAP.stepBuy(st, CALL100, 3000, 'You', modD);
+    // The gate is gone — a full-qMax buy fills regardless of reserve. (q = qMax
+    // since the C6 intensity clamp, a single far-over-qMax buy can't move the
+    // belief further, while its inventory spread overcharges so much premium the
+    // pool ironically stays solvent — qMax is the cleanest under-backing demo.)
+    const r = CAP.stepBuy(st, CALL100, 500, 'You', modD);
     expect(r.fill).toBeGreaterThan(0);
     const W = CAP.reserveMod(st.book, st.belief, modD);
     const s = Math.min(1, st.cash / Math.max(W, 1e-9));

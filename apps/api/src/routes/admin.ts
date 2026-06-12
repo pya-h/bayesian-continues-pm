@@ -6,7 +6,6 @@ import { requireAdmin } from '../auth/plugin.ts';
 import { db } from '../db/client.ts';
 import { userRepo } from '../db/repos.ts';
 import { users } from '../db/schema.ts';
-import { writeAudit } from '../lib/audit.ts';
 import { publicUser } from '../lib/user.ts';
 import { getAuditEvents } from '../services/auditView.ts';
 import { adminTopup } from '../services/fundingSvc.ts';
@@ -44,13 +43,8 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       set.status = 401;
       return { error: 'Admin not found' };
     }
+    // adminTopup writes its own audit row inside the credit transaction.
     const { user: updated } = await adminTopup(admin, target, parsed.data.amount);
-    await writeAudit({
-      actorId: admin.userId,
-      action: 'topup',
-      targetId: target.userId,
-      payload: { amount: parsed.data.amount, infinite: target.isInfinite },
-    });
     return { user: publicUser(updated) };
   })
   // A specific user's full transaction history (admin-only mirror of
