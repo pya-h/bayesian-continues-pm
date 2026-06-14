@@ -13,7 +13,7 @@ import {
   StudentTBelief,
   makeEngineConfig,
 } from '@bmm/core';
-import type { CreateMarketDTO, MarketStatus } from '@bmm/shared';
+import type { CreateMarketDTO, MarketStatus, ModelTag } from '@bmm/shared';
 import { TransactionKind, addMoney, round8, subMoney } from '@bmm/shared';
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../db/client.ts';
@@ -55,13 +55,26 @@ function makeInitialBelief(dto: CreateMarketDTO): BeliefModel {
       // σ is the desired stddev; fromVariance converts to the t's scale² via ν/(ν−2).
       return StudentTBelief.fromVariance(dto.belief.nu, dto.initialMu, variance);
     case 'gen_basis':
+      // Gen·basis IS an adaptive Gaussian mixture — the authored bumps seed it; the
+      // 'gen_basis' identity (spawning update, relaxed caps) rides on the `model`
+      // tag (resolveModel), while belief_kind stays 'mixture'. σ → σ².
+      return new MixtureBelief(
+        dto.belief.bumps.map((b) => ({ pi: b.weight, mu: b.mu, sigma2: b.sigma * b.sigma })),
+      );
     case 'gen_exact':
       // Parsed by the DTO schema but not yet constructable —
-      // fail closed rather than silently fall through to Gaussian. Wired in G1/G2.
+      // fail closed rather than silently fall through to Gaussian. Wired in G2.
       throw new HttpError(400, `belief kind "${dto.belief.kind}" is not yet available`);
     default:
       return new GaussianBelief(dto.initialMu, variance);
   }
+}
+
+// The creator-chosen model tag persisted in `markets.model`. Equals the authored
+// belief kind (which doubles as the tag for every model), defaulting to Gaussian.
+// Distinct from belief_kind: 'gen_basis' here ⇒ belief_kind 'mixture'.
+function resolveModel(dto: CreateMarketDTO): ModelTag {
+  return dto.belief?.kind ?? 'gaussian';
 }
 
 export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Promise<MarketRow> {
@@ -76,6 +89,7 @@ export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Prom
   // belief-drift baseline, and the breaker's σ₀ — wants the true genesis summary.
   const initialBelief: BeliefModel = makeInitialBelief(dto);
   const beliefFields = beliefPersistFields(initialBelief);
+  const model = resolveModel(dto);
 
   const market = await db.transaction(async (tx) => {
     // Non-infinite creators fund the reserve from their balance. Re-read the row
@@ -110,6 +124,7 @@ export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Prom
         status: 'CREATED',
         creatorId: creator.userId,
         beliefKind: initialBelief.kind,
+        model,
         initialMu: beliefFields.currentMu,
         initialSigma: beliefFields.currentSigma,
         currentMu: beliefFields.currentMu,

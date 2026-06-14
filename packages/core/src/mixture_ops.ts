@@ -21,12 +21,26 @@ export interface MixtureOpsConfig {
   // Merge components i,j when |μ_i − μ_j| < tauMerge·(σ_i + σ_j).
   tauMerge: number;
   maxComponents: number;
+  // adaptive spawning (Gen·basis, multi-model refactor G1) ----------------
+  // These drive the *update* step only (bayesUpdateMixture); the manage ops
+  // (prune/merge/cap) ignore them. Optional so existing partial-config callers
+  // and the shipped `mixture` kind are untouched — spawning is off unless asked.
+  allowSpawn?: boolean;
+  // Spawn distance: a signal farther than tauSpawn·σ_k from *every* mode is "new".
+  tauSpawn?: number;
+  spawnWeightMin?: number;
+  // Prior weight π for a freshly-seeded component (before the responsibility step).
+  spawnSeedWeight?: number;
 }
 
 export const DEFAULT_MIXTURE_OPS: MixtureOpsConfig = {
   piMin: 0.02,
   tauMerge: 0.5,
   maxComponents: 6,
+  allowSpawn: false,
+  tauSpawn: 3,
+  spawnWeightMin: 0.1,
+  spawnSeedWeight: 0.1,
 };
 
 // Moment-match two components into one (exact on weight, mean, variance).

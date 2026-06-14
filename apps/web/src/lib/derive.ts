@@ -125,8 +125,7 @@ export interface CreateMarketDraft {
   initialMu: number;
   initialSigma: number;
   initialReserve: number;
-  beliefKind?: 'gaussian' | 'mixture' | 'student_t';
-  // Mixture modes (only used when beliefKind === 'mixture').
+  beliefKind?: 'gaussian' | 'mixture' | 'student_t' | 'gen_basis';
   components?: MixtureModeDraft[];
   // Degrees of freedom ν (only used when beliefKind === 'student_t'; >2).
   nu?: number | '';
@@ -176,6 +175,21 @@ export function buildCreateMarketBody(draft: CreateMarketDraft): CreateMarketInp
       if (!Number.isFinite(m.mu)) throw new Error('Each mixture mode needs a finite center μ.');
     }
     body.belief = { kind: 'mixture', components: modes };
+  } else if (draft.beliefKind === 'gen_basis') {
+    // Gen·basis is authored as a list of bumps (≥1); whatever editor the UI
+    // offers just generates this list. Weight ≡ the mode draft's π field.
+    const bumps = (draft.components ?? [])
+      .filter((c) => c.pi !== '' && c.mu !== '' && c.sigma !== '')
+      .map((c) => ({ mu: Number(c.mu), sigma: Number(c.sigma), weight: Number(c.pi) }));
+    if (bumps.length < 1) {
+      throw new Error('A Gen·basis belief needs at least 1 bump (weight, center, σ each).');
+    }
+    for (const b of bumps) {
+      if (!(b.weight > 0)) throw new Error('Each Gen·basis bump weight must be positive.');
+      if (!(b.sigma > 0)) throw new Error('Each Gen·basis bump σ must be positive.');
+      if (!Number.isFinite(b.mu)) throw new Error('Each Gen·basis bump needs a finite center μ.');
+    }
+    body.belief = { kind: 'gen_basis', bumps };
   } else if (draft.beliefKind === 'student_t') {
     const nu = Number(draft.nu);
     if (!(nu > 2)) throw new Error('Student-t ν (degrees of freedom) must be greater than 2.');

@@ -963,6 +963,16 @@
         <em>merge</em> near-duplicates \(|\mu_i-\mu_j|&lt;\tau(\sigma_i+\sigma_j)\) by moment-matching (which
         preserves the pair’s combined weight, mean and variance exactly), and <em>cap</em> the count \(K\).
         The whole step is computed in log-space so well-separated modes don’t underflow.</p>
+        <p><strong>Gen·basis — adaptive mode-spawning.</strong> The default general model
+        (<a href="#flexible">§21</a>) runs this exact update with one addition: <em>before</em> the
+        membership step, a confident signal that lands farther than \(\tau_\text{spawn}\,\sigma_k\) from
+        <em>every</em> existing mode (and carries weight \(w\ge w_\text{min}\)) seeds a fresh narrow
+        component \(\{\pi=w_\text{seed},\,\mu=s,\,\sigma^2=\sigma_\varepsilon^2\}\). The responsibility step
+        then grows a mode there instead of dragging an existing one across the gap; component management
+        merges it straight back if it turns out redundant, or keeps it once it earns responsibility — so the
+        parameter count is <em>data-driven</em> (it rises on disagreement, falls on consensus) yet stays under
+        the \(K\)-cap. Spawning is off for the plain <code>mixture</code> kind, so that path is byte-identical
+        to the above; it is on only when the market’s <code>model</code> tag is <code>gen_basis</code>.</p>
       </details>
 
       <details class="dev">

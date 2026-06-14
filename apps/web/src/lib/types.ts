@@ -37,6 +37,11 @@ export interface Belief {
   nu?: number;
 }
 
+// Creator-chosen model tag (multi-model refactor). Distinct from `Belief.kind`
+// (the math representation): a `gen_basis` market reports `model: 'gen_basis'`
+// but `belief.kind: 'mixture'`. Inferred from belief_kind for legacy markets.
+export type ModelTag = 'gaussian' | 'student_t' | 'mixture' | 'gen_basis' | 'gen_exact';
+
 export interface MarketView {
   marketId: string;
   title: string;
@@ -46,6 +51,7 @@ export interface MarketView {
   outcomeMax: number | null;
   status: MarketStatus;
   creatorId: string;
+  model: ModelTag;
   belief: Belief;
   cfg: Record<string, number | boolean>;
   cash: number;
@@ -311,7 +317,8 @@ export interface MarketCfgInput {
 export type CreateBeliefInput =
   | { kind: 'gaussian' }
   | { kind: 'mixture'; components: { pi: number; mu: number; sigma: number }[] }
-  | { kind: 'student_t'; nu: number };
+  | { kind: 'student_t'; nu: number }
+  | { kind: 'gen_basis'; bumps: { mu: number; sigma: number; weight: number }[] };
 
 export interface CreateMarketInput {
   title: string;

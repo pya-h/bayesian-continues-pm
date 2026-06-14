@@ -290,6 +290,43 @@ describe('buildCreateMarketBody', () => {
     const body = buildCreateMarketBody({ ...base, beliefKind: 'gaussian', components: [] });
     expect('belief' in body).toBe(false);
   });
+
+  test('emits a gen_basis belief (bumps from the mode draft, weight ≡ π)', () => {
+    const body = buildCreateMarketBody({
+      ...base,
+      beliefKind: 'gen_basis',
+      components: [
+        { pi: 1, mu: 10, sigma: 2 },
+        { pi: 0.5, mu: 25, sigma: 4 },
+      ],
+    });
+    expect(body.belief).toEqual({
+      kind: 'gen_basis',
+      bumps: [
+        { mu: 10, sigma: 2, weight: 1 },
+        { mu: 25, sigma: 4, weight: 0.5 },
+      ],
+    });
+  });
+
+  test('gen_basis allows a single bump but rejects an empty / invalid list', () => {
+    const body = buildCreateMarketBody({
+      ...base,
+      beliefKind: 'gen_basis',
+      components: [{ pi: 1, mu: 10, sigma: 2 }],
+    });
+    expect(body.belief).toEqual({ kind: 'gen_basis', bumps: [{ mu: 10, sigma: 2, weight: 1 }] });
+    expect(() =>
+      buildCreateMarketBody({ ...base, beliefKind: 'gen_basis', components: [] }),
+    ).toThrow('at least 1 bump');
+    expect(() =>
+      buildCreateMarketBody({
+        ...base,
+        beliefKind: 'gen_basis',
+        components: [{ pi: 0, mu: 10, sigma: 2 }],
+      }),
+    ).toThrow('weight must be positive');
+  });
 });
 
 describe('lifecycleActions', () => {

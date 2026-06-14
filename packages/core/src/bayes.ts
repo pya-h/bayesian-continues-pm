@@ -62,7 +62,7 @@ export function bayesUpdateMixture(
   opsCfg: MixtureOpsConfig = DEFAULT_MIXTURE_OPS,
 ): MixtureBelief {
   const sigmaMin2 = cfg.sigmaMin * cfg.sigmaMin;
-  const comps = belief.components;
+  let comps = belief.components;
 
   if (weight <= 0) {
     // No information → unchanged shape, but respect the per-component variance floor.
@@ -73,6 +73,31 @@ export function bayesUpdateMixture(
 
   const sigmaEps2 = cfg.sigmaEps * cfg.sigmaEps;
   const LOG_2PI = Math.log(2 * Math.PI);
+
+  // 0. Adaptive mode-spawn (Gen·basis only; off for the legacy `mixture` kind).
+  // A confident signal that lands farther than τ_spawn·σ_k from *every* existing
+  // mode is evidence of a new camp the current mixture can't explain — seed a fresh
+  // narrow component at the signal so the responsibility step below can grow a mode
+  // there instead of dragging an existing one across the gap. `manageMixture` then
+  // merges it straight back if it turns out redundant, or keeps it once it earns
+  // responsibility. Gated under the K-cap so the parameter count stays bounded.
+  if (opsCfg.allowSpawn && weight >= (opsCfg.spawnWeightMin ?? 0.1)) {
+    const tauSpawn = opsCfg.tauSpawn ?? 3;
+    const maxK = opsCfg.maxComponents;
+    if (comps.length < maxK) {
+      let minDist = Number.POSITIVE_INFINITY;
+      for (const c of comps) {
+        const d = Math.abs(signal - c.mu) / Math.sqrt(c.sigma2);
+        if (d < minDist) minDist = d;
+      }
+      if (minDist > tauSpawn) {
+        // Seed σ² = σ_ε² (the signal-noise scale), floored like any component.
+        const seedVar = Math.max(sigmaEps2, sigmaMin2);
+        const seedPi = opsCfg.spawnSeedWeight ?? 0.1;
+        comps = [...comps, { pi: seedPi, mu: signal, sigma2: seedVar }];
+      }
+    }
+  }
 
   // 1. Tempered log-evidence per component: w · log N(s; μ_k, σ_k² + σ_ε²).
   const logNum = new Array<number>(comps.length);

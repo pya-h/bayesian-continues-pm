@@ -84,42 +84,55 @@ Goal: a `gen_basis` model that is a Gaussian mixture with an **adaptive, mode-sp
 rich creation editor. Reuses all mixture pricing/solvency.
 
 ### G1.1 — core: adaptive (spawning) mixture update
-- [ ] Extend `MixtureOpsConfig` with `allowSpawn: boolean`, `tauSpawn: number` (default off, so the
-  existing `mixture` kind is untouched).
-- [ ] In `bayesUpdateMixture` (gated on `allowSpawn`): **before** the responsibility step, if the signal
+- [x] Extend `MixtureOpsConfig` with `allowSpawn: boolean`, `tauSpawn: number` (default off, so the
+  existing `mixture` kind is untouched). *(Done: added `allowSpawn`/`tauSpawn`/`spawnWeightMin`/
+  `spawnSeedWeight` as **optional** fields — keeps `manageMixture`'s partial-config callers valid —
+  with `DEFAULT_MIXTURE_OPS` providing them all (`allowSpawn:false`).)*
+- [x] In `bayesUpdateMixture` (gated on `allowSpawn`): **before** the responsibility step, if the signal
   `s` is farther than `tauSpawn · σ_k` from **every** component mean *and* `weight ≥ w_min`, seed a new
   component `{ π: w_seed, μ: s, σ²: σ_ε² }`, then run the normal responsibility + per-component update +
   `manageMixture` (which merges it back if redundant, keeps it if it earns responsibility).
-- [ ] Keep the existing `splitComponent` available as an alternative trigger but **off** for v1.
-- [ ] **Tests** (`core`, vs MC + invariants):
-  - a stream of bets far from consensus **grows a new mode** (component count increases, then stabilizes
-    under the K-cap); nearby bets do **not** spawn;
-  - with `allowSpawn:false`, output is **bit-identical** to today's `bayesUpdateMixture` (regression lock);
-  - mass stays normalized (Σπ=1) every step; mean/variance match a brute-force recompute;
-  - `manageMixture` still merges/prunes/caps (K never exceeds `maxComponents`).
-- **Checkpoint:** spawning mixture verified in isolation; legacy mixture untouched.
+  *(Done; seed σ² = max(σ_ε², σ_min²), gated under the K-cap.)*
+- [x] Keep the existing `splitComponent` available as an alternative trigger but **off** for v1.
+  *(Unchanged — still exported, unused by the spawn path.)*
+- [x] **Tests** (`core`, vs MC + invariants): `bayesMixtureSpawn.test.ts` —
+  - disagreement (consensus vs a far camp) grows a 2nd mode from one; low-weight & nearby bets don't spawn;
+  - `allowSpawn:false` ⇒ component-identical to the default path (regression lock) — *note:* an extreme
+    outlier still migrates/prunes the old mode (shipped behavior), so the lock is on path-equality, not on
+    holding K fixed;
+  - Σπ=1 every step; pdf integrates to 1 and grid-mean ≈ class mean (independent quadrature check);
+  - K never exceeds `maxComponents` under a chaotic far stream.
+- **Checkpoint:** spawning verified in isolation (core 206 pass); legacy mixture suites untouched.
 
 ### G1.2 — shared + api: creation & wiring
-- [ ] `createGenBasisSchema`: `{ kind:'gen_basis', bumps: [{ mu, sigma, weight }] (1..maxK) }` — the
-  general form (a grid editor or modes/spread UI just *generates* this list). Validate: ≥1 bump, σ>0,
-  weight>0.
-- [ ] `marketSvc.makeInitialBelief`: `gen_basis` → `new MixtureBelief(bumps→{pi,mu,sigma2})`; set
-  `markets.model='gen_basis'`, `belief_kind='mixture'`.
-- [ ] `tradeSvc` (quote/execute) update path: pass `opsCfg = { ...DEFAULT_MIXTURE_OPS, allowSpawn: market.model==='gen_basis', tauSpawn, ... }` into `updateBelief`. (Read `market.model`; default-infer for legacy.)
-- [ ] `loadBelief` / `beliefPersistFields`: **unchanged** (it's a mixture).
-- [ ] **Tests** (`api` integration): create a `gen_basis` market → it persists as a mixture with the
-  authored bumps; a far-from-consensus buy stream grows a mode (read back via market view); a
-  `mixture` market created the old way still has `allowSpawn:false` and is unchanged.
-- **Checkpoint:** Gen·basis markets create, trade, spawn modes, and price (closed-form) end-to-end via
-  the API; old mixture markets unaffected.
+- [x] `createGenBasisSchema`: `{ kind:'gen_basis', bumps: [{ mu, sigma, weight }] (1..maxK) }`.
+  *(Done in G0 — the `gen_basis` variant in `createBeliefSchema`, `maxK = MAX_GEN_BASIS_BUMPS = 12`,
+  σ>0/weight>0 enforced.)*
+- [x] `marketSvc.makeInitialBelief`: `gen_basis` → `new MixtureBelief(bumps→{pi,mu,sigma2})`; set
+  `markets.model='gen_basis'`, `belief_kind='mixture'`. *(Done via `makeInitialBelief` + `resolveModel`;
+  `model` now persisted for **all** new markets — Gaussian default included.)*
+- [x] `tradeSvc` (quote/execute) update path: pass spawning `opsCfg` into `updateBelief`.
+  *(Done: `mixtureOpsFor(row)` in `lib/belief.ts` (legacy-infers `model ?? beliefKind`, relaxes the cap to
+  12 + `allowSpawn` for gen_basis) wired at all three `updateBelief` sites — quote, execute, sell-all.)*
+- [x] `loadBelief` / `beliefPersistFields`: **unchanged** (it's a mixture). Also exposed `MarketView.model`.
+- [x] **Tests** (`api` integration): `genBasisMarket.test.ts` — gen_basis persists as a mixture with the
+  authored bumps + `model='gen_basis'`; a far bell-buy stream grows a mode (read back via the view); a
+  plain `mixture` market under the same stream never grows its count (spawn off).
+- **Checkpoint:** Gen·basis markets create, trade, spawn modes, price closed-form end-to-end (api 139
+  pass); old mixture markets unaffected.
 
 ### G1.3 — web: types, create body, chart
-- [ ] `lib/types.ts`: `CreateBeliefInput` += `{ kind:'gen_basis', bumps:[...] }`; `MarketView.model`.
-- [ ] `lib/derive.ts` `buildCreateMarketBody`: emit the `gen_basis` belief from the draft.
-- [ ] `BeliefChart`: renders it already (it's a mixture). No change beyond reading `model` for labels.
-- [ ] **Tests:** build-body for `gen_basis` (bump list validation); web suite green.
+- [x] `lib/types.ts`: `CreateBeliefInput` += `{ kind:'gen_basis', bumps:[...] }`; `MarketView.model`
+  (+ a `ModelTag` type). *(Done.)*
+- [x] `lib/derive.ts` `buildCreateMarketBody`: emit the `gen_basis` belief from the draft (bumps from the
+  mode-draft rows, weight ≡ π; ≥1 bump). *(Done.)*
+- [x] `BeliefChart`: renders it already (it's a mixture). *(Unchanged; the `model`-aware label refinement
+  is deferred to G3, the presentation phase.)*
+- [x] **Tests:** build-body for `gen_basis` (bump list validation) added to `derive.test.ts`; web suite green (166).
 - **Checkpoint:** a creator can author a Gen·basis market in the UI and watch modes form as flow
-  arrives. **math-doc:** note the spawn rule in §7's mixture-update block.
+  arrives. **math-doc:** spawn rule noted in §7's mixture-update block (`docs/math/index.html`). *(
+  2026-06-14 — full sweep 525 pass; typecheck + biome clean. KaTeX macros reused from the same block, so
+  rendering parity holds; couldn't auto-verify locally — katex not installed.)*
 
 ---
 

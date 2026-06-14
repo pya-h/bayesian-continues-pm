@@ -31,7 +31,7 @@ import { db } from '../db/client.ts';
 import { type UserRow, marketRepo } from '../db/repos.ts';
 import { beliefUpdates, contracts, markets, positions, trades, users } from '../db/schema.ts';
 import { writeAudit } from '../lib/audit.ts';
-import { beliefPersistFields, loadBelief } from '../lib/belief.ts';
+import { beliefPersistFields, loadBelief, mixtureOpsFor } from '../lib/belief.ts';
 import { paramsFromSpec, specFromRow } from '../lib/contract.ts';
 import { HttpError } from '../lib/errors.ts';
 import { publish, topics } from '../realtime.ts';
@@ -91,7 +91,7 @@ export async function quote(marketId: string, dto: QuoteDTO): Promise<QuoteResul
   const totalCost = round8(execPrice * q);
 
   const sig = extractSignal(spec, q, belief, cfg);
-  const projected = updateBelief(belief, sig.signal, sig.weight, cfg);
+  const projected = updateBelief(belief, sig.signal, sig.weight, cfg, mixtureOpsFor(m));
   const nextBook = withMmShort(book, spec, key, contractKey, mmShort + q);
   const reserveOpts = reserveOptsFor(cfg);
   // Preview the live reserve mark at the POST-update belief — the same value
@@ -263,7 +263,7 @@ export async function executeTrade(
 
       // Tentative apply: belief, inventory, cash.
       const sig = extractSignal(spec, filledQ, belief, cfg);
-      const newBelief = updateBelief(belief, sig.signal, sig.weight, cfg);
+      const newBelief = updateBelief(belief, sig.signal, sig.weight, cfg, mixtureOpsFor(m));
       const newMmShort = round8(mmShort + filledQ);
       const newBook = withMmShort(book, spec, key, contractKey, newMmShort);
 
@@ -640,7 +640,7 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
         const execPrice = execPriceFor('sell', fair, spread.total, spec);
 
         const sig = extractSignal(spec, filledQ, belief, cfg);
-        const newBelief = updateBelief(belief, sig.signal, sig.weight, cfg);
+        const newBelief = updateBelief(belief, sig.signal, sig.weight, cfg, mixtureOpsFor(m));
         const newMmShort = round8(mmShort + filledQ);
         mmShortByKey.set(key, newMmShort);
         const newBook = buildBook();

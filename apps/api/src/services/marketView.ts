@@ -3,7 +3,7 @@
 // the MM's short book.
 
 import { type BookEntry, MixtureBelief, StudentTBelief, expectedLiability } from '@bmm/core';
-import { round8 } from '@bmm/shared';
+import { type ModelTag, round8 } from '@bmm/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.ts';
 import { contracts } from '../db/schema.ts';
@@ -21,6 +21,7 @@ export interface MarketView {
   outcomeMax: number | null;
   status: string;
   creatorId: string;
+  model: ModelTag;
   belief: {
     kind: 'gaussian' | 'mixture' | 'student_t';
     mu: number;
@@ -72,6 +73,7 @@ export async function buildMarketView(m: MarketRow): Promise<MarketView> {
     outcomeMax: m.outcomeMax,
     status: m.status,
     creatorId: m.creatorId,
+    model: (m.model ?? belief.kind) as ModelTag,
     belief: {
       kind: belief.kind,
       mu: round8(belief.mean()),
