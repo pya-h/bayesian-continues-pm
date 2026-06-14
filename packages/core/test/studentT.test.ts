@@ -178,4 +178,37 @@ describe('Student-t closed-form pricing (REVIEW-FINDINGS C1/C10)', () => {
       expect(approx(t.cdf(q), p, Math.max(1e-12, p * 1e-6))).toBe(true);
     }
   });
+
+  test('GAUSSIAN bell payoff is bell-window-accurate, not ±10σ-truncated (C42)', () => {
+    // ν=3, μ=0, variance=100 ⇒ sd=10. Wide+fine reference over a window that surely
+    // covers both the bell and the belief, integrating g(θ)·pdf(θ).
+    const tg = new StudentTBelief(3, 0, 100 / 3);
+    const sd = tg.stddev();
+    const ref = (c: number, w: number, sq = false) => {
+      const lo = Math.min(tg.mu - 80 * sd, c - 60 * w);
+      const hi = Math.max(tg.mu + 80 * sd, c + 60 * w);
+      const N = 2_000_000;
+      const h = (hi - lo) / N;
+      let s = 0;
+      for (let i = 0; i <= N; i++) {
+        const x = lo + i * h;
+        let g = Math.exp(-((x - c) ** 2) / (2 * w * w));
+        if (sq) g *= g;
+        s += (i === 0 || i === N ? 1 : i % 2 ? 4 : 2) * g * tg.pdf(x);
+      }
+      return (s * h) / 3;
+    };
+    // Far center (15σ away) was priced ≈0 (−100%) by the old ±10σ window; narrow
+    // width (σ/400) was off −18% (bell inside one Simpson cell). Now exact.
+    for (const [c, w] of [
+      [0, 10],
+      [11 * sd, 10],
+      [15 * sd, 10],
+      [0, sd / 400],
+    ] as [number, number][]) {
+      const spec: ContractSpec = { type: 'GAUSSIAN', center: c, width: w };
+      const got = price(spec, tg);
+      expect(approx(got, ref(c, w), Math.abs(ref(c, w)) * 1e-4 + 1e-12)).toBe(true);
+    }
+  });
 });

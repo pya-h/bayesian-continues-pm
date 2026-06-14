@@ -54,7 +54,13 @@ export function groupPositionsByMarket(positions: PortfolioPosition[]): MarketGr
     g.costBasis += p.costBasis;
     g.peakProfit += p.peakProfit;
     g.drawdownFromPeak += p.drawdownFromPeak;
-    if (p.marketStatus === 'SETTLED' && p.final && !p.final.claimed) g.claimable = true;
+    // Payouts stay claimable on CLOSED too — archival doesn't revoke winnings.
+    if (
+      (p.marketStatus === 'SETTLED' || p.marketStatus === 'CLOSED') &&
+      p.final &&
+      !p.final.claimed
+    )
+      g.claimable = true;
   }
   return [...byId.values()].sort((a, b) => a.marketTitle.localeCompare(b.marketTitle));
 }

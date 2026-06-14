@@ -114,6 +114,48 @@ describe.if(hasEnv)('mixture market (V2-1 integration)', () => {
     expect(mv.belief.components?.length).toBe(2);
   });
 
+  test('mixture genesis uses the belief summary, not a mismatched authored initialMu (C48)', async () => {
+    // Author initialMu = 50, but the components average to Σπμ = 70. The stored
+    // genesis (initialMu column) and the history genesis point must be the true
+    // summary (70), not the authored 50 — else the chart starts at the wrong place
+    // and beliefDrift reads non-zero before any trade.
+    const created = await req('POST', '/admin/markets', {
+      token: adminToken,
+      body: {
+        title: 'Mismatched-μ mixture (test)',
+        outcomeUnit: 'USD',
+        initialMu: 50,
+        initialSigma: 3,
+        initialReserve: 10000,
+        belief: {
+          kind: 'mixture',
+          components: [
+            { pi: 0.5, mu: 60, sigma: 5 },
+            { pi: 0.5, mu: 80, sigma: 5 },
+          ],
+        },
+      },
+    });
+    expect([200, 201]).toContain(created.status);
+    const { market } = (await created.json()) as { market: { marketId: string } };
+    marketIds.push(market.marketId);
+
+    const row = (await db.select().from(markets).where(eq(markets.marketId, market.marketId)))[0];
+    expect(Math.abs((row?.initialMu ?? 0) - 70)).toBeLessThan(1e-6); // summary, not 50
+    expect(Math.abs((row?.currentMu ?? 0) - 70)).toBeLessThan(1e-6);
+
+    const hist = await req('GET', `/markets/${market.marketId}/history`, { token: aliceToken });
+    const { history } = (await hist.json()) as {
+      history: { beliefHistory: { mu: number }[] };
+    };
+    expect(Math.abs(history.beliefHistory[0].mu - 70)).toBeLessThan(1e-6); // genesis point
+
+    // belief drift is 0 at genesis (no trades): current − genesis = 70 − 70.
+    const stats = await req('GET', `/markets/${market.marketId}/stats`, { token: aliceToken });
+    const { stats: s } = (await stats.json()) as { stats: { beliefDrift: number } };
+    expect(Math.abs(s.beliefDrift)).toBeLessThan(1e-6);
+  });
+
   test('quote fair on the mixture matches a Monte-Carlo estimate', async () => {
     const id = marketIds[0] as string;
     await req('POST', `/admin/markets/${id}/open`, { token: adminToken });

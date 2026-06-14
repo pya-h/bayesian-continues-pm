@@ -387,11 +387,13 @@ export interface LpClaimResult {
   lp: LpView;
 }
 
-// Settlement claim (SETTLED only): credit this LP's pro-rata share of the
+// Settlement claim (SETTLED or CLOSED): credit this LP's pro-rata share of the
 // residual `cash_final = cash − Σ trader_payouts`. Idempotent — a second call
 // after `claimed` is a no-op. `S_total` is left untouched so concurrent LPs each
 // receive the correct fraction. Limited liability: a negative split (pool that
-// paid out more than its cash) credits 0, never claws back.
+// paid out more than its cash) credits 0, never claws back. Claims stay open on
+// CLOSED so archival can't strand an LP's residual; cash_final is stable
+// because the pool freezes at settlement.
 export async function claim(actor: UserRow, marketId: string): Promise<LpClaimResult> {
   const out = await db.transaction(
     async (
@@ -404,7 +406,7 @@ export async function claim(actor: UserRow, marketId: string): Promise<LpClaimRe
         .for('update');
       const m = mrows[0];
       if (!m) throw new HttpError(404, 'Market not found');
-      if (m.status !== 'SETTLED') {
+      if (m.status !== 'SETTLED' && m.status !== 'CLOSED') {
         throw new HttpError(409, 'Market is not settled; LP claims are not open');
       }
 

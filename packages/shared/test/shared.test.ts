@@ -53,6 +53,19 @@ describe('contractSpecSchema', () => {
       false,
     );
   });
+
+  test('outcome-axis magnitudes beyond the 1e12 ceiling rejected (C46)', () => {
+    // huge strikes/centers used to overflow (θ−μ)² → NaN / silent belief corruption
+    expect(contractSpecSchema.safeParse({ type: 'CALL', strike: 1e9 }).success).toBe(true);
+    expect(contractSpecSchema.safeParse({ type: 'CALL', strike: 1e13 }).success).toBe(false);
+    expect(contractSpecSchema.safeParse({ type: 'CALL', strike: 1e155 }).success).toBe(false);
+    expect(
+      contractSpecSchema.safeParse({ type: 'SPREAD', lower: -1e300, upper: 1e300 }).success,
+    ).toBe(false);
+    expect(
+      contractSpecSchema.safeParse({ type: 'GAUSSIAN', center: 0, width: 1e200 }).success,
+    ).toBe(false);
+  });
 });
 
 describe('auth & market DTOs', () => {

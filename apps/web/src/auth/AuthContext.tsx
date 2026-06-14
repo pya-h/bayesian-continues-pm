@@ -2,7 +2,7 @@
 // from `/auth/me` if a token is present, so a refresh keeps you logged in.
 
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { api, getToken, setToken } from '../lib/api.ts';
+import { api, getToken, setToken, setUnauthorizedHandler } from '../lib/api.ts';
 import type { PublicUser } from '../lib/types.ts';
 
 interface AuthState {
@@ -20,6 +20,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<PublicUser | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // A 401 on any authenticated request (mount-time /auth/me, or mid-session token
+  // expiry) clears the React session; the api client has already dropped the token.
+  // RequireAuth then bounces to /login. Network/5xx failures don't reach here, so a
+  // transient blip can't log a valid session out.
+  useEffect(() => {
+    setUnauthorizedHandler(() => setUser(null));
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
   useEffect(() => {
     if (!getToken()) {
       setLoading(false);
@@ -28,7 +37,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     api
       .me()
       .then((r) => setUser(r.user))
-      .catch(() => setToken(null)) // stale/invalid token → drop it
+      // The api client drops the token only on a genuine 401; a network/5xx failure
+      // here keeps it, so the session re-hydrates on the next reachable request.
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 

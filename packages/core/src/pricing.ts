@@ -48,14 +48,47 @@ function priceUnderGaussian(spec: ContractSpec, mu: number, sigma2: number): num
   }
 }
 
+// E[exp(-(θ-c)²/(2·bw²))] under an arbitrary belief — the GAUSSIAN "bell" payoff
+// (and, with bw = w/√2, its square for the second moment) integrated robustly.
+// The plain `expectF` window (mean ± L·σ, fixed node count) silently mis-prices the
+// bell two ways: a center far from the belief mean (|c − μ| ≳ L·σ) falls outside the
+// window and is priced ≈0, and a width narrower than the cell size (w ≲ σ/200) lands
+// inside one Simpson cell. The bell bounds the integrand's support to [c ± L·bw], so
+// the window must cover BOTH the bell and the belief and the node count must resolve
+// the NARROWER of the two scales. Exact to machine precision across both regimes
+// the node cap keeps the contrived far-AND-narrow
+// corner bounded rather than exploding the cost.
+function expectGaussianBump(belief: BeliefModel, c: number, bw: number): number {
+  const mean = belief.mean();
+  const sigma = belief.stddev();
+  const L = 12;
+  const lo = Math.min(mean - L * sigma, c - L * bw);
+  const hi = Math.max(mean + L * sigma, c + L * bw);
+  const feature = Math.max(Math.min(sigma, bw), 1e-300); // narrowest scale to resolve
+  let n = Math.ceil((hi - lo) / (feature / 24));
+  n = Math.min(Math.max(n, 4000), 200_000);
+  if (n % 2 === 1) n += 1;
+  const h = (hi - lo) / n;
+  const ig = (x: number) => Math.exp(-((x - c) ** 2) / (2 * bw * bw)) * belief.pdf(x);
+  let sum = ig(lo) + ig(hi);
+  for (let i = 1; i < n; i++) sum += (i % 2 === 0 ? 2 : 4) * ig(lo + i * h);
+  return (sum * h) / 3;
+}
+
+// E[(GAUSSIAN payoff)²] under a belief — the square is a bell of width w/√2.
+export function expectGaussianBumpSquared(belief: BeliefModel, c: number, w: number): number {
+  return expectGaussianBump(belief, c, w / Math.SQRT2);
+}
+
 // Fair price under a Student-t(ν, μ, s²) belief — closed forms via the t pdf/cdf.
 // Quadrature is wrong for t on both payoff families: binaries/spreads put the jump
 // inside a Simpson cell (O(h) error that the central-difference ∂P/∂μ then amplifies
 // to ±100%+), and unbounded CALL/PUT keep accumulating polynomial-tail mass past any
 // finite window (−2% at ν=3 to −16% at ν=2.1). CALL uses
 // E[(X−K)+] = s²·pdf(K)·(ν+d²)/(ν−1) − (K−μ)·(1−F(K)), d=(K−μ)/s (valid for ν>1
-// we require ν>2); PUT follows by parity. Only the smooth GAUSSIAN payoff still
-// integrates numerically (bounded, no closed form under t).
+// we require ν>2); PUT follows by parity. The smooth GAUSSIAN payoff has no closed
+// form under t, so it integrates numerically — but via the bell-aware window above
+// not the plain ±L·σ one.
 function priceUnderStudentT(spec: ContractSpec, t: StudentTBelief): number {
   switch (spec.type) {
     case 'LINEAR':
@@ -74,6 +107,8 @@ function priceUnderStudentT(spec: ContractSpec, t: StudentTBelief): number {
       return t.cdf(spec.strike as number);
     case 'SPREAD':
       return t.cdf(spec.upper as number) - t.cdf(spec.lower as number);
+    case 'GAUSSIAN':
+      return expectGaussianBump(t, spec.center as number, spec.width as number);
     default:
       return expectF((x) => payoff(spec, x), t);
   }

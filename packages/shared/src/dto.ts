@@ -6,17 +6,31 @@ import { z } from 'zod';
 const finite = z.number().finite();
 const positive = z.number().finite().positive();
 
+// Outcome-axis magnitude ceiling. Strikes / centers / bounds / μ and their spreads
+// are bounded well below the float-overflow regime (~1e155, where (θ−μ)² overflows
+// and silently corrupts a Gaussian belief or NaN-prices a Student-t —
+// C46). 1e12 (a trillion) covers any realistic outcome value while keeping (θ−μ)²
+// ≤ ~4e24, far from overflow.
+const OUTCOME_BOUND = 1e12;
+const outcome = z.number().finite().min(-OUTCOME_BOUND).max(OUTCOME_BOUND);
+const spread = z.number().finite().positive().max(OUTCOME_BOUND);
+const variance = z
+  .number()
+  .finite()
+  .positive()
+  .max(OUTCOME_BOUND * OUTCOME_BOUND);
+
 // Contracts ---------------------------------------------------------------
 
 export const contractSpecSchema = z
   .discriminatedUnion('type', [
     z.object({ type: z.literal('LINEAR') }),
-    z.object({ type: z.literal('CALL'), strike: finite }),
-    z.object({ type: z.literal('PUT'), strike: finite }),
-    z.object({ type: z.literal('BINARY_CALL'), strike: finite }),
-    z.object({ type: z.literal('BINARY_PUT'), strike: finite }),
-    z.object({ type: z.literal('SPREAD'), lower: finite, upper: finite }),
-    z.object({ type: z.literal('GAUSSIAN'), center: finite, width: positive }),
+    z.object({ type: z.literal('CALL'), strike: outcome }),
+    z.object({ type: z.literal('PUT'), strike: outcome }),
+    z.object({ type: z.literal('BINARY_CALL'), strike: outcome }),
+    z.object({ type: z.literal('BINARY_PUT'), strike: outcome }),
+    z.object({ type: z.literal('SPREAD'), lower: outcome, upper: outcome }),
+    z.object({ type: z.literal('GAUSSIAN'), center: outcome, width: spread }),
   ])
   .superRefine((val, ctx) => {
     if (val.type === 'SPREAD' && !(val.lower < val.upper)) {
@@ -29,14 +43,14 @@ export type ContractSpecDTO = z.infer<typeof contractSpecSchema>;
 
 export const gaussianStateSchema = z.object({
   kind: z.literal('gaussian'),
-  mu: finite,
-  sigma2: positive,
+  mu: outcome,
+  sigma2: variance,
 });
 // A persisted mixture component: weight π, mean μ, variance σ².
 export const mixtureComponentStateSchema = z.object({
   pi: z.number().finite().nonnegative(),
-  mu: finite,
-  sigma2: positive,
+  mu: outcome,
+  sigma2: variance,
 });
 export const mixtureStateSchema = z.object({
   kind: z.literal('mixture'),
@@ -45,8 +59,8 @@ export const mixtureStateSchema = z.object({
 export const studentTStateSchema = z.object({
   kind: z.literal('student_t'),
   nu: z.number().finite().gt(2),
-  mu: finite,
-  scale2: positive,
+  mu: outcome,
+  scale2: variance,
 });
 export const beliefStateSchema = z.discriminatedUnion('kind', [
   gaussianStateSchema,
@@ -59,8 +73,8 @@ export type BeliefStateDTO = z.infer<typeof beliefStateSchema>;
 
 export const createMixtureComponentSchema = z.object({
   pi: positive,
-  mu: finite,
-  sigma: positive,
+  mu: outcome,
+  sigma: spread,
 });
 export const createBeliefSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('gaussian') }),
@@ -126,10 +140,10 @@ export const createMarketSchema = z.object({
   title: z.string().min(1).max(255),
   description: z.string().max(4000).optional(),
   outcomeUnit: z.string().min(1).max(20),
-  outcomeMin: finite.optional(),
-  outcomeMax: finite.optional(),
-  initialMu: finite,
-  initialSigma: positive,
+  outcomeMin: outcome.optional(),
+  outcomeMax: outcome.optional(),
+  initialMu: outcome,
+  initialSigma: spread,
   initialReserve: positive,
   belief: createBeliefSchema.optional(),
   cfg: marketCfgSchema.optional(),

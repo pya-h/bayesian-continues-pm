@@ -63,10 +63,12 @@ export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Prom
   const cfg: EngineConfig = makeEngineConfig(dto.initialMu, dto.initialSigma, dto.cfg ?? {});
   const reserve = dto.initialReserve;
 
-  // Initial belief by authored kind, else Gaussian (v1). initialMu/initialSigma
-  // stay the market's reference scale (cfg seed); a mixture's shape comes from its
-  // components, a Student-t reuses μ/σ as location/spread plus its ν, and
-  // current_mu/current_sigma carry the summary mean/σ for every kind.
+  // Initial belief by authored kind, else Gaussian (v1). The cfg reference scale is
+  // seeded from the *authored* μ/σ (above), but the persisted initialMu/initialSigma
+  // columns store the genesis belief SUMMARY (mean/σ) — for a mixture that is Σπμ and
+  // the total σ, NOT the authored reference, which need not match (
+  // C48). Everything that reads those columns — the price-history genesis point, the
+  // belief-drift baseline, and the breaker's σ₀ — wants the true genesis summary.
   const initialBelief: BeliefModel = makeInitialBelief(dto);
   const beliefFields = beliefPersistFields(initialBelief);
 
@@ -103,8 +105,8 @@ export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Prom
         status: 'CREATED',
         creatorId: creator.userId,
         beliefKind: initialBelief.kind,
-        initialMu: dto.initialMu,
-        initialSigma: dto.initialSigma,
+        initialMu: beliefFields.currentMu,
+        initialSigma: beliefFields.currentSigma,
         currentMu: beliefFields.currentMu,
         currentSigma: beliefFields.currentSigma,
         beliefState: beliefFields.beliefState,

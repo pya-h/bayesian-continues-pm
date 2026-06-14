@@ -40,7 +40,15 @@ The fresh sweep found the items below. None invalidates a prior fix; the two Med
 are the same *classes* as fixed bugs (C9's stranded-funds shape; C1/C10's quadrature
 shape) surfacing in paths the earlier rounds didn't reach.
 
-### C42 · [Medium] GAUSSIAN payoff is mispriced on Student-t markets — the one payoff C1/C10 left on quadrature
+### C42 · [Medium — fixed 2026-06-14] GAUSSIAN payoff is mispriced on Student-t markets — the one payoff C1/C10 left on quadrature
+**Fix:** added a bell-aware quadrature (`expectGaussianBump` in `pricing.ts`) whose
+window covers BOTH the payoff bell (`c ± L·w`) and the belief (`μ ± L·σ`) with node
+count resolving the narrower scale; wired into `priceUnderStudentT`'s GAUSSIAN branch
+and `secondMoment`'s student-t GAUSSIAN path (via `expectGaussianBumpSquared`, width
+w/√2). Exact to machine precision vs a 40M-node reference across far-center,
+narrow-width, and the contrived far-AND-narrow corner; `dPriceDMu` (central-difference
+of the now-exact price) follows. Regression test added.
+
 `packages/core/src/pricing.ts:82-83` — `priceUnderStudentT`'s default branch sends the
 GAUSSIAN (bell) payoff through `expectF` (±10σ window, 4000 nodes ⇒ cell h = σ/200),
 on the assumption it's "smooth and bounded, so quadrature is fine". Two reachable
@@ -62,7 +70,14 @@ spec with any positive width). **Fix:** widen/center the window on the *payoff b
 bump's own coordinates. (No closed form exists under t, so quadrature stays — it just
 must see the bump.)
 
-### C43 · [Medium] Admin `close` permanently strands all unclaimed trader payouts and LP claims
+### C43 · [Medium — fixed 2026-06-14] Admin `close` permanently strands all unclaimed trader payouts and LP claims
+**Fix:** claims stay open on CLOSED — `claimPayout` (settleSvc) and LP `claim` (lpSvc)
+now accept `SETTLED || CLOSED`, and the web claim UI (`derive.ts` claimable,
+`PositionPanel`, `LpPage`) mirrors it. Settlement already computed the payouts and
+froze the pool, so collecting after archival is safe and idempotent; CLOSED still
+blocks trading. Minimal and low-risk vs. an auto-sweep, and it never strands an
+abandoned account's winnings. Regression test: claim succeeds after close.
+
 `apps/api/src/services/marketSvc.ts:43` — `close: { from: ['SETTLED'], to: 'CLOSED' }`
 and the state machine has **no transition out of CLOSED**. `claimPayout` rejects
 non-SETTLED (`settleSvc.ts:142-144`) and LP `claim` likewise (`lpSvc.ts:414-416`), and
@@ -83,7 +98,14 @@ fails and 5xx ApiErrors for proxy problems — all of which destroy a perfectly 
 wakes before Wi-Fi), refresh → logged out for good. **Fix:** drop the token only on
 401/403; on status 0/5xx keep it (render logged-out state or retry).
 
-### C45 · [Low] Student-t binary ask can exceed the contract's max payout (spread unbounded as ν→2)
+### C45 · [Low — fixed 2026-06-14] Student-t binary ask can exceed the contract's max payout (spread unbounded as ν→2)
+**Fix:** `execPriceFor` now clamps to the contract's payoff bounds — ask capped at the
+max payout, bid floored at the min (0) — for bounded kinds; unbounded CALL/PUT keep
+only the bid's 0 floor. Threaded the spec through all call sites (solveFill + the three
+tradeSvc paths) so quote and commit agree, and mirrored in the web `clientQuote`
+estimate. Still fully prefunded (collecting ≤ max premium covers the worst-case
+per-unit liability). Regression test added.
+
 `packages/core/src/spread.ts:45-46` — `adverseSelection = λ·intensity·|∂P/∂μ|·σ`.
 C10 made `|∂P/∂μ| = pdf(K)` exact; under Student-t, `pdf(K)·σ = f_std(d)·√(ν/(ν−2))`
 diverges as ν→2⁺. Stock defaults, BINARY_CALL at K=μ, q=qMax: ν=2.5 → ask **1.04**;
@@ -93,7 +115,13 @@ contract becomes untradeable and the UI shows a nonsensical ask. **Fix:** cap th
 ask at the payoff's upper bound for bounded contracts, or cap the AS term's
 `|∂P/∂μ|·σ` factor.
 
-### C46 · [Low] Astronomically large schema-valid inputs propagate NaN / silent belief corruption
+### C46 · [Low — fixed 2026-06-14] Astronomically large schema-valid inputs propagate NaN / silent belief corruption
+**Fix:** added an outcome-axis magnitude ceiling (`OUTCOME_BOUND = 1e12`) to the shared
+zod schemas — strikes/centers/bounds/μ bounded to ±1e12, widths/σ to (0, 1e12],
+variances to (0, 1e24] — across `contractSpecSchema`, the belief state/create schemas,
+and `createMarketSchema`. Keeps (θ−μ)² ≤ ~4e24 (far from the ~1e155 overflow regime)
+while accepting any realistic outcome. Regression test added.
+
 `packages/shared/src/dto.ts:16-21` and `contracts.ts:36-41` only require `finite`, so
 strikes/centers up to ~1.8e308 pass validation. Verified: |μ| or strikes at 1e9 are
 all fine, but at ≳1e155: mixture `updateBelief` **throws** (`exp(NaN)` responsibilities);
@@ -102,14 +130,25 @@ one trade quote); Student-t CALL price returns **NaN** (`0·Inf` in the closed f
 GAUSSIAN width < ~1e-162 underflows to a NaN payoff. **Fix:** put a sane magnitude
 bound (e.g. |x| ≤ 1e12) on strikes/centers/widths in the shared schemas.
 
-### C47 · [Low] Sell-all broadcasts stale `price_change` fairs for all but the last contract
+### C47 · [Low — fixed 2026-06-14] Sell-all broadcasts stale `price_change` fairs for all but the last contract
+**Fix:** after the close loop (inside the tx, where `liveBelief` is final) every
+touched contract's fair is re-marked at the final belief, so the post-commit
+`price_change` events agree with the single committed `belief_update`.
+
 `apps/api/src/services/tradeSvc.ts:748` snapshots each closed contract's fair at the
 belief *right after that contract's own close*, while later iterations keep moving
 the belief; `:817-823` then publishes those per-step fairs post-commit. A 3-position
 sell-all emits two `price_change` events inconsistent with the `belief_update` in the
 same batch. **Fix:** recompute the fairs from the final `liveBelief` after the loop.
 
-### C48 · [Low] Mixture markets: genesis history point and `beliefDrift` trust the authored `initialMu/σ`, which nothing validates
+### C48 · [Low — fixed 2026-06-14] Mixture markets: genesis history point and `beliefDrift` trust the authored `initialMu/σ`, which nothing validates
+**Fix:** at creation the `initialMu/initialSigma` columns now store the genesis belief
+*summary* (`belief.mean()/.stddev()` — Σπμ and total σ for a mixture), not the raw
+authored values. The cfg reference scale is still seeded from the authored μ/σ
+(computed before the insert), so nothing else shifts; Gaussian/Student-t are unchanged
+(summary == authored). Corrects all three readers at once — the history genesis point,
+the drift baseline, and the breaker σ₀. Regression test added.
+
 A mixture market is created with both `initialMu/initialSigma` and components, and no
 check ties them (`createMarketSchema`); the true genesis mean is Σπ·μ. But
 `statsSvc.ts:207-209` prepends `{mu: initialMu, sigma: initialSigma}` as the first

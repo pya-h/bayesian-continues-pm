@@ -13,6 +13,21 @@ describe('execPriceFor', () => {
   test('sell bid is floored at 0', () => {
     expect(execPriceFor('sell', 1, 5)).toBe(0);
   });
+  test('bounded contract: ask capped at max payout, bid floored at 0 (C45)', () => {
+    // A Student-t fat-tail belief can blow the AS spread term past 1 on a binary
+    // the ask must never exceed the contract's max payout (1).
+    const bin = { type: 'BINARY_CALL', strike: 100 } as const;
+    expect(execPriceFor('buy', 0.5, 1.0, bin)).toBe(1);
+    expect(execPriceFor('sell', 0.5, 1.0, bin)).toBe(0);
+    expect(execPriceFor('buy', 0.3, 0.4, bin)).toBeCloseTo(0.7, 9); // under the cap, untouched
+    const gauss = { type: 'GAUSSIAN', center: 100, width: 5 } as const;
+    expect(execPriceFor('buy', 0.9, 0.5, gauss)).toBe(1);
+  });
+  test('unbounded contract: ask uncapped, bid keeps the 0 floor (C45)', () => {
+    const call = { type: 'CALL', strike: 100 } as const;
+    expect(execPriceFor('buy', 20, 3, call)).toBe(23);
+    expect(execPriceFor('sell', 2, 5, call)).toBe(0);
+  });
 });
 
 describe('applyFill — average-entry accounting', () => {

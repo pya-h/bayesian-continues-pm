@@ -16,6 +16,7 @@ import {
   type ReserveOpts,
   computeSpread,
   contractKey,
+  payoffBounds,
   requiredReserve,
   withMmShort,
 } from '@bmm/core';
@@ -24,8 +25,27 @@ import { round8 } from '@bmm/shared';
 
 export type Side = 'buy' | 'sell';
 
-export function execPriceFor(side: Side, fair: number, spreadTotal: number): number {
-  return side === 'buy' ? fair + spreadTotal : Math.max(0, fair - spreadTotal);
+// Ask (buy) = fair + half-spread; bid (sell) = fair − half-spread, each clamped to
+// the contract's payoff bounds. A bounded contract can never pay more than its max
+// payout, so an ask above that ceiling is economically nonsensical — yet the
+// adverse-selection spread term diverges as ν→2 on fat-tailed (Student-t) beliefs and
+// pushed binary asks above 1. Capping the ask at the ceiling
+// (and flooring the bid at the floor, 0 for the bounded kinds) keeps quotes sane and
+// is still fully prefunded: collecting up to `max` premium covers the worst-case
+// per-unit liability. Unbounded kinds (LINEAR/CALL/PUT) keep the bid's 0 floor only.
+export function execPriceFor(
+  side: Side,
+  fair: number,
+  spreadTotal: number,
+  spec?: ContractSpec,
+): number {
+  const b = spec ? payoffBounds(spec) : { bounded: false as const };
+  if (side === 'buy') {
+    const ask = fair + spreadTotal;
+    return b.bounded && b.max != null ? Math.min(ask, b.max) : ask;
+  }
+  const floor = b.bounded && b.min != null ? b.min : 0;
+  return Math.max(floor, fair - spreadTotal);
 }
 
 export interface PositionState {
@@ -99,7 +119,7 @@ export function solveFill(input: FillSolveInput): FillSolveResult {
     if (size <= 0) return true;
     const signed = side === 'buy' ? size : -size;
     const spread = computeSpread(spec, signed, mmShort, belief, cfg);
-    const execPrice = execPriceFor(side, fair, spread.total);
+    const execPrice = execPriceFor(side, fair, spread.total, spec);
     const totalCost = execPrice * signed; // signed: buy > 0
     const effectiveCash = cash + Math.min(0, totalCost);
     const nextBook = withMmShort(book, spec, key, contractKey, mmShort + signed);

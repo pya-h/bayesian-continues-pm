@@ -189,7 +189,8 @@ function ClaimCard({ marketId, view: v }: { marketId: string; view: LpView }) {
     },
   });
 
-  if (v.status !== 'SETTLED') return null;
+  // CLOSED keeps the LP claim open too — archival doesn't strand the residual.
+  if (v.status !== 'SETTLED' && v.status !== 'CLOSED') return null;
   const claimed = v.your?.claimed ?? false;
   const hasStake = (v.your?.shares ?? 0) > 0 || (v.your?.totalDeposited ?? 0) > 0;
   if (!hasStake) return null;
@@ -233,14 +234,20 @@ function useLpMutation(marketId: string, fn: (n: number) => Promise<LpView>) {
   const { user, setUser } = useAuth();
   return useMutation({
     mutationFn: fn,
-    onSuccess: async (lpView) => {
+    onSuccess: (lpView) => {
       qc.setQueryData(qk.lp(marketId), lpView);
       qc.invalidateQueries({ queryKey: qk.market(marketId) });
       qc.invalidateQueries({ queryKey: qk.portfolio });
       // balance moved (unless infinite admin) — re-pull the authoritative number.
+      // Fire-and-forget: react-query lands the mutation in ERROR state if onSuccess
+      // throws, so a hiccup on this refresh must NOT mark a deposit/withdraw that
+      // already committed as "failed". The deposit succeeded; the balance just
+      // syncs a beat later.
       if (user && !user.isInfinite) {
-        const me = await api.me();
-        setUser(me.user);
+        api
+          .me()
+          .then((me) => setUser(me.user))
+          .catch(() => {});
       }
     },
   });

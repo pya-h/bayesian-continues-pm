@@ -124,7 +124,10 @@ export async function claimPayout(actor: UserRow, marketId: string): Promise<Cla
       .for('update');
     const m = mrows[0];
     if (!m) throw new HttpError(404, 'Market not found');
-    if (m.status !== 'SETTLED') {
+    // Claims stay open on CLOSED too: settlement already computed the payouts and
+    // froze the pool, and archiving a market must not revoke a winner's right to
+    // collect (otherwise close permanently strands unclaimed payouts — C43).
+    if (m.status !== 'SETTLED' && m.status !== 'CLOSED') {
       throw new HttpError(409, 'Market is not settled; nothing to claim yet');
     }
 

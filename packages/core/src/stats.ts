@@ -8,8 +8,7 @@ import { payoff, payoffBounds } from './contracts.ts';
 import { GaussianBelief } from './gaussian.ts';
 import type { MixtureBelief } from './mixture.ts';
 import { Rng } from './numerics.ts';
-import { price, priceGaussianPayoff } from './pricing.ts';
-import { expectF } from './pricing.ts';
+import { expectF, expectGaussianBumpSquared, price, priceGaussianPayoff } from './pricing.ts';
 import { StudentTBelief, studentTCdfStd } from './student_t.ts';
 import type { BeliefModel, ContractSpec } from './types.ts';
 
@@ -68,6 +67,11 @@ export function secondMoment(spec: ContractSpec, belief: BeliefModel): number {
     // (θ−K)±² grows quadratically into a polynomial tail — any finite quadrature
     // window truncates real mass; use the truncated-moment closed form instead.
     return studentTKinkSecondMoment(spec, belief as StudentTBelief);
+  }
+  if (belief.kind === 'student_t' && spec.type === 'GAUSSIAN') {
+    // f² is a bell of width w/√2 — route through the bell-aware window so a far or
+    // narrow bump isn't truncated/under-resolved.
+    return expectGaussianBumpSquared(belief, spec.center as number, spec.width as number);
   }
   return expectF((t) => payoff(spec, t) ** 2, belief);
 }

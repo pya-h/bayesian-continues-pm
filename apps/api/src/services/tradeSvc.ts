@@ -87,7 +87,7 @@ export async function quote(marketId: string, dto: QuoteDTO): Promise<QuoteResul
 
   const fair = price(spec, belief);
   const spread = computeSpread(spec, q, mmShort, belief, cfg);
-  const execPrice = execPriceFor(side, fair, spread.total);
+  const execPrice = execPriceFor(side, fair, spread.total, spec);
   const totalCost = round8(execPrice * q);
 
   const sig = extractSignal(spec, q, belief, cfg);
@@ -249,7 +249,7 @@ export async function executeTrade(
       const filledQ = round8(side === 'buy' ? fillSize : -fillSize);
 
       const spread = computeSpread(spec, filledQ, mmShort, belief, cfg);
-      const execPrice = execPriceFor(side, fair, spread.total);
+      const execPrice = execPriceFor(side, fair, spread.total, spec);
 
       // Slippage bound: buy ⇒ exec ≤ maxPrice; sell ⇒ exec ≥ maxPrice.
       if (dto.maxPrice !== undefined) {
@@ -637,7 +637,7 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
 
         const filledQ = round8(-fillSize);
         const spread = computeSpread(spec, filledQ, mmShort, belief, cfg);
-        const execPrice = execPriceFor('sell', fair, spread.total);
+        const execPrice = execPriceFor('sell', fair, spread.total, spec);
 
         const sig = extractSignal(spec, filledQ, belief, cfg);
         const newBelief = updateBelief(belief, sig.signal, sig.weight, cfg);
@@ -737,7 +737,9 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
         }
         liveBelief = newBelief;
 
-        affected.set(key, { spec, fair: price(spec, newBelief) });
+        // Provisional fair (this contract's post-close belief); re-marked at the
+        // final belief after the loop. Reuses markAfter to avoid a duplicate price.
+        affected.set(key, { spec, fair: markAfter });
         fills.push({
           tradeId,
           contractId: p.contractId,
@@ -753,6 +755,15 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
 
       if (fills.length === 0) {
         throw new HttpError(409, 'Trade rejected: positions could not be closed (solvency gate)');
+      }
+
+      // Re-mark every touched contract at the FINAL belief. During the loop each
+      // contract's fair was snapshotted at the belief right after its own close
+      // but the post-commit price_change broadcast must agree with the single
+      // committed belief_update — otherwise a 3-position sell-all emits fairs from
+      // intermediate beliefs.
+      for (const [key, v] of affected) {
+        affected.set(key, { spec: v.spec, fair: price(v.spec, liveBelief) });
       }
 
       await tx

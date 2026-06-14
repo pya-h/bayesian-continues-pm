@@ -48,6 +48,15 @@ export class ApiError extends Error {
   }
 }
 
+// Registered by AuthContext. Invoked when an *authenticated* request is rejected
+// with 401 (token expired/revoked mid-session) so the app can clear the React auth
+// state and bounce to /login instead of leaving a zombie session. Only a real
+// auth rejection triggers it — network blips and 5xx do not.
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+  onUnauthorized = fn;
+}
+
 interface RequestOptions {
   method?: string;
   body?: unknown;
@@ -58,7 +67,8 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
   const token = getToken();
-  if (opts.auth !== false && token) headers.Authorization = `Bearer ${token}`;
+  const authed = opts.auth !== false && !!token;
+  if (authed) headers.Authorization = `Bearer ${token}`;
 
   let res: Response;
   try {
@@ -82,6 +92,14 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     throw new ApiError(res.status, 'Malformed response from the API');
   }
   if (!res.ok) {
+    // A 401 on a request that DID carry a token means the token is expired/revoked —
+    // drop it and notify so the session resets. A 401 on an unauthenticated
+    // request (e.g. wrong login password) and all network/5xx errors leave the token
+    // alone, so a transient blip never logs a valid session out.
+    if (res.status === 401 && authed) {
+      setToken(null);
+      onUnauthorized?.();
+    }
     const msg = (data && (data.error || data.detail)) || `Request failed (${res.status})`;
     throw new ApiError(res.status, msg);
   }

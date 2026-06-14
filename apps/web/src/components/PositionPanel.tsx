@@ -177,7 +177,9 @@ export function PositionRow({
     },
   });
 
-  const settled = pos.marketStatus === 'SETTLED';
+  // CLOSED markets keep the Claim button: settled payouts stay collectible after
+  // archival.
+  const settled = pos.marketStatus === 'SETTLED' || pos.marketStatus === 'CLOSED';
   const pnlTone = pos.unrealizedPnl >= 0 ? 'text-buy' : 'text-sell';
   // A position is sellable when the market is live and the caller wired up a sell
   // handler. Clicking anywhere on the card (header, basis line, or the payoff

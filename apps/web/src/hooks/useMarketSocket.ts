@@ -40,6 +40,7 @@ export function useMarketSocket(marketId: string, userId?: string) {
     let ws: WebSocket | null = null;
     let closed = false;
     let retry: ReturnType<typeof setTimeout> | null = null;
+    let reconnecting = false; // true once a drop has occurred → next open is a re-open
 
     const patchMarket = (fn: (m: MarketView) => MarketView) => {
       qc.setQueryData<MarketView>(qk.market(marketId), (m) => (m ? fn(m) : m));
@@ -55,11 +56,24 @@ export function useMarketSocket(marketId: string, userId?: string) {
         setConnected(true);
         ws?.send(JSON.stringify({ action: 'subscribe', topic: `market:${marketId}` }));
         if (userId) ws?.send(JSON.stringify({ action: 'subscribe', topic: `user:${userId}` }));
+        // After a reconnect, events that fired during the gap (belief/status/reserve
+        // updates, trades) were missed — the cached market is stale. Refetch the
+        // authoritative state so the page isn't "live" but frozen.
+        if (reconnecting) {
+          reconnecting = false;
+          qc.invalidateQueries({ queryKey: qk.market(marketId) });
+          qc.invalidateQueries({ queryKey: qk.stats(marketId) });
+          qc.invalidateQueries({ queryKey: qk.historyAll(marketId) });
+          qc.invalidateQueries({ queryKey: qk.portfolio });
+        }
       };
 
       ws.onclose = () => {
         setConnected(false);
-        if (!closed) retry = setTimeout(connect, 1500); // auto-reconnect
+        if (!closed) {
+          reconnecting = true; // next successful open must resync the missed gap
+          retry = setTimeout(connect, 1500); // auto-reconnect
+        }
       };
       ws.onerror = () => ws?.close();
 

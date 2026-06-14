@@ -124,6 +124,29 @@ describe.if(hasEnv)('settlement & claims (integration)', () => {
     expect(claim2.balance).toBeCloseTo(balAfterBuy + 600, 4);
   });
 
+  test('claim still works after the market is CLOSED (archival does not strand payouts, C43)', async () => {
+    const id = await createOpenMarket(adminToken, { title: 'Close-then-claim (test)', ...STD });
+
+    const buyRes = await req('POST', `/markets/${id}/trade`, {
+      token: aliceToken,
+      body: { spec: { type: 'CALL', strike: 100 }, q: 20 },
+    });
+    const { fill } = (await buyRes.json()) as { fill: { balance: number } };
+    const balAfterBuy = fill.balance;
+
+    await req('POST', `/admin/markets/${id}/resolve`, { token: adminToken, body: { thetaStar: 130 } });
+    await req('POST', `/admin/markets/${id}/settle`, { token: adminToken });
+    // Admin archives BEFORE alice claims her 600.
+    const closed = await req('POST', `/admin/markets/${id}/close`, { token: adminToken });
+    expect(closed.status).toBe(200);
+
+    const c = await req('POST', `/markets/${id}/claim`, { token: aliceToken });
+    expect(c.status).toBe(200);
+    const claim = ((await c.json()) as { claim: ClaimBody }).claim;
+    expect(claim.credited).toBeCloseTo(600, 6);
+    expect(claim.balance).toBeCloseTo(balAfterBuy + 600, 4);
+  });
+
   test('claim before settle (RESOLVED) → 409', async () => {
     const id = await createOpenMarket(adminToken, { title: 'NotSettled mkt (test)', ...STD });
     await req('POST', `/markets/${id}/trade`, {
