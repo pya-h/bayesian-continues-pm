@@ -9,6 +9,7 @@ import {
   type BeliefModel,
   type EngineConfig,
   GaussianBelief,
+  GenExactBelief,
   MixtureBelief,
   StudentTBelief,
   makeEngineConfig,
@@ -62,9 +63,9 @@ function makeInitialBelief(dto: CreateMarketDTO): BeliefModel {
         dto.belief.bumps.map((b) => ({ pi: b.weight, mu: b.mu, sigma2: b.sigma * b.sigma })),
       );
     case 'gen_exact':
-      // Parsed by the DTO schema but not yet constructable —
-      // fail closed rather than silently fall through to Gaussian. Wired in G2.
-      throw new HttpError(400, `belief kind "${dto.belief.kind}" is not yet available`);
+      // Gen·exact — max-entropy exp(−poly). Reuses initialMu/initialSigma as the
+      // location μ / scale σ (like student_t), authoring only the exponent shape λ.
+      return new GenExactBelief(dto.initialMu, dto.initialSigma, dto.belief.lambdas);
     default:
       return new GaussianBelief(dto.initialMu, variance);
   }

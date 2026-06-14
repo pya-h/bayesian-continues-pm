@@ -4,6 +4,7 @@
 // Posterior variance is floored at σ_min² to prevent overconfidence.
 
 import { GaussianBelief } from './gaussian.ts';
+import { GenExactBelief } from './gen_exact.ts';
 import { MixtureBelief, type MixtureComponent } from './mixture.ts';
 import { DEFAULT_MIXTURE_OPS, type MixtureOpsConfig, manageMixture } from './mixture_ops.ts';
 import { StudentTBelief } from './student_t.ts';
@@ -173,6 +174,48 @@ export function bayesUpdateStudentT(
   return StudentTBelief.fromVariance(nu, muNew, varNew);
 }
 
+// Bayesian update for a Gen·exact (max-entropy exp(−poly)) belief — v1: **fixed
+// shape**. The exponent coefficients λ (the *shape*) are held constant; only the
+// location μ and scale σ move, exactly like the Student-t path: moment-match to a
+// Gaussian of the same variance, do the precision-weighted conjugate step in the
+// **variance domain**, then map the posterior variance back to a σ at fixed shape
+// (variance ∝ σ² for a fixed standardised density, so σ' = σ·√(Var'/Var)).
+// Shape-adapting (re-fitting λ₃,λ₄ to the post-update skew/kurtosis) is the
+// deferred v2 moment-projection step; v1 keeps the authored shape.
+export function bayesUpdateGenExact(
+  belief: GenExactBelief,
+  signal: number,
+  weight: number,
+  cfg: EngineConfig,
+): GenExactBelief {
+  const sigmaMin2 = cfg.sigmaMin * cfg.sigmaMin;
+  const priorVar = belief.variance();
+  const lambdas = belief.lambdas;
+
+  // Rescale σ so the belief variance becomes `targetVar`, keeping the shape fixed.
+  const withVariance = (mu: number, targetVar: number): GenExactBelief => {
+    const sigmaNew = belief.sigma * Math.sqrt(Math.max(targetVar, sigmaMin2) / priorVar);
+    return new GenExactBelief(mu, sigmaNew, lambdas);
+  };
+
+  if (weight <= 0) {
+    // No information → unchanged shape/location, but respect the variance floor.
+    return withVariance(belief.mu, Math.max(priorVar, sigmaMin2));
+  }
+
+  if (cfg.useSimplifiedUpdate) {
+    const muNew = belief.mu + cfg.lr * (signal - belief.mu) * weight;
+    return withVariance(muNew, priorVar * (1 - cfg.decay * weight));
+  }
+
+  // Precision-weighted update in the variance domain.
+  const precisionPrior = 1 / priorVar;
+  const precisionSignal = weight / (cfg.sigmaEps * cfg.sigmaEps);
+  const total = precisionPrior + precisionSignal;
+  const muNew = (precisionPrior * belief.mu + precisionSignal * signal) / total;
+  return withVariance(muNew, 1 / total);
+}
+
 // Kind-agnostic belief update — dispatches by belief kind. The API trade engine
 // calls this so the update is the same regardless of belief kind.
 export function updateBelief(
@@ -190,6 +233,9 @@ export function updateBelief(
   }
   if (belief.kind === 'student_t') {
     return bayesUpdateStudentT(belief as StudentTBelief, signal, weight, cfg);
+  }
+  if (belief.kind === 'gen_exact') {
+    return bayesUpdateGenExact(belief as GenExactBelief, signal, weight, cfg);
   }
   throw new Error(`updateBelief: unsupported belief kind ${belief.kind}`);
 }

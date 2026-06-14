@@ -27,7 +27,7 @@ export interface BeliefComponent {
 }
 
 export interface Belief {
-  kind: 'gaussian' | 'mixture' | 'student_t';
+  kind: 'gaussian' | 'mixture' | 'student_t' | 'gen_exact';
   mu: number;
   sigma: number;
   sigma2: number;
@@ -35,6 +35,11 @@ export interface Belief {
   components?: BeliefComponent[];
   // Present for Student-t markets: degrees of freedom ν, so the chart can draw fat tails.
   nu?: number;
+  // Present for Gen·exact markets: the exponent shape [λ₂, λ₃, λ₄].
+  lambdas?: [number, number, number];
+  // Gen·exact location μ / scale σ (≠ the summary mean/σ for skewed shapes).
+  loc?: number;
+  scale?: number;
 }
 
 // Creator-chosen model tag (multi-model refactor). Distinct from `Belief.kind`
@@ -318,7 +323,8 @@ export type CreateBeliefInput =
   | { kind: 'gaussian' }
   | { kind: 'mixture'; components: { pi: number; mu: number; sigma: number }[] }
   | { kind: 'student_t'; nu: number }
-  | { kind: 'gen_basis'; bumps: { mu: number; sigma: number; weight: number }[] };
+  | { kind: 'gen_basis'; bumps: { mu: number; sigma: number; weight: number }[] }
+  | { kind: 'gen_exact'; lambdas: [number, number, number] };
 
 export interface CreateMarketInput {
   title: string;

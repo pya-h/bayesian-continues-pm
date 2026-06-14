@@ -7,7 +7,13 @@
 // is σ²·(ν−2)/ν via `fromVariance`). Unknown/degenerate inputs fall back to the
 // Gaussian summary — these are presentation helpers, never the settlement path.
 
-import { type BeliefModel, GaussianBelief, MixtureBelief, StudentTBelief } from '@bmm/core';
+import {
+  type BeliefModel,
+  GaussianBelief,
+  GenExactBelief,
+  MixtureBelief,
+  StudentTBelief,
+} from '@bmm/core';
 import type { Belief } from './types.ts';
 
 export function beliefFromView(belief: Belief): BeliefModel {
@@ -18,6 +24,11 @@ export function beliefFromView(belief: Belief): BeliefModel {
   }
   if (belief.kind === 'student_t' && belief.nu && belief.nu > 2) {
     return StudentTBelief.fromVariance(belief.nu, belief.mu, belief.sigma * belief.sigma);
+  }
+  // Gen·exact: reconstruct from its raw location/scale + exponent shape (loc/scale
+  // not the summary mean/σ, are the actual params).
+  if (belief.kind === 'gen_exact' && belief.lambdas && belief.loc != null && belief.scale != null) {
+    return new GenExactBelief(belief.loc, belief.scale, belief.lambdas);
   }
   const sd = belief.sigma > 0 ? belief.sigma : 1e-6;
   return new GaussianBelief(belief.mu, sd * sd);

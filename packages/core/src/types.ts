@@ -3,7 +3,7 @@
 
 import type { Rng } from './numerics.ts';
 
-export type BeliefKind = 'gaussian' | 'mixture' | 'student_t';
+export type BeliefKind = 'gaussian' | 'mixture' | 'student_t' | 'gen_exact';
 
 export interface GaussianStateDTO {
   kind: 'gaussian';
@@ -32,7 +32,21 @@ export interface StudentTStateDTO {
   scale2: number;
 }
 
-export type BeliefStateDTO = GaussianStateDTO | MixtureStateDTO | StudentTStateDTO;
+// Serializable snapshot of a max-entropy exp(−poly) belief (Gen·exact). The
+// exponent shape is carried by [λ₂, λ₃, λ₄]; the confining λ₆ stabiliser is
+// derived from (λ₃, λ₄) on reconstruction, so it is not persisted.
+export interface GenExactStateDTO {
+  kind: 'gen_exact';
+  mu: number;
+  sigma: number;
+  lambdas: [number, number, number];
+}
+
+export type BeliefStateDTO =
+  | GaussianStateDTO
+  | MixtureStateDTO
+  | StudentTStateDTO
+  | GenExactStateDTO;
 
 // The abstraction every pricing/solvency/stats consumer depends on. v1 ships
 // GaussianBelief; v2 adds MixtureBelief / StudentTBelief behind this same shape.

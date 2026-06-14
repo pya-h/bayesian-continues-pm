@@ -7,6 +7,8 @@ import {
   clampViewMul,
   fitPointDomain,
   gaussianPdf,
+  genExactPdf,
+  genExactPdfCurve,
   mixturePdf,
   mixturePdfCurve,
   niceDomain,
@@ -46,6 +48,42 @@ describe('gaussianPdf', () => {
     const dx = (hi - lo) / n;
     for (let i = 0; i < n; i++) area += gaussianPdf(lo + (i + 0.5) * dx, mu, sigma) * dx;
     expect(close(area, 1, 1e-4)).toBe(true);
+  });
+});
+
+describe('genExactPdf (Gen·exact exp(−poly) chart kernel)', () => {
+  test('λ₂=1,λ₃=λ₄=0 peaks at the location and is ~symmetric', () => {
+    // raw kernel: exp(−(½u²+λ₆u⁶)), peak (=1) at u=0
+    expect(close(genExactPdf(70, 70, 10, [1, 0, 0]), 1)).toBe(true);
+    expect(close(genExactPdf(80, 70, 10, [1, 0, 0]), genExactPdf(60, 70, 10, [1, 0, 0]))).toBe(
+      true,
+    );
+    // decays away from the centre
+    expect(genExactPdf(90, 70, 10, [1, 0, 0])).toBeLessThan(genExactPdf(75, 70, 10, [1, 0, 0]));
+  });
+
+  test('zero outside the standardised support |u|>7', () => {
+    expect(genExactPdf(70 + 7.1 * 10, 70, 10, [1, 0, 0])).toBe(0);
+    expect(genExactPdf(70 - 8 * 10, 70, 10, [1, 0, 0])).toBe(0);
+  });
+
+  test('λ₂<0 is bimodal — the centre is a valley below the side peaks', () => {
+    const lam: [number, number, number] = [-1, 0, 0];
+    const atCentre = genExactPdf(50, 50, 8, lam);
+    const atSide = genExactPdf(50 + 2.5 * 8, 50, 8, lam);
+    expect(atSide).toBeGreaterThan(atCentre);
+  });
+
+  test('λ₃≠0 breaks symmetry', () => {
+    const lam: [number, number, number] = [1, 0.3, 0];
+    expect(genExactPdf(80, 70, 10, lam)).not.toBeCloseTo(genExactPdf(60, 70, 10, lam), 6);
+  });
+
+  test('genExactPdfCurve spans the domain with n+1 points', () => {
+    const pts = genExactPdfCurve(50, 10, [1, 0, 0], [20, 80], 60);
+    expect(pts.length).toBe(61);
+    expect(pts[0]?.x).toBe(20);
+    expect(pts[pts.length - 1]?.x).toBe(80);
   });
 });
 

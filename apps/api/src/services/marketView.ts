@@ -2,7 +2,13 @@
 // pool NAV = cash − E_p[L(θ)], and LP share price. NAV uses the live belief and
 // the MM's short book.
 
-import { type BookEntry, MixtureBelief, StudentTBelief, expectedLiability } from '@bmm/core';
+import {
+  type BookEntry,
+  GenExactBelief,
+  MixtureBelief,
+  StudentTBelief,
+  expectedLiability,
+} from '@bmm/core';
 import { type ModelTag, round8 } from '@bmm/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.ts';
@@ -23,7 +29,7 @@ export interface MarketView {
   creatorId: string;
   model: ModelTag;
   belief: {
-    kind: 'gaussian' | 'mixture' | 'student_t';
+    kind: 'gaussian' | 'mixture' | 'student_t' | 'gen_exact';
     mu: number;
     sigma: number;
     sigma2: number;
@@ -31,6 +37,11 @@ export interface MarketView {
     components?: { pi: number; mu: number; sigma: number }[];
     // Present for Student-t markets: degrees of freedom ν, so the chart can draw fat tails.
     nu?: number;
+    // Present for Gen·exact markets: the exponent shape [λ₂, λ₃, λ₄].
+    lambdas?: [number, number, number];
+    // Gen·exact location μ / scale σ params (≠ the summary mean/σ for skewed shapes).
+    loc?: number;
+    scale?: number;
   };
   cfg: Record<string, number | boolean>;
   cash: number;
@@ -64,6 +75,17 @@ export async function buildMarketView(m: MarketRow): Promise<MarketView> {
         }))
       : undefined;
 
+  // Gen·exact carries its exponent shape + raw location/scale (distinct from the
+  // summary mean/σ) so the chart can draw the true exp(−poly) curve.
+  const genExact =
+    belief instanceof GenExactBelief
+      ? {
+          lambdas: [...belief.lambdas] as [number, number, number],
+          loc: round8(belief.mu),
+          scale: round8(belief.sigma),
+        }
+      : undefined;
+
   return {
     marketId: m.marketId,
     title: m.title,
@@ -81,6 +103,9 @@ export async function buildMarketView(m: MarketRow): Promise<MarketView> {
       sigma2: round8(belief.variance()),
       components,
       nu: belief instanceof StudentTBelief ? belief.nu : undefined,
+      lambdas: genExact?.lambdas,
+      loc: genExact?.loc,
+      scale: genExact?.scale,
     },
     cfg: m.cfg,
     cash: m.cash,

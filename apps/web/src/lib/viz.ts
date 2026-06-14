@@ -81,6 +81,49 @@ export function studentTPdfCurve(
   return out;
 }
 
+// The confining u⁶ stabiliser.
+function genExactLambda6(lam3: number, lam4: number): number {
+  return 0.004 + 0.06 * Math.max(0, -lam4) + 0.03 * Math.abs(lam3);
+}
+
+// Gen·exact (max-entropy exp(−poly)) belief density at x, **peak-normalised** for
+// the chart's relative-likelihood axis. `loc`/`scale` are the belief's location μ /
+// scale σ (not the summary mean/σ); `lambdas` is [λ₂,λ₃,λ₄]. Returns the raw kernel
+// `exp(−E(u))`, `u=(x−loc)/scale`, `E(u)=½λ₂u²+λ₃u³+λ₄u⁴+λ₆u⁶`, zero outside the
+// standardised support |u|>7 — the chart peak-normalises by the curve's own max (as
+// it does for the Student-t kernel), so the absolute scale of the kernel is moot.
+export function genExactPdf(
+  x: number,
+  loc: number,
+  scale: number,
+  lambdas: readonly [number, number, number],
+): number {
+  const u = (x - loc) / scale;
+  if (Math.abs(u) > 7) return 0;
+  const [l2, l3, l4] = lambdas;
+  const l6 = genExactLambda6(l3, l4);
+  const u2 = u * u;
+  const e = 0.5 * l2 * u2 + l3 * u2 * u + l4 * u2 * u2 + l6 * u2 * u2 * u2;
+  return Math.exp(-e);
+}
+
+// Evenly-sampled Gen·exact belief-PDF polyline over the domain (raw kernel).
+export function genExactPdfCurve(
+  loc: number,
+  scale: number,
+  lambdas: readonly [number, number, number],
+  domain: Domain,
+  n = 160,
+): Pt[] {
+  const [lo, hi] = domain;
+  const out: Pt[] = [];
+  for (let i = 0; i <= n; i++) {
+    const x = lo + ((hi - lo) * i) / n;
+    out.push({ x, y: genExactPdf(x, loc, scale, lambdas) });
+  }
+  return out;
+}
+
 export interface PdfComponent {
   pi: number;
   mu: number;

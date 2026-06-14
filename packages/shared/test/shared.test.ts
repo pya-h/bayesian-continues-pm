@@ -144,4 +144,15 @@ describe('gen_basis / gen_exact schemas (G0 scaffolding)', () => {
     const state = { kind: 'gen_exact', mu: 2, sigma: 1.5, lambdas: [1, 0.2, 0.1] };
     expect(beliefStateSchema.parse(state)).toEqual(state as never);
   });
+
+  test('createBelief gen_exact enforces the sandbox-safe λ ranges (G2.4)', () => {
+    const ok = (l: number[]) =>
+      createBeliefSchema.safeParse({ kind: 'gen_exact', lambdas: l }).success;
+    expect(ok([1, 0, 0])).toBe(true);
+    expect(ok([-4, -0.35, 1.6])).toBe(true); // boundary values allowed
+    expect(ok([5, 0, 0])).toBe(false); // λ₂ > 4
+    expect(ok([0, 0.5, 0])).toBe(false); // |λ₃| > 0.35
+    expect(ok([1, 0, 2])).toBe(false); // λ₄ > 1.6
+    expect(ok([1, 0, -0.1])).toBe(false); // λ₄ < 0
+  });
 });

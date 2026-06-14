@@ -11,6 +11,7 @@ import {
   type BeliefModel,
   DEFAULT_MIXTURE_OPS,
   GaussianBelief,
+  GenExactBelief,
   MixtureBelief,
   type MixtureOpsConfig,
   StudentTBelief,
@@ -60,6 +61,8 @@ export function loadBelief(row: BeliefRow): BeliefModel {
       return MixtureBelief.fromDTO(s);
     case 'student_t':
       return StudentTBelief.fromDTO(s);
+    case 'gen_exact':
+      return GenExactBelief.fromDTO(s);
     default:
       throw new Error(`loadBelief: unknown belief kind ${(s as { kind: string }).kind}`);
   }

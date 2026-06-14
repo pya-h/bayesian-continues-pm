@@ -90,16 +90,16 @@ describe.if(hasEnv)('market lifecycle (integration)', () => {
     expect(rows[0]?.model).toBe('gaussian');
   });
 
-  test('gen_exact create still fails closed (wired in G2) → 400', async () => {
+  test('gen_exact create rejects out-of-range λ → 400 (happy path in genExactMarket.test)', async () => {
     const res = await req('POST', '/admin/markets', {
       token: adminToken,
       body: {
-        title: 'unsupported model (test)',
+        title: 'bad λ (test)',
         outcomeUnit: 'USD',
         initialMu: 1,
         initialSigma: 1,
         initialReserve: 1,
-        belief: { kind: 'gen_exact', lambdas: [1, 0, 0] },
+        belief: { kind: 'gen_exact', lambdas: [99, 0, 0] }, // λ₂ out of [−4,4]
       },
     });
     expect(res.status).toBe(400);

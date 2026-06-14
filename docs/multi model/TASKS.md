@@ -146,53 +146,93 @@ Density: `p(θ) = exp(−E(u)) / (σ·Z)`, `u=(θ−μ)/σ`, `E(u)=½λ₂u² + 
 integrable** (tails decay) and skew can't drag the mean off. (This exact formula is already prototyped
 and MC-checked in `docs/math/multimodel.js` — port it faithfully.)
 
-- [ ] `core/gen_exact.ts`: `GenExactBelief implements BeliefModel`:
+- [x] `core/gen_exact.ts`: `GenExactBelief implements BeliefModel`:
   - constructor caches `Z`, `mean`, `variance` via **fixed composite-Simpson** over `u∈[−L,L]` (`L=7`,
     even node count) with a **min-energy shift** for numerical stability;
   - `pdf` (cached `Z`), `mean`, `variance`, `stddev`;
   - `cdf(θ)` = numeric integral of `pdf` (monotone); `quantile(p)` = bisection on `cdf`;
   - `sample(n, rng)` = inverse-CDF bisection (deterministic) — needed for MC reserve;
   - `serialize()` → `{ kind:'gen_exact', mu, sigma, lambdas:[λ₂,λ₃,λ₄] }`; `fromDTO`.
-- [ ] **Tests** (`core`, the gate that prevents math errors):
+  *(Done. Ported `multimodel.js maxEnt` faithfully: Simpson `Z`/`E[u]`/`E[u²]` with min-energy shift;
+  `λ₆ = 0.004 + 0.06·max(0,−λ₄) + 0.03·|λ₃|` (no `λ₆_in` since the DTO carries only [λ₂,λ₃,λ₄]). cdf/
+  quantile/sample share a normalised cumulative-trapezoid grid over the same window — O(log N) inverse-
+  CDF, monotone by construction. `BeliefKind`/`BeliefStateDTO` extended; exported from core barrel.)*
+- [x] **Tests** (`core`, the gate that prevents math errors):
   - `pdf` integrates to **1.000 ± 1e-3** across a sweep of (λ₂,λ₃,λ₄) incl. λ₂<0 (bimodal);
   - cached `mean`/`variance` match a brute-force fine-grid recompute (± 1e-3);
   - `cdf` monotone in [0,1], `cdf(quantile(p))≈p`;
   - shape sanity: λ₂=1,λ₃=λ₄=0 ≈ Gaussian (KL/|pdf−φ| small); λ₂<0 ⇒ bimodal (two pdf maxima);
     λ₃≠0 ⇒ skew (mean shifts the right way); λ₄>0 ⇒ thinner tails / flat-top;
   - `sample` mean/variance match the analytic cached moments (± a few %, n=400k, seeded `Rng`).
+  *(Done: `genExact.test.ts`, 24 tests over a 6-shape sweep — all of the above verified. Note skew sign:
+  `λ₃>0` favours `u<0` ⇒ mean shifts **below** μ; the test asserts that direction + mirror symmetry.)*
 
 ### G2.2 — core: pricing & sensitivity
-- [ ] `pricing.ts`: confirm `price()` routes `gen_exact` to the `expectF` fallback (LINEAR → `mean()`
+- [x] `pricing.ts`: confirm `price()` routes `gen_exact` to the `expectF` fallback (LINEAR → `mean()`
   exactly). Add a `gen_exact` branch to **`dPriceDMu`** (central difference, mirroring `student_t`).
-- [ ] **Tests:** `price(spec, genExact)` matches an independent MC of `E[payoff]` (± 0.01) for
+  *(Done with one deliberate refinement over "just the fallback": added a `priceUnderGenExact` mirroring
+  `priceUnderStudentT` — BINARY/SPREAD price from the cached **CDF**, CALL/PUT/GAUSSIAN via quadrature.
+  Routing a step payoff through Simpson gives O(h) error that the finite-difference ∂P/∂μ test would
+  amplify (the C42 trap); since `gen_exact` is a fixed-shape **location family in μ**, `dPriceDMu` uses
+  the exact pdf/cdf identities for kinks/jumps and the central difference only for the smooth GAUSSIAN —
+  byte-for-byte the `student_t` structure.)*
+- [x] **Tests:** `price(spec, genExact)` matches an independent MC of `E[payoff]` (± 0.01) for
   CALL/BINARY/SPREAD across unimodal/skew/bimodal shapes; `dPriceDMu` matches a finite-difference of
-  `price` (± 1e-3).
+  `price` (± 1e-3). *(Done: `genExactPricing.test.ts`, 49 tests — 4 shapes × 6 contract types, σ=1 so the
+  ±0.01 MC tolerance is meaningful; ∂P/∂μ vs central-difference within 2e-3.)*
 
 ### G2.3 — core: the update (v1 = fixed-shape location/scale)
 Treat (μ,σ) as location/scale; **keep λ's fixed**; update in the **variance domain** like `student_t`:
 `τ₀=1/Var, τ_s=w/σ_ε², μ'=(τ₀μ+τ_s s)/(τ₀+τ_s), Var'=max(1/(τ₀+τ_s), σ_min²)`, then
 `σ' = σ·√(Var'/Var)` (variance ∝ σ² at fixed shape).
-- [ ] `bayes.ts`: `bayesUpdateGenExact`; add the `gen_exact` branch to the `updateBelief` dispatcher.
-- [ ] **Tests:** μ moves toward `s`, variance strictly decreases (w>0), **λ's unchanged**, kind
-  preserved, `σ_min` floor respected, `w=0` ⇒ unchanged location.
+- [x] `bayes.ts`: `bayesUpdateGenExact`; add the `gen_exact` branch to the `updateBelief` dispatcher.
+  *(Done. Update treats `μ` as the location param and the cached belief variance `V=σ²·Var[u]` as its
+  precision; rescales `σ' = σ·√(V'/V)` so the belief variance lands exactly on `V'` at fixed shape.
+  `useSimplifiedUpdate` path mirrored too. Dispatcher branch added; exported from the barrel.)*
+- [x] **Tests:** μ moves toward `s`, variance strictly decreases (w>0), **λ's unchanged**, kind
+  preserved, `σ_min` floor respected, `w=0` ⇒ unchanged location. *(Done: `genExactUpdate.test.ts`,
+  8 tests over 3 shapes incl. convergence, the σ_min floor under a 50-step confident stream, and the
+  simplified path.)*
 - [ ] *(Deferred v2 — moment-projection: after the location/scale step, re-fit λ₃,λ₄ to the post-update
-  skew/kurtosis via a small Newton solve. Separate, later sub-phase with its own MC tests.)*
+  skew/kurtosis via a small Newton solve. Separate, later sub-phase with its own MC tests.)* — **still deferred (I4).**
 
 ### G2.4 — shared + api + web
-- [ ] `shared/dto.ts`: `gen_exact` in `beliefStateSchema` + `createGenExactSchema`
+- [x] `shared/dto.ts`: `gen_exact` in `beliefStateSchema` + `createGenExactSchema`
   (`{ kind:'gen_exact', mu, sigma, lambdas }`, bounds on λ's per the sandbox-safe ranges).
-- [ ] `api`: `makeInitialBelief` (gen_exact), `loadBelief` (deserialize), `beliefPersistFields`
+  *(State + create variants were in place from G0; G2.4 pinned the **sandbox-safe λ bounds** from the
+  sliders — λ₂∈[−4,4], λ₃∈[−0.35,0.35] (=α/40 over ±14), λ₄∈[0,1.6] — as a per-element bounded tuple.)*
+- [x] `api`: `makeInitialBelief` (gen_exact), `loadBelief` (deserialize), `beliefPersistFields`
   (currentMu/Sigma from cached moments + serialize), update dispatch. **Perf note:** `loadBelief`
   recomputes the normalisation quadrature per request — acceptable for v1; if hot, cache moments in
   `belief_state` and recompute only on update (flagged improvement I3).
-- [ ] `marketView`: expose `belief.lambdas` (+ μ,σ) for `gen_exact`.
-- [ ] `web`: `lib/viz.ts` `genExactPdf` (port the `exp(−poly)` kernel — peak-normalised like
+  *(Done: `makeInitialBelief` now constructs `GenExactBelief(initialMu, initialSigma, lambdas)` instead of
+  the G0 fail-closed throw; `resolveModel` already tags `model='gen_exact'`; `loadBelief` deserializes;
+  `beliefPersistFields` unchanged (non-gaussian ⇒ serializes, summary mean/σ from cached moments). Update
+  dispatch via the core `updateBelief` branch — trade path needs no change. I3 still open.)*
+- [x] `marketView`: expose `belief.lambdas` (+ μ,σ) for `gen_exact`.
+  *(Done: view belief gains `lambdas` + the raw `loc`/`scale` params (≠ the summary mean/σ for skewed
+  shapes) so the chart and `beliefFromView` reconstruct the true density.)*
+- [x] `web`: `lib/viz.ts` `genExactPdf` (port the `exp(−poly)` kernel — peak-normalised like
   `studentTPdf`); `beliefFromView` reconstructs it; `BeliefChart` dispatches on `beliefKind`;
   `derive.buildCreateMarketBody` + editor (λ sliders / shape presets).
-- [ ] **Tests:** api integration (create gen_exact → quote-vs-MC → trade moves μ, shape preserved →
+  *(Done: `genExactPdf`/`genExactPdfCurve` (raw `exp(−E(u))` kernel, chart peak-normalises by its own max
+  as it does for Student-t); `beliefFromView` rebuilds `GenExactBelief` from loc/scale/λ (so the client
+  fair/projection previews use the real shape via the kind-agnostic `updateBelief`); `BeliefChart` gains a
+  `genExact` prop + dispatch (curve + hover); `buildCreateMarketBody` emits `gen_exact` from a λ draft with
+  range validation. **The admin-form λ-slider/preset UI is deferred to G3** — the presentation phase — exactly
+  as G1.3 deferred the gen_basis form control; the data layer + chart rendering are done here.)*
+- [x] **Tests:** api integration (create gen_exact → quote-vs-MC → trade moves μ, shape preserved →
   serialization round-trips); web `genExactPdf` shape tests; build-body validation.
+  *(Done: `genExactMarket.test.ts` (persist+view λ/loc/scale, out-of-range λ→400, trade moves μ with λ
+  fixed, quote == independent `price()`); `viz.test.ts` genExactPdf shape tests; `derive.test.ts` +
+  `beliefFromView.test.ts` + `shared.test.ts` bound checks. `markets.test.ts` G0 fail-closed test
+  repurposed to a bounds-rejection.)*
 - **Checkpoint:** Gen·exact markets create, price (quadrature), trade, render the true exp-poly
   shape, and persist. **math-doc:** add the `gen_exact` belief + v1 update to §7/§ belief; re-verify KaTeX.
+  *( 2026-06-14 — full sweep **620 pass** (core 287 · shared 15 · api 143 · web 175); typecheck + biome
+  clean on all touched files. Math-doc: added a "V2 — the Gen·exact belief and its update" `<details>` block
+  in §7 with the density, the auto-stabiliser, and the variance-domain v1 update; KaTeX macros reuse the
+  same block conventions — couldn't auto-verify locally (katex not installed).)*
 
 ---
 

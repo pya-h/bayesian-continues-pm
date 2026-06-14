@@ -39,6 +39,34 @@ describe('beliefFromView', () => {
     expect((b as unknown as { nu: number }).nu).toBe(5);
   });
 
+  test('gen_exact → GenExactBelief reconstructed from loc/scale + λ (not the summary)', () => {
+    const view: Belief = {
+      kind: 'gen_exact',
+      mu: 71.5, // summary mean (skew-shifted) — NOT what reconstructs the belief
+      sigma: 10.4,
+      sigma2: 108,
+      lambdas: [1, 0.3, 0.1],
+      loc: 70,
+      scale: 10,
+    };
+    const b = beliefFromView(view);
+    expect(b.kind).toBe('gen_exact');
+    expect((b as unknown as { mu: number }).mu).toBe(70); // raw location, not the summary mean
+    expect((b as unknown as { sigma: number }).sigma).toBe(10);
+    expect((b as unknown as { lambdas: number[] }).lambdas).toEqual([1, 0.3, 0.1]);
+  });
+
+  test('gen_exact without loc/scale falls back to the Gaussian summary', () => {
+    const b = beliefFromView({
+      kind: 'gen_exact',
+      mu: 5,
+      sigma: 2,
+      sigma2: 4,
+      lambdas: [1, 0, 0],
+    } as Belief);
+    expect(b.kind).toBe('gaussian');
+  });
+
   test('degenerate inputs fall back to the Gaussian summary', () => {
     // mixture with no components
     const noComp = beliefFromView({ kind: 'mixture', mu: 5, sigma: 2, sigma2: 4 } as Belief);

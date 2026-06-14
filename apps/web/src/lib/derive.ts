@@ -125,12 +125,21 @@ export interface CreateMarketDraft {
   initialMu: number;
   initialSigma: number;
   initialReserve: number;
-  beliefKind?: 'gaussian' | 'mixture' | 'student_t' | 'gen_basis';
+  beliefKind?: 'gaussian' | 'mixture' | 'student_t' | 'gen_basis' | 'gen_exact';
   components?: MixtureModeDraft[];
   // Degrees of freedom ν (only used when beliefKind === 'student_t'; >2).
   nu?: number | '';
+  // Gen·exact exponent shape [λ₂, λ₃, λ₄] (only when beliefKind === 'gen_exact').
+  lambdas?: [number | '', number | '', number | ''];
   cfg: Record<string, number | boolean | '' | null | undefined>;
 }
+
+// Sandbox-safe bounds on the Gen·exact exponent coefficients.
+const GEN_EXACT_LAMBDA_BOUNDS: [[number, number], [number, number], [number, number]] = [
+  [-4, 4],
+  [-0.35, 0.35],
+  [0, 1.6],
+];
 
 // Assemble the `POST /admin/markets` body from a form draft, dropping blank
 // optionals (description, bounds, empty cfg). Throws a human message on the few
@@ -194,6 +203,23 @@ export function buildCreateMarketBody(draft: CreateMarketDraft): CreateMarketInp
     const nu = Number(draft.nu);
     if (!(nu > 2)) throw new Error('Student-t ν (degrees of freedom) must be greater than 2.');
     body.belief = { kind: 'student_t', nu };
+  } else if (draft.beliefKind === 'gen_exact') {
+    // Gen·exact reuses initialMu/initialSigma as μ/σ; only the exponent shape λ is
+    // authored. Validate each coefficient against the sandbox-safe range.
+    const raw = draft.lambdas ?? ['', '', ''];
+    const names = ['λ₂ (well depth)', 'λ₃ (skew)', 'λ₄ (flat-top)'];
+    const lambdas = raw.map((v, i) => {
+      // Guard '' explicitly — Number('') is 0, which would silently pass as in-range.
+      if (v === '' || v == null) throw new Error(`Gen·exact ${names[i]} must be a number.`);
+      const n = Number(v);
+      const [lo, hi] = GEN_EXACT_LAMBDA_BOUNDS[i] as [number, number];
+      if (!Number.isFinite(n)) throw new Error(`Gen·exact ${names[i]} must be a number.`);
+      if (n < lo || n > hi) {
+        throw new Error(`Gen·exact ${names[i]} must be between ${lo} and ${hi}.`);
+      }
+      return n;
+    }) as [number, number, number];
+    body.belief = { kind: 'gen_exact', lambdas };
   }
 
   const cfg = cleanCfg(draft.cfg);

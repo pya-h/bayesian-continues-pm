@@ -4,6 +4,7 @@
 // general E_p[g(θ)] used by stats / future custom payoffs.
 
 import { payoff } from './contracts.ts';
+import { GenExactBelief } from './gen_exact.ts';
 import type { MixtureBelief } from './mixture.ts';
 import { Phi, phi } from './numerics.ts';
 import { StudentTBelief } from './student_t.ts';
@@ -115,6 +116,30 @@ function priceUnderStudentT(spec: ContractSpec, t: StudentTBelief): number {
   }
 }
 
+// Fair price under a Gen·exact (max-entropy exp(−poly)) belief. No closed form for
+// the exp-poly density, so the smooth payoffs (CALL/PUT/GAUSSIAN) integrate via the
+// bell-aware / general quadrature. The jump/step payoffs (BINARY/SPREAD) are priced
+// from the belief's own CDF instead of quadrature — routing a discontinuity through
+// Simpson gives O(h) error that the central-difference ∂P/∂μ would then amplify
+// .
+function priceUnderGenExact(spec: ContractSpec, b: GenExactBelief): number {
+  switch (spec.type) {
+    case 'LINEAR':
+      return b.mean();
+    case 'BINARY_CALL':
+      return 1 - b.cdf(spec.strike as number);
+    case 'BINARY_PUT':
+      return b.cdf(spec.strike as number);
+    case 'SPREAD':
+      return b.cdf(spec.upper as number) - b.cdf(spec.lower as number);
+    case 'GAUSSIAN':
+      return expectGaussianBump(b, spec.center as number, spec.width as number);
+    default:
+      // CALL / PUT — continuous payoffs, integrate the payoff (O(h²)).
+      return expectF((t) => payoff(spec, t), b);
+  }
+}
+
 // ∂Price/∂μ under a SINGLE Gaussian N(μ, σ²).
 function dPriceDMuUnderGaussian(spec: ContractSpec, mu: number, sigma2: number): number {
   const sigma = Math.sqrt(sigma2);
@@ -163,6 +188,9 @@ export function price(spec: ContractSpec, belief: BeliefModel): number {
   if (belief.kind === 'student_t') {
     return priceUnderStudentT(spec, belief as StudentTBelief);
   }
+  if (belief.kind === 'gen_exact') {
+    return priceUnderGenExact(spec, belief as GenExactBelief);
+  }
   // LINEAR is E[θ] = mean exactly for any belief — avoids tail-truncation bias the
   // finite quadrature window would introduce on a fat-tailed belief.
   if (spec.type === 'LINEAR') return belief.mean();
@@ -207,6 +235,33 @@ export function dPriceDMu(spec: ContractSpec, belief: BeliefModel): number {
         const h = Math.max(1e-3, t.stddev() * 1e-3);
         const up = price(spec, new StudentTBelief(t.nu, t.mu + h, t.scale2));
         const dn = price(spec, new StudentTBelief(t.nu, t.mu - h, t.scale2));
+        return (up - dn) / (2 * h);
+      }
+    }
+  }
+  if (belief.kind === 'gen_exact') {
+    // Fixed-shape Gen·exact is a pure location family in μ, so the same exact
+    // pdf/cdf identities as Student-t hold for every kinked/jump payoff; only the
+    // smooth GAUSSIAN payoff needs the central difference.
+    const b = belief as GenExactBelief;
+    switch (spec.type) {
+      case 'LINEAR':
+        return 1;
+      case 'CALL':
+        return 1 - b.cdf(spec.strike as number);
+      case 'PUT':
+        return -b.cdf(spec.strike as number);
+      case 'BINARY_CALL':
+        return b.pdf(spec.strike as number);
+      case 'BINARY_PUT':
+        return -b.pdf(spec.strike as number);
+      case 'SPREAD':
+        return b.pdf(spec.lower as number) - b.pdf(spec.upper as number);
+      default: {
+        // Smooth payoff (GAUSSIAN): central-difference the (quadrature) price.
+        const h = Math.max(1e-3, b.stddev() * 1e-3);
+        const up = price(spec, new GenExactBelief(b.mu + h, b.sigma, b.lambdas));
+        const dn = price(spec, new GenExactBelief(b.mu - h, b.sigma, b.lambdas));
         return (up - dn) / (2 * h);
       }
     }

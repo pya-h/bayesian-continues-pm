@@ -190,6 +190,11 @@ export function MarketPage() {
                 components={m.belief.components}
                 beliefKind={m.belief.kind}
                 nu={m.belief.nu}
+                genExact={
+                  m.belief.lambdas && m.belief.loc != null && m.belief.scale != null
+                    ? { loc: m.belief.loc, scale: m.belief.scale, lambdas: m.belief.lambdas }
+                    : undefined
+                }
                 spec={spec}
                 onSpecChange={setSpec}
                 outcomeUnit={m.outcomeUnit}

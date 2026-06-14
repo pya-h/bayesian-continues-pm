@@ -997,6 +997,42 @@
         centre and width move. The <code>useSimplifiedUpdate</code> variant applies the same
         \(\mu'=\mu+\text{lr}\,(s-\mu)\,w\) and \(V'=V\,(1-\text{decay}\cdot w)\) in the variance domain.</p>
       </details>
+
+      <details class="dev">
+        <summary><strong>V2 — the Gen·exact belief and its update</strong></summary>
+        <p><strong>Gen·exact ★</strong> is the max-entropy <em>exp(−poly)</em> belief: with \(u=(\theta-\mu)/\sigma\),</p>
+        <div class="eqbox named">
+          <span>$$ p(\theta)=\frac{1}{\sigma\,Z}\,e^{-E(u)},\qquad
+          E(u)=\tfrac12\lambda_2 u^2+\lambda_3 u^3+\lambda_4 u^4+\lambda_6 u^6 $$</span>
+          <span class="eqlabel">gen_exact.ts</span>
+        </div>
+        <p>Each coefficient is one shape knob — \(\lambda_2\) Gaussian, \(+\lambda_3\) skew,
+        \(+\lambda_4&gt;0\) flat-top / thinner tails, \(\lambda_2&lt;0\) a double-well (bimodal).
+        The confining sixth-order term is auto-set,
+        \(\lambda_6=0.004+0.06\max(0,-\lambda_4)+0.03|\lambda_3|\), so the density is <em>always</em>
+        integrable and skew can never drag the mean to the tail — any in-range \((\lambda_2,\lambda_3,\lambda_4)\)
+        is a valid belief. There is no closed-form normaliser, so \(Z\), the mean, and the variance are
+        cached by <strong>fixed composite-Simpson</strong> over \(u\in[-7,7]\) with a min-energy shift
+        (subtract \(E_{\min}\) before exponentiating) for stability; the CDF/quantile/sampler share a
+        cumulative grid over the same window. Pricing has no closed form either, so it routes through the
+        §4 quadrature (jump payoffs use the cached CDF, exactly as Student-t does, to avoid the
+        discontinuity-in-a-Simpson-cell error). This is the <strong>Gen·exact ★</strong> option in the
+        <a href="#flexible">§21</a> sandbox, ported faithfully.</p>
+        <p><strong>v1 update — fixed shape.</strong> The exponent \(\lambda\) (the shape) is held constant;
+        only the location \(\mu\) and scale \(\sigma\) move, by the very same variance-domain step as the
+        Student-t. With prior variance \(V\) (here \(V=\sigma^2\,\mathrm{Var}[u]\), the cached variance):</p>
+        <div class="eqbox named">
+          <span>$$ \tau_0=\frac1V,\ \ \tau_s=\frac{w}{\sigma_\varepsilon^2},\qquad
+          \mu'=\frac{\tau_0\,\mu+\tau_s\,s}{\tau_0+\tau_s},\qquad
+          V'=\max\!\Big(\tfrac{1}{\tau_0+\tau_s},\,\sigma_\text{min}^2\Big),\qquad
+          \sigma'=\sigma\sqrt{V'/V} $$</span>
+          <span class="eqlabel">bayes.ts</span>
+        </div>
+        <p>Variance \(\propto\sigma^2\) at fixed shape, so rescaling \(\sigma\) by \(\sqrt{V'/V}\) makes the
+        belief variance land exactly on \(V'\). The skew/peak the creator authored is preserved; only the
+        centre and width learn. <em>(Shape-adapting v2 — re-fitting \(\lambda_3,\lambda_4\) to the
+        post-update skew/kurtosis by moment-projection — is a deferred sub-phase.)</em></p>
+      </details>
     </section>
 
     <!-- =============================================================== -->

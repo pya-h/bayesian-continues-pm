@@ -63,10 +63,16 @@ export const studentTStateSchema = z.object({
   scale2: variance,
 });
 // The three exponent shape coefficients of a Gen·exact belief: [λ₂, λ₃, λ₄] of
-// `E(u) = ½λ₂u² + λ₃u³ + λ₄u⁴ (+ stabiliser λ₆u⁶)`, `u = (θ−μ)/σ`. Bounds stay
-// loose here (inert scaffolding — ); the sandbox-safe ranges are pinned
-// in when the belief class lands. See model/).
-export const genExactLambdasSchema = z.tuple([finite, finite, finite]);
+// `E(u) = ½λ₂u² + λ₃u³ + λ₄u⁴ (+ stabiliser λ₆u⁶)`, `u = (θ−μ)/σ`. Bounds are the
+// **sandbox-safe ranges**: λ₂∈[−4,4]
+// (negative ⇒ bimodal), λ₃∈[−0.35,0.35] (skew, = slider α/40 over ±14)
+// λ₄∈[0,1.6] (flat-top / thinner tails). The u⁶ auto-stabiliser keeps any value in
+// range integrable. See model/).
+export const genExactLambdasSchema = z.tuple([
+  finite.min(-4).max(4),
+  finite.min(-0.35).max(0.35),
+  finite.min(0).max(1.6),
+]);
 // Serialized snapshot of a max-entropy exp(−poly) belief (Gen·exact, kind G2).
 export const genExactStateSchema = z.object({
   kind: z.literal('gen_exact'),

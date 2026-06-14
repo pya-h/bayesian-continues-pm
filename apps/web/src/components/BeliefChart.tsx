@@ -21,6 +21,8 @@ import type { BeliefComponent, ContractSpec } from '../lib/types.ts';
 import {
   type Domain,
   gaussianPdf,
+  genExactPdf,
+  genExactPdfCurve,
   mixturePdf,
   mixturePdfCurve,
   niceDomain,
@@ -131,6 +133,7 @@ function BeliefChartImpl({
   components,
   beliefKind,
   nu,
+  genExact,
   spec: specProp,
   onSpecChange,
   outcomeUnit,
@@ -141,10 +144,12 @@ function BeliefChartImpl({
   mu: number;
   sigma: number;
   components?: BeliefComponent[];
-  // Belief kind, so a Student-t belief draws its fat-tailed curve (not a Gaussian).
-  beliefKind?: 'gaussian' | 'mixture' | 'student_t';
+  // Belief kind, so a Student-t / Gen·exact belief draws its true curve (not a Gaussian).
+  beliefKind?: 'gaussian' | 'mixture' | 'student_t' | 'gen_exact';
   // Degrees of freedom ν, present (and used) only for a Student-t belief.
   nu?: number;
+  // Gen·exact location/scale + exponent shape, present only for a Gen·exact belief.
+  genExact?: { loc: number; scale: number; lambdas: [number, number, number] };
   spec: ContractSpec;
   onSpecChange: (s: ContractSpec) => void;
   outcomeUnit: string;
@@ -198,13 +203,19 @@ function BeliefChartImpl({
   // otherwise the single Gaussian.
   const isMixture = !!components && components.length > 1;
   const isStudentT = beliefKind === 'student_t' && !!nu && nu > 2;
+  const isGenExact = beliefKind === 'gen_exact' && !!genExact;
   const compKey = components?.map((c) => `${c.pi},${c.mu},${c.sigma}`).join('|') ?? '';
-  // biome-ignore lint/correctness/useExhaustiveDependencies: compKey encodes components
+  const genExactKey = genExact
+    ? `${genExact.loc},${genExact.scale},${genExact.lambdas.join(',')}`
+    : '';
+  // biome-ignore lint/correctness/useExhaustiveDependencies: compKey/genExactKey encode the params
   const pdf = useMemo(() => {
     if (isMixture && components) return mixturePdfCurve(components, domain, samples);
     if (isStudentT && nu) return studentTPdfCurve(nu, mu, sigma, domain, samples);
+    if (isGenExact && genExact)
+      return genExactPdfCurve(genExact.loc, genExact.scale, genExact.lambdas, domain, samples);
     return pdfCurve(mu, sigma, domain, samples);
-  }, [isMixture, isStudentT, nu, compKey, mu, sigma, domain, samples]);
+  }, [isMixture, isStudentT, isGenExact, nu, compKey, genExactKey, mu, sigma, domain, samples]);
   const pdfMax = Math.max(...pdf.map((p) => p.y), 1e-12);
   const syPdf = scale(0, pdfMax * 1.12 * view.yMul, PLOT.b, PLOT.t);
 
@@ -404,7 +415,9 @@ function BeliefChartImpl({
         ? mixturePdf(theta, components)
         : isStudentT && nu
           ? studentTPdf(theta, nu, mu, sigma)
-          : gaussianPdf(theta, mu, sigma);
+          : isGenExact && genExact
+            ? genExactPdf(theta, genExact.loc, genExact.scale, genExact.lambdas)
+            : gaussianPdf(theta, mu, sigma);
     const payV = payoff(spec, theta);
     const hv = Math.min(PLOT.b, Math.max(PLOT.t, hover.vy));
     const cardW = 138;

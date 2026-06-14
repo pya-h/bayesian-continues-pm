@@ -327,6 +327,33 @@ describe('buildCreateMarketBody', () => {
       }),
     ).toThrow('weight must be positive');
   });
+
+  test('emits a gen_exact belief from the λ draft (reuses initialMu/σ as loc/scale)', () => {
+    const body = buildCreateMarketBody({
+      ...base,
+      beliefKind: 'gen_exact',
+      lambdas: [1, 0.2, 0.1],
+    });
+    expect(body.belief).toEqual({ kind: 'gen_exact', lambdas: [1, 0.2, 0.1] });
+    // μ/σ stay the market's initial values — gen_exact authors only the shape.
+    expect(body.initialMu).toBe(14);
+    expect(body.initialSigma).toBe(3);
+  });
+
+  test('gen_exact rejects out-of-range or non-numeric λ', () => {
+    expect(() =>
+      buildCreateMarketBody({ ...base, beliefKind: 'gen_exact', lambdas: [9, 0, 0] }),
+    ).toThrow('λ₂');
+    expect(() =>
+      buildCreateMarketBody({ ...base, beliefKind: 'gen_exact', lambdas: [1, 0.5, 0] }),
+    ).toThrow('λ₃');
+    expect(() =>
+      buildCreateMarketBody({ ...base, beliefKind: 'gen_exact', lambdas: [1, 0, 2] }),
+    ).toThrow('λ₄');
+    expect(() =>
+      buildCreateMarketBody({ ...base, beliefKind: 'gen_exact', lambdas: [1, 0, ''] }),
+    ).toThrow('must be a number');
+  });
 });
 
 describe('lifecycleActions', () => {
