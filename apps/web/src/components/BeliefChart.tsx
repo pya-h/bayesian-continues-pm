@@ -15,25 +15,20 @@
 
 import { payoff } from '@bmm/core';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fmt, fmtCompact } from '../lib/format.ts';
+import { beliefFromView } from '../lib/beliefFromView.ts';
+import { fmt, fmtCompact, fmtPct } from '../lib/format.ts';
 import { setLiveSpec } from '../lib/liveSpec.ts';
 import type { BeliefComponent, ContractSpec } from '../lib/types.ts';
 import {
   type Domain,
-  gaussianPdf,
-  genExactPdf,
-  genExactPdfCurve,
+  type Pt,
   mixturePdf,
-  mixturePdfCurve,
   niceDomain,
   niceTicks,
   panOffset,
   payoffCurve,
-  pdfCurve,
   pickHandle,
   scale,
-  studentTPdf,
-  studentTPdfCurve,
   tickDecimals,
   toPath,
   viewDomain,
@@ -41,6 +36,19 @@ import {
   zoomMul,
 } from '../lib/viz.ts';
 import { usePrefs } from '../prefs/PrefsContext.tsx';
+
+// Axis-scale mode for the left (belief) axis. `relative` peak-normalises the curve
+// to 1.0 (the unit-independent shape a trader reads); `density` shows the true
+// probability density p(θ) in per-outcome-unit values (∫p dθ = 1).
+type AxisMode = 'relative' | 'density';
+
+function fmtDensity(v: number): string {
+  if (!Number.isFinite(v)) return '—';
+  if (v === 0) return '0';
+  const a = Math.abs(v);
+  if (a >= 1000 || a < 1e-3) return v.toExponential(1);
+  return v.toPrecision(3).replace(/\.?0+$/, '');
+}
 
 const W = 720;
 const H = 340;
@@ -134,6 +142,7 @@ function BeliefChartImpl({
   beliefKind,
   nu,
   genExact,
+  showCdf = false,
   spec: specProp,
   onSpecChange,
   outcomeUnit,
@@ -150,6 +159,8 @@ function BeliefChartImpl({
   nu?: number;
   // Gen·exact location/scale + exponent shape, present only for a Gen·exact belief.
   genExact?: { loc: number; scale: number; lambdas: [number, number, number] };
+  // Overlay the cumulative-probability curve P(≤θ) on the same axes (0→1, peak-normalised height).
+  showCdf?: boolean;
   spec: ContractSpec;
   onSpecChange: (s: ContractSpec) => void;
   outcomeUnit: string;
@@ -160,6 +171,8 @@ function BeliefChartImpl({
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragId = useRef<string | null>(null);
   const [hover, setHover] = useState<{ theta: number; vy: number } | null>(null);
+  // Left-axis scale: relative likelihood (peak = 1, default) vs absolute density.
+  const [axisMode, setAxisMode] = useState<AxisMode>('relative');
 
   // User view transform layered on the auto-derived domain. xMul/yMul widen (>1)
   // or tighten (<1) the visible value RANGE of each axis; xOff slides the x-window
@@ -198,26 +211,58 @@ function BeliefChartImpl({
   // Coarser sampling mid-drag keeps re-renders cheap; full detail at rest.
   const samples = dragging ? 96 : 160;
 
-  // Belief PDF scale (unitless density, scaled to its own peak × yMul). A mixture
-  // belief draws its true multi-bump curve, a Student-t its fat-tailed curve
-  // otherwise the single Gaussian.
+  // Reconstruct the market's REAL belief (any kind) so the curve is the true
+  // probability density p(θ) — not a peak-normalised kernel. This makes the
+  // absolute-density axis mode meaningful for every kind (mixture / Student-t /
+  // Gen·exact included), and the relative mode renders identically (the peak
+  // normalisation below is a constant rescale).
   const isMixture = !!components && components.length > 1;
-  const isStudentT = beliefKind === 'student_t' && !!nu && nu > 2;
-  const isGenExact = beliefKind === 'gen_exact' && !!genExact;
   const compKey = components?.map((c) => `${c.pi},${c.mu},${c.sigma}`).join('|') ?? '';
   const genExactKey = genExact
     ? `${genExact.loc},${genExact.scale},${genExact.lambdas.join(',')}`
     : '';
-  // biome-ignore lint/correctness/useExhaustiveDependencies: compKey/genExactKey encode the params
-  const pdf = useMemo(() => {
-    if (isMixture && components) return mixturePdfCurve(components, domain, samples);
-    if (isStudentT && nu) return studentTPdfCurve(nu, mu, sigma, domain, samples);
-    if (isGenExact && genExact)
-      return genExactPdfCurve(genExact.loc, genExact.scale, genExact.lambdas, domain, samples);
-    return pdfCurve(mu, sigma, domain, samples);
-  }, [isMixture, isStudentT, isGenExact, nu, compKey, genExactKey, mu, sigma, domain, samples]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: compKey/genExactKey encode components/genExact
+  const beliefModel = useMemo(
+    () =>
+      beliefFromView({
+        kind: beliefKind ?? 'gaussian',
+        mu,
+        sigma,
+        sigma2: sigma * sigma,
+        components,
+        nu,
+        lambdas: genExact?.lambdas,
+        loc: genExact?.loc,
+        scale: genExact?.scale,
+      }),
+    [beliefKind, mu, sigma, compKey, nu, genExactKey],
+  );
+  const pdf = useMemo<Pt[]>(() => {
+    const [plo, phi] = domain;
+    const out: Pt[] = [];
+    for (let i = 0; i <= samples; i++) {
+      const x = plo + ((phi - plo) * i) / samples;
+      out.push({ x, y: beliefModel.pdf(x) });
+    }
+    return out;
+  }, [beliefModel, domain, samples]);
   const pdfMax = Math.max(...pdf.map((p) => p.y), 1e-12);
   const syPdf = scale(0, pdfMax * 1.12 * view.yMul, PLOT.b, PLOT.t);
+
+  // Optional cumulative-probability overlay P(≤θ): shares the x-domain (so it pans /
+  // zooms / re-units with everything else) and the vertical zoom (view.yMul), on its
+  // own fixed 0→1 probability scale. Sampled only when shown.
+  const cdf = useMemo<Pt[]>(() => {
+    if (!showCdf) return [];
+    const [plo, phi] = domain;
+    const out: Pt[] = [];
+    for (let i = 0; i <= samples; i++) {
+      const x = plo + ((phi - plo) * i) / samples;
+      out.push({ x, y: Math.min(1, Math.max(0, beliefModel.cdf(x))) });
+    }
+    return out;
+  }, [showCdf, beliefModel, domain, samples]);
+  const syCdf = scale(0, 1.02 * view.yMul, PLOT.b, PLOT.t);
 
   // Payoff scale (its own min/max across the visible domain, scaled by yMul about
   // its midpoint so the zero baseline keeps its position as you scale).
@@ -410,18 +455,13 @@ function BeliefChartImpl({
     if (!hover) return null;
     const theta = Math.min(hi, Math.max(lo, hover.theta));
     const tpx = sx(theta);
-    const pdfV =
-      isMixture && components
-        ? mixturePdf(theta, components)
-        : isStudentT && nu
-          ? studentTPdf(theta, nu, mu, sigma)
-          : isGenExact && genExact
-            ? genExactPdf(theta, genExact.loc, genExact.scale, genExact.lambdas)
-            : gaussianPdf(theta, mu, sigma);
+    const pdfV = beliefModel.pdf(theta); // true density at θ (any belief kind)
+    // The market's assessed chance the outcome lands at-or-below / at-or-above θ.
+    const cdfBelow = Math.min(1, Math.max(0, beliefModel.cdf(theta)));
     const payV = payoff(spec, theta);
     const hv = Math.min(PLOT.b, Math.max(PLOT.t, hover.vy));
-    const cardW = 138;
-    const cardH = 66;
+    const cardW = 150;
+    const cardH = 96;
     let tx = tpx + 12;
     if (tx + cardW > PLOT.r) tx = tpx - 12 - cardW;
     if (tx < PLOT.l + 2) tx = PLOT.l + 2;
@@ -430,6 +470,9 @@ function BeliefChartImpl({
       theta,
       tpx,
       like: Math.min(1, pdfV / pdfMax),
+      density: pdfV,
+      cdfBelow,
+      cdfAbove: 1 - cdfBelow,
       payV,
       by: syPdf(pdfV),
       py: syPay(payV),
@@ -485,9 +528,63 @@ function BeliefChartImpl({
       />
 
       {/* legend */}
-      <LegendItem x={PLOT.l} color="var(--color-accent)" label="Belief (likelihood)" />
+      <LegendItem
+        x={PLOT.l}
+        color="var(--color-accent)"
+        label={axisMode === 'density' ? 'Belief (density)' : 'Belief (likelihood)'}
+      />
       <LegendItem x={PLOT.l + 168} color="var(--color-buy)" label="Payoff" />
       <LegendItem x={PLOT.l + 268} color="var(--color-buy)" label="In-the-money" block />
+      {showCdf && <LegendItem x={PLOT.l + 392} color="var(--color-warn)" label="P(≤θ)" />}
+
+      {/* left-axis scale toggle: relative likelihood (peak = 1) vs absolute density */}
+      <g transform={`translate(${PLOT.r - 116}, 7)`}>
+        <title>Left axis: relative likelihood (peak = 1) or absolute probability density</title>
+        <text x={-6} y={11} textAnchor="end" fontSize={9} className="fill-[var(--color-muted)]">
+          y-axis
+        </text>
+        {(
+          [
+            ['relative', 'rel'],
+            ['density', 'density'],
+          ] as const
+        ).map(([m, lbl], i) => {
+          const active = axisMode === m;
+          const w = i === 0 ? 34 : 82;
+          const x = i === 0 ? 0 : 34;
+          return (
+            <g
+              key={m}
+              className="cursor-pointer"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                setAxisMode(m);
+              }}
+            >
+              <rect
+                x={x}
+                y={0}
+                width={w}
+                height={15}
+                rx={3}
+                fill={active ? 'var(--color-accent)' : 'var(--color-panel-2)'}
+                opacity={active ? 0.9 : 0.55}
+                stroke="var(--color-edge)"
+                strokeWidth={1}
+              />
+              <text
+                x={x + w / 2}
+                y={11}
+                textAnchor="middle"
+                fontSize={9}
+                className={`font-semibold ${active ? 'fill-[var(--color-ink)]' : 'fill-[var(--color-muted)]'}`}
+              >
+                {lbl}
+              </text>
+            </g>
+          );
+        })}
+      </g>
 
       {/* horizontal likelihood gridlines (left-axis reference) */}
       {LIKE_TICKS.map((r) => (
@@ -586,7 +683,7 @@ function BeliefChartImpl({
             className="fill-[var(--color-muted)]"
             fontSize={10}
           >
-            {r.toFixed(2)}
+            {axisMode === 'density' ? fmtDensity(r * pdfMax) : r.toFixed(2)}
           </text>
         </g>
       ))}
@@ -650,6 +747,19 @@ function BeliefChartImpl({
         strokeWidth={2}
         filter={dragging ? undefined : 'url(#bc-glow)'}
       />
+
+      {/* cumulative-probability overlay P(≤θ): a dashed S-curve on the same axes
+          (0→1, sharing the vertical zoom), so it tracks every pan / zoom / unit change */}
+      {showCdf && (
+        <path
+          d={toPath(cdf, sx, syCdf)}
+          fill="none"
+          stroke="var(--color-warn)"
+          strokeWidth={2}
+          strokeDasharray="5 3"
+          opacity={0.9}
+        />
+      )}
 
       {/* mean line — hidden when panned/zoomed out of the visible domain (same
           guard as the θ* marker), so it never draws into the axis gutters */}
@@ -865,6 +975,16 @@ function BeliefChartImpl({
             stroke="var(--color-ink)"
             strokeWidth={1.5}
           />
+          {showCdf && (
+            <circle
+              cx={cross.tpx}
+              cy={syCdf(cross.cdfBelow)}
+              r={3.5}
+              fill="var(--color-warn)"
+              stroke="var(--color-ink)"
+              strokeWidth={1.5}
+            />
+          )}
           {/* translucent readout card */}
           <g>
             <rect
@@ -912,7 +1032,7 @@ function BeliefChartImpl({
               fontSize={11}
               className="fill-[var(--color-accent)] font-semibold"
             >
-              {cross.like.toFixed(2)}
+              {axisMode === 'density' ? fmtDensity(cross.density) : cross.like.toFixed(2)}
             </text>
 
             <circle cx={cross.tx + 15} cy={cross.ty + 51} r={3.5} fill="var(--color-buy)" />
@@ -932,6 +1052,51 @@ function BeliefChartImpl({
               className="fill-[var(--color-buy)] font-semibold"
             >
               {fmtCompact(cross.payV)}
+            </text>
+
+            {/* the market's assessed chance the outcome is ≤ / ≥ this θ (belief CDF) */}
+            <line
+              x1={cross.tx + 12}
+              x2={cross.tx + cross.cardW - 12}
+              y1={cross.ty + 63}
+              y2={cross.ty + 63}
+              stroke="var(--color-edge)"
+              strokeWidth={1}
+              opacity={0.6}
+            />
+            <text
+              x={cross.tx + 12}
+              y={cross.ty + 77}
+              fontSize={10.5}
+              className="fill-[var(--color-muted)]"
+            >
+              P(≤ θ)
+            </text>
+            <text
+              x={cross.tx + cross.cardW - 12}
+              y={cross.ty + 77}
+              textAnchor="end"
+              fontSize={11}
+              className="fill-[var(--color-fg)] font-semibold"
+            >
+              {fmtPct(cross.cdfBelow)}
+            </text>
+            <text
+              x={cross.tx + 12}
+              y={cross.ty + 90}
+              fontSize={10.5}
+              className="fill-[var(--color-muted)]"
+            >
+              P(≥ θ)
+            </text>
+            <text
+              x={cross.tx + cross.cardW - 12}
+              y={cross.ty + 90}
+              textAnchor="end"
+              fontSize={11}
+              className="fill-[var(--color-fg)] font-semibold"
+            >
+              {fmtPct(cross.cdfAbove)}
             </text>
           </g>
         </g>

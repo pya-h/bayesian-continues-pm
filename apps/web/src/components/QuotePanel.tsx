@@ -3,7 +3,7 @@
 // total cost, slippage guard, and the projected post-trade belief + reserve. The
 // Buy/Sell button fires the trade and folds the fill back into balance + caches.
 
-import { contractKey } from '@bmm/core';
+import { type EngineConfig, contractKey } from '@bmm/core';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useAuth } from '../auth/AuthContext.tsx';
@@ -228,12 +228,13 @@ export function QuotePanel({
         spec: previewSpec,
         signedQ,
         belief: beliefModel,
-        spreadTotal: quote.spread.total,
+        cfg: cfg as unknown as EngineConfig,
+        serverInventory: quote.spread.inventory,
       });
     } catch {
       return null; // unpriceable spec mid-drag — fall back to the server quote
     }
-  }, [livePreview, quote, previewSpec, signedQ, beliefModel]);
+  }, [livePreview, quote, previewSpec, signedQ, beliefModel, cfg]);
 
   // The numbers actually shown: the client estimate when previewing, else the
   // server quote. `estimated` flags that the panel is on the client estimate.
@@ -416,7 +417,7 @@ export function QuotePanel({
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/70" />
                   <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
                 </span>
-                live estimate — spread held from last server quote
+                live estimate — inventory term held from last server quote
               </div>
             )}
             {/* The unit only applies where fair = E[payoff] is in outcome units
@@ -430,11 +431,29 @@ export function QuotePanel({
               }`}
             />
             <div className="my-1 border-t border-edge pt-1.5 text-xs text-muted">
-              <Row label="base" value={fmt(quote.spread.base, 4)} small />
-              <Row label="inventory" value={fmt(quote.spread.inventory, 4)} small />
-              <Row label="adverse-sel" value={fmt(quote.spread.adverseSelection, 4)} small />
-              <Row label="volatility" value={fmt(quote.spread.volatility, 4)} small />
-              <Row label="spread total" value={fmt(quote.spread.total, 4)} small strong />
+              {/* In live preview, base/adverse/vol track the drag; only inventory is held. */}
+              <Row label="base" value={fmt((estimate?.spread ?? quote.spread).base, 4)} small />
+              <Row
+                label="inventory"
+                value={fmt((estimate?.spread ?? quote.spread).inventory, 4)}
+                small
+              />
+              <Row
+                label="adverse-sel"
+                value={fmt((estimate?.spread ?? quote.spread).adverseSelection, 4)}
+                small
+              />
+              <Row
+                label="volatility"
+                value={fmt((estimate?.spread ?? quote.spread).volatility, 4)}
+                small
+              />
+              <Row
+                label="spread total"
+                value={fmt((estimate?.spread ?? quote.spread).total, 4)}
+                small
+                strong
+              />
             </div>
             <Row label="Exec price" value={fmt((view ?? quote).execPrice)} strong />
             <Row

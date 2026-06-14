@@ -8,6 +8,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.tsx';
 import { BeliefChart } from '../components/BeliefChart.tsx';
 import { BeliefHistoryChart } from '../components/BeliefHistoryChart.tsx';
+import { CdfChart } from '../components/CdfChart.tsx';
 import { ContractComposer, defaultSpec } from '../components/ContractComposer.tsx';
 import { MiniBelief } from '../components/MiniBelief.tsx';
 import { PositionPanel } from '../components/PositionPanel.tsx';
@@ -32,6 +33,8 @@ export function MarketPage() {
 
   const [spec, setSpec] = useState<ContractSpec | null>(null);
   const [sellRequest, setSellRequest] = useState<{ qty: number; nonce: number } | null>(null);
+  // Cumulative-probability P(≤θ) view: off | overlaid on the belief chart | a panel below.
+  const [cdfMode, setCdfMode] = useState<'off' | 'overlay' | 'panel'>('off');
 
   // Click a held position → load its contract into the composer, ask the trade
   // panel to switch to Sell pre-filled, and bring the panel into view.
@@ -177,9 +180,30 @@ export function MarketPage() {
           <Panel
             title="Belief & payoff"
             right={
-              <span className="text-xs text-muted">
-                handles ↔ · drag plot to pan · drag axes to zoom · dbl-click resets
-              </span>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1 text-[11px] text-muted">
+                  <span>CDF</span>
+                  <div className="flex overflow-hidden rounded-md border border-edge">
+                    {(['off', 'overlay', 'panel'] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setCdfMode(mode)}
+                        className={`px-1.5 py-0.5 ${
+                          cdfMode === mode
+                            ? 'bg-warn text-ink'
+                            : 'bg-panel-2 text-muted hover:text-fg'
+                        }`}
+                      >
+                        {mode}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <span className="hidden text-xs text-muted lg:inline">
+                  drag plot to pan · drag axes to zoom · dbl-click resets
+                </span>
+              </div>
             }
           >
             <div className="p-3">
@@ -195,6 +219,7 @@ export function MarketPage() {
                     ? { loc: m.belief.loc, scale: m.belief.scale, lambdas: m.belief.lambdas }
                     : undefined
                 }
+                showCdf={cdfMode === 'overlay'}
                 spec={spec}
                 onSpecChange={setSpec}
                 outcomeUnit={m.outcomeUnit}
@@ -203,6 +228,20 @@ export function MarketPage() {
                 thetaStar={m.thetaStar}
               />
             </div>
+            {cdfMode === 'panel' && (
+              <div className="border-t border-edge p-3">
+                <div className="mb-1 text-xs text-muted">
+                  Cumulative probability — P(outcome ≤ θ)
+                </div>
+                <CdfChart
+                  belief={m.belief}
+                  outcomeUnit={m.outcomeUnit}
+                  outcomeMin={m.outcomeMin}
+                  outcomeMax={m.outcomeMax}
+                  thetaStar={m.thetaStar}
+                />
+              </div>
+            )}
             <div className="border-t border-edge p-4">
               <ContractComposer spec={spec} onSpecChange={setSpec} mu={mu} sigma={sigma} />
             </div>
