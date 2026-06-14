@@ -4,14 +4,12 @@
 > independently verified** — see the checklist below. The closing round-3 review and
 > its (new, open) findings live in [REVIEW-FINDINGS-2.md](REVIEW-FINDINGS-2.md).
 
-Two review passes, same day. **Pass 1**: automated checks + manual cross-check of the core
-engine, API trade pipeline, web app, math-doc widgets, and all documentation. **Pass 2**
-(this finalization): an independent fresh review of every area, a re-verification of every
-pass-1 finding, and — to kill false positives — an adversarial pass in which every new
-High/Medium finding was handed to a second, independent verifier instructed to *refute* it,
-reproducing all numeric claims against the actual package code. Nothing was refuted; two
-severities were adjusted (one up-front correction is owed: **pass 1's headline "no
-Critical/High *code* bug was found" was wrong** — pass 2 found two High items, C9 and C10).
+Two review passes, same day. Pass 1: automated checks + a manual cross-check of the core
+engine, API trade pipeline, web app, math-doc widgets, and the documentation. Pass 2 (this
+finalization): a fresh re-review of every area and a re-verification of every pass-1 finding,
+re-deriving each numeric claim against the actual package code to kill false positives. Two
+severities were adjusted — and pass 1's "no Critical/High *code* bug" call was wrong: pass 2
+found two High items, C9 and C10.
 
 ## Baseline — automated checks (re-run in pass 2, all green)
 

@@ -1,12 +1,11 @@
 # Final review — round-3 findings (2026-06-12, HEAD eff4502)
 
 Closing review after all 48 items from [REVIEW-FINDINGS.md](REVIEW-FINDINGS.md) were
-fixed. Method: re-ran the full baseline; an independent auditor verified **every**
-checklist item against the current code (re-deriving the math fixes in throwaway
-harnesses); then four fresh adversarial hunters swept core/shared, the API, the web
-app, and the docs + interactive math doc — explicitly told to skip everything already
-known and to probe the surfaces earlier rounds covered least (fix interactions, edge
-inputs, less-reviewed files). Every finding below was verified by execution or
+fixed. Method: re-ran the full baseline; re-verified every checklist item against the
+current code (re-deriving the math fixes in throwaway harnesses); then swept core/shared,
+the API, the web app, and the docs + interactive math doc afresh — skipping everything
+already known and probing the surfaces earlier rounds covered least (fix interactions,
+edge inputs, less-reviewed files). Every finding below was verified by execution or
 line-level reading before being listed; nothing here is speculative.
 
 ## Baseline (all green)
@@ -47,7 +46,9 @@ count resolving the narrower scale; wired into `priceUnderStudentT`'s GAUSSIAN b
 and `secondMoment`'s student-t GAUSSIAN path (via `expectGaussianBumpSquared`, width
 w/√2). Exact to machine precision vs a 40M-node reference across far-center,
 narrow-width, and the contrived far-AND-narrow corner; `dPriceDMu` (central-difference
-of the now-exact price) follows. Regression test added.
+of the now-exact price) follows. Regression test added. Also mirrored into the
+`docs/math` port (`math.js` `priceAny` GAUSSIAN-under-t now routes through a ported
+`expectGaussianBump`) — verified bit-exact vs core (rel diff 0) across all cases.
 
 `packages/core/src/pricing.ts:82-83` — `priceUnderStudentT`'s default branch sends the
 GAUSSIAN (bell) payoff through `expectF` (±10σ window, 4000 nodes ⇒ cell h = σ/200),
@@ -104,7 +105,9 @@ max payout, bid floored at the min (0) — for bounded kinds; unbounded CALL/PUT
 only the bid's 0 floor. Threaded the spec through all call sites (solveFill + the three
 tradeSvc paths) so quote and commit agree, and mirrored in the web `clientQuote`
 estimate. Still fully prefunded (collecting ≤ max premium covers the worst-case
-per-unit liability). Regression test added.
+per-unit liability). Regression test added. Also mirrored into the `docs/math` port
+(`math.js` gains `payoffBounds` + a clamping `execPriceFor`; `app.js` call sites pass
+the spec) and the MODEL.md `exec_price` pseudocode now documents the clamp.
 
 `packages/core/src/spread.ts:45-46` — `adverseSelection = λ·intensity·|∂P/∂μ|·σ`.
 C10 made `|∂P/∂μ| = pdf(K)` exact; under Student-t, `pdf(K)·σ = f_std(d)·√(ν/(ν−2))`

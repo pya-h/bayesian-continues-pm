@@ -227,8 +227,29 @@
     const total = base + inventory + adverseSelection + volatility;
     return { base, inventory, adverseSelection, volatility, total, fair };
   }
-  function execPriceFor(side, fair, spreadTotal) {
-    return side === 'buy' ? fair + spreadTotal : Math.max(0, fair - spreadTotal);
+  function payoffBounds(spec) {
+    switch (spec.type) {
+      case 'BINARY_CALL':
+      case 'BINARY_PUT':
+      case 'SPREAD':
+      case 'GAUSSIAN':
+        return { bounded: true, min: 0, max: 1 };
+      default: // LINEAR / CALL / PUT — unbounded
+        return { bounded: false };
+    }
+  }
+  // Ask (buy) = fair + half-spread; bid (sell) = fair − half-spread, each clamped to the
+  // contract's payoff bounds
+  // a bounded contract's ask never exceeds its max payout — yet the adverse-selection term
+  // diverges as ν→2 and can push a binary ask above 1. Unbounded kinds keep the bid's 0 floor.
+  function execPriceFor(side, fair, spreadTotal, spec) {
+    const b = spec ? payoffBounds(spec) : { bounded: false };
+    if (side === 'buy') {
+      const ask = fair + spreadTotal;
+      return b.bounded && b.max != null ? Math.min(ask, b.max) : ask;
+    }
+    const floor = b.bounded && b.min != null ? b.min : 0;
+    return Math.max(floor, fair - spreadTotal);
   }
 
   // signal.ts: extractSignal ----------------------------------------
@@ -468,7 +489,29 @@
     for (let i = 1; i < n; i++) sum += (i % 2 === 0 ? 2 : 4) * ig(a + i * h);
     return (sum * h) / 3;
   }
-  // Fair price for any belief kind: closed-form for Gaussian/mixture/t (quadrature only for smooth no-closed-form payoffs).
+  // E[exp(-(θ-c)²/(2·bw²))] under any belief — the GAUSSIAN "bell" payoff integrated
+  // robustly. The plain
+  // expectF window (mean ± L·σ, fixed nodes) mis-prices the bell two ways: a far center
+  // (|c − μ| ≳ L·σ) sits outside the window ⇒ priced ≈0, and a width narrower than the
+  // cell (bw ≲ σ/200) lands inside one Simpson cell. So the window must cover BOTH the
+  // bell (c ± L·bw) and the belief (μ ± L·σ) and the node count must resolve the NARROWER.
+  function expectGaussianBump(belief, c, bw) {
+    const mean = belief.mean(), sigma = belief.stddev();
+    const L = 12;
+    const lo = Math.min(mean - L * sigma, c - L * bw);
+    const hi = Math.max(mean + L * sigma, c + L * bw);
+    const feature = Math.max(Math.min(sigma, bw), 1e-300); // narrowest scale to resolve
+    let n = Math.ceil((hi - lo) / (feature / 24));
+    n = Math.min(Math.max(n, 4000), 200000);
+    if (n % 2 === 1) n += 1;
+    const h = (hi - lo) / n;
+    const ig = (x) => Math.exp(-((x - c) ** 2) / (2 * bw * bw)) * belief.pdf(x);
+    let sum = ig(lo) + ig(hi);
+    for (let i = 1; i < n; i++) sum += (i % 2 === 0 ? 2 : 4) * ig(lo + i * h);
+    return (sum * h) / 3;
+  }
+
+  // Fair price for any belief kind: closed-form for Gaussian/mixture/t (bell-aware quadrature for the smooth GAUSSIAN payoff under t).
   function priceAny(spec, belief) {
     if (!belief.kind || belief.kind === 'gaussian') return price(spec, belief);
     if (belief.kind === 'mixture') {
@@ -492,7 +535,10 @@
         case 'BINARY_CALL': return 1 - belief.cdf(K);
         case 'BINARY_PUT': return belief.cdf(K);
         case 'SPREAD': return belief.cdf(spec.upper) - belief.cdf(spec.lower);
-        default: break; // GAUSSIAN payoff: smooth, quadrature is fine
+        // GAUSSIAN (bell) payoff has no closed form under t — integrate via the
+        // bell-aware window, NOT plain expectF (far/narrow bumps; C42).
+        case 'GAUSSIAN': return expectGaussianBump(belief, spec.center, spec.width);
+        default: break;
       }
     }
     if (spec.type === 'LINEAR') return belief.mean(); // exact; avoids tail-truncation
@@ -598,13 +644,13 @@
   global.BMM = {
     round8,
     phi, Phi, erf, erfc, normInv, Rng, Belief,
-    payoff, price, dPriceDMu, priceGaussianPayoff,
+    payoff, payoffBounds, price, dPriceDMu, priceGaussianPayoff,
     DEFAULT_PARAMS, makeEngineConfig,
     computeSpread, execPriceFor, extractSignal, bayesUpdate,
     liability, expectedLiability, requiredReserve,
     lpSharePrice, sharesForDeposit, cashOutForShares, lpClaimAmount, applyFill,
     // V2 multi-modal beliefs
-    lgamma, MixtureBelief, StudentT, expectF, priceAny, dPriceDMuAny,
+    lgamma, MixtureBelief, StudentT, expectF, expectGaussianBump, priceAny, dPriceDMuAny,
     mergeTwo, manageMixture, bayesUpdateMixture, bayesUpdateStudentT, updateBelief,
   };
 })(window);

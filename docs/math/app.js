@@ -530,7 +530,7 @@
         rows[k].v.textContent = fmt(v, 4);
         rows[k].f.style.width = pct.toFixed(1) + '%';
       });
-      const fair = s.fair, exec = M.execPriceFor(q >= 0 ? 'buy' : 'sell', fair, s.total);
+      const fair = s.fair, exec = M.execPriceFor(q >= 0 ? 'buy' : 'sell', fair, s.total, spec());
       out.innerHTML =
         cell('Fair (mid)', fmt(fair, 4)) +
         cell('Spread total', fmt(s.total, 4), 'accent') +
@@ -824,7 +824,7 @@
       const side = sideSeg.get(), buy = side === 'buy';
       const q = (buy ? 1 : -1) * sQ.get();
       const s = M.computeSpread(spec, q, 0, b, cfg);
-      const exec = M.execPriceFor(buy ? 'buy' : 'sell', s.fair, s.total);
+      const exec = M.execPriceFor(buy ? 'buy' : 'sell', s.fair, s.total, spec);
       const sig = M.extractSignal(spec, q, b, cfg);
       const post = M.bayesUpdate(b, sig.signal, sig.weight, cfg);
       el('[data-verb]').textContent = buy ? 'pay' : 'get';

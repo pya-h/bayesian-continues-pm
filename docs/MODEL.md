@@ -1,7 +1,3 @@
-I will create a comprehensive, self-contained specification for a Web2 Bayesian Market Maker (BMM) continuous prediction market. This document will cover all mathematical foundations, the complete trading mechanism, system architecture, and implementation details without any blockchain-specific components, ensuring it is purely a Web2 application.
-
----
-
 # Complete Technical Specification: Web2 Bayesian Market Maker (BMM) for Continuous Prediction Markets
 
 ---
@@ -518,11 +514,13 @@ function execute_trade(user, C, q, max_price):
     # 2. Compute spread
     spread = compute_spread(C, q, inventory, current_belief)
     
-    # 3. Determine execution price
+    # 3. Determine execution price (clamped to the payoff bounds — a bounded
+    #    contract's ask never exceeds its max payout, nor a bid its min; the
+    #    adverse-selection term can diverge as ν→2 on fat-tailed beliefs)
     if q > 0:  # user buying
-        exec_price = fair + spread
+        exec_price = min(fair + spread, payoff_max(C))   # payoff_max = +inf if unbounded
     else:  # user selling
-        exec_price = fair - spread
+        exec_price = max(payoff_min(C), fair - spread)   # payoff_min = 0 if unbounded
     
     # 4. Slippage check
     if q > 0 and exec_price > max_price:
@@ -1143,7 +1141,8 @@ FUNCTION bayesian_update(belief, signal, weight):
 FUNCTION execute_trade(user, contract, q, max_price):
     fair ← price_contract(contract, current_belief)
     spread ← compute_spread(contract, q, inventory, current_belief)
-    exec_price ← fair + spread IF q > 0 ELSE fair - spread
+    # clamped to payoff bounds: ask ≤ payoff_max, bid ≥ payoff_min (0/+inf if unbounded)
+    exec_price ← min(fair + spread, payoff_max(contract)) IF q > 0 ELSE max(payoff_min(contract), fair - spread)
     
     IF q > 0 AND exec_price > max_price: RETURN REJECTED
     IF q < 0 AND exec_price < max_price: RETURN REJECTED
@@ -1279,9 +1278,3 @@ Monte Carlo simulation:
 | **Slippage** | Difference between expected and executed price |
 | **Solvency** | Condition that cash ≥ required reserve |
 | **Spread** | Difference between bid and ask prices |
-
----
-
-This specification is complete and self-contained. It contains all mathematical formulas, algorithms, data structures, and operational logic necessary for a full Web2 implementation of a Bayesian Market Maker continuous prediction market. No external references or blockchain-specific components are required.
-
-The document is structured to be directly implementable by any engineering team with standard web development skills and basic knowledge of probability and calculus.
