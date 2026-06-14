@@ -5,8 +5,7 @@
 // (continuous θ, closed-form-or-quadrature pricing). Built on window.BMM
 // (math.js), loaded before app.js. Attaches to window.MMODEL.
 // ==========================================================================
-(function (global) {
-  'use strict';
+((global) => {
   const B = global.BMM; // the faithful engine port (phi, Phi, lgamma, payoff, …)
   const G = (z) => Math.exp(B.lgamma(z)); // Γ via lgamma
 
@@ -47,7 +46,8 @@
     const variance = (w * w * a * b) / ((a + b) * (a + b) * (a + b + 1));
     return {
       kind: 'beta',
-      lo, hi,
+      lo,
+      hi,
       pdf: (x) => {
         const u = (x - lo) / w;
         if (u <= 0 || u >= 1) return 0;
@@ -110,22 +110,37 @@
       const u2 = u * u;
       return 0.5 * lam2 * u2 + lam3 * u2 * u + lam4 * u2 * u2 + l6 * u2 * u2 * u2;
     };
-    const L = 7, N = 2000, h = (2 * L) / N;
-    let Emin = Infinity;
-    for (let i = 0; i <= N; i++) { const e = energy(-L + i * h); if (e < Emin) Emin = e; }
-    let Z = 0, m1 = 0, m2 = 0;
+    const L = 7,
+      N = 2000,
+      h = (2 * L) / N;
+    let Emin = Number.POSITIVE_INFINITY;
+    for (let i = 0; i <= N; i++) {
+      const e = energy(-L + i * h);
+      if (e < Emin) Emin = e;
+    }
+    let Z = 0,
+      m1 = 0,
+      m2 = 0;
     for (let i = 0; i <= N; i++) {
       const u = -L + i * h;
       const w = (i === 0 || i === N ? 1 : i % 2 ? 4 : 2) * Math.exp(-(energy(u) - Emin));
-      Z += w; m1 += w * u; m2 += w * u * u;
+      Z += w;
+      m1 += w * u;
+      m2 += w * u * u;
     }
-    Z *= h / 3; m1 *= h / 3; m2 *= h / 3;
-    const eu = m1 / Z, eu2 = m2 / Z;
+    Z *= h / 3;
+    m1 *= h / 3;
+    m2 *= h / 3;
+    const eu = m1 / Z,
+      eu2 = m2 / Z;
     const mean = mu + s * eu;
     const variance = s * s * Math.max(1e-9, eu2 - eu * eu);
     return {
       kind: 'maxent',
-      pdf: (x) => { const u = (x - mu) / s; return Math.abs(u) > L ? 0 : Math.exp(-(energy(u) - Emin)) / (s * Z); },
+      pdf: (x) => {
+        const u = (x - mu) / s;
+        return Math.abs(u) > L ? 0 : Math.exp(-(energy(u) - Emin)) / (s * Z);
+      },
       mean: () => mean,
       variance: () => variance,
       stddev: () => Math.sqrt(variance),
@@ -145,47 +160,95 @@
   // flex 1–5; off/on are difficulty notes; price = pricing path.
   const META = {
     gaussian: {
-      label: 'Gaussian', dof: '2 (μ, σ)', shapes: 'one symmetric bump',
-      price: 'closed-form (Φ, φ)', update: 'conjugate · exact',
-      off: 'shipped', on: 'moderate — Φ approx', flex: 1,
+      label: 'Gaussian',
+      dof: '2 (μ, σ)',
+      shapes: 'one symmetric bump',
+      price: 'closed-form (Φ, φ)',
+      update: 'conjugate · exact',
+      off: 'shipped',
+      on: 'moderate — Φ approx',
+      flex: 1,
     },
     skew_normal: {
-      label: 'Skew-normal', dof: '3 (ξ, ω, α)', shapes: 'asymmetric bump (lean L/R)',
-      price: 'quadrature (Φ·φ)', update: 'moment-match (ADF)',
-      off: 'low', on: 'hard — Φ inside ∫', flex: 2,
+      label: 'Skew-normal',
+      dof: '3 (ξ, ω, α)',
+      shapes: 'asymmetric bump (lean L/R)',
+      price: 'quadrature (Φ·φ)',
+      update: 'moment-match (ADF)',
+      off: 'low',
+      on: 'hard — Φ inside ∫',
+      flex: 2,
     },
     gen_normal: {
-      label: 'Generalized-normal', dof: '3 (μ, α, β)', shapes: 'sharp spike ↔ flat-top',
-      price: 'quadrature + Γ', update: 'moment-match',
-      off: 'low', on: 'hard — Γ, frac. powers', flex: 2,
+      label: 'Generalized-normal',
+      dof: '3 (μ, α, β)',
+      shapes: 'sharp spike ↔ flat-top',
+      price: 'quadrature + Γ',
+      update: 'moment-match',
+      off: 'low',
+      on: 'hard — Γ, frac. powers',
+      flex: 2,
     },
     student_t: {
-      label: 'Student-t', dof: '3 (μ, σ, ν)', shapes: 'fat tails',
-      price: 'quadrature + Γ', update: 'variance-domain · shipped',
-      off: 'shipped', on: 'hard — Γ, pow', flex: 2,
+      label: 'Student-t',
+      dof: '3 (μ, σ, ν)',
+      shapes: 'fat tails',
+      price: 'quadrature + Γ',
+      update: 'variance-domain · shipped',
+      off: 'shipped',
+      on: 'hard — Γ, pow',
+      flex: 2,
     },
     beta: {
-      label: 'Beta (bounded)', dof: '2–3 (a, b[, range])', shapes: 'U / J / skew / flat / peak',
-      price: 'incomplete-β', update: 'near-conjugate',
-      off: 'low–med', on: 'hard — incomplete-β', flex: 3,
+      label: 'Beta (bounded)',
+      dof: '2–3 (a, b[, range])',
+      shapes: 'U / J / skew / flat / peak',
+      price: 'incomplete-β',
+      update: 'near-conjugate',
+      off: 'low–med',
+      on: 'hard — incomplete-β',
+      flex: 3,
     },
     mixture: {
-      label: 'Mixture (camps)', dof: '3K (π, μ, σ)×K', shapes: 'K distinct camps',
-      price: 'closed-form Σ', update: 'responsibility + manage · shipped',
-      off: 'shipped', on: 'moderate — K·Φ', flex: 4,
+      label: 'Mixture (camps)',
+      dof: '3K (π, μ, σ)×K',
+      shapes: 'K distinct camps',
+      price: 'closed-form Σ',
+      update: 'responsibility + manage · shipped',
+      off: 'shipped',
+      on: 'moderate — K·Φ',
+      flex: 4,
     },
     basis: {
-      label: 'Gen·basis ⛓', dof: 'N weights', shapes: 'ANY # bumps · skew · flat',
-      price: 'closed-form Σ·Φ', update: 'weight-only',
-      off: 'low', on: 'feasible — N·Φ, linear', flex: 5,
+      label: 'Gen·basis ⛓',
+      dof: 'N weights',
+      shapes: 'ANY # bumps · skew · flat',
+      price: 'closed-form Σ·Φ',
+      update: 'weight-only',
+      off: 'low',
+      on: 'feasible — N·Φ, linear',
+      flex: 5,
     },
     maxent: {
-      label: 'Gen·exact ★', dof: '2 + M (μ,σ,λₖ…)',
+      label: 'Gen·exact ★',
+      dof: '2 + M (μ,σ,λₖ…)',
       shapes: 'skew · peak · flat · bimodal',
-      price: 'quadrature (exp-poly)', update: 'moment-projection',
-      off: 'medium', on: 'very hard — numeric ∫', flex: 4,
+      price: 'quadrature (exp-poly)',
+      update: 'moment-projection',
+      off: 'medium',
+      on: 'very hard — numeric ∫',
+      flex: 4,
     },
   };
 
-  global.MMODEL = { skewNormal, genNormal, betaScaled, fixedBasis, fewCamps, maxEnt, priceFlex, META };
+  global.MMODEL = {
+    skewNormal,
+    genNormal,
+    betaScaled,
+    fixedBasis,
+    fewCamps,
+    maxEnt,
+    priceFlex,
+    META,
+  };
 })(window);

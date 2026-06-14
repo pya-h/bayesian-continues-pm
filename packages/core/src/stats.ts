@@ -9,7 +9,7 @@ import { GaussianBelief } from './gaussian.ts';
 import type { MixtureBelief } from './mixture.ts';
 import { Rng } from './numerics.ts';
 import { expectF, expectGaussianBumpSquared, price, priceGaussianPayoff } from './pricing.ts';
-import { StudentTBelief, studentTCdfStd } from './student_t.ts';
+import { type StudentTBelief, studentTCdfStd } from './student_t.ts';
 import type { BeliefModel, ContractSpec } from './types.ts';
 
 export interface PositionInput {
@@ -61,7 +61,12 @@ export function secondMoment(spec: ContractSpec, belief: BeliefModel): number {
   if (belief.kind === 'gaussian' && spec.type === 'GAUSSIAN') {
     // f² = exp(-(θ-c)²/w²) = gaussian payoff with width w/√2
     const g = belief as GaussianBelief;
-    return priceGaussianPayoff(spec.center as number, (spec.width as number) / Math.SQRT2, g.mu, g.sigma2);
+    return priceGaussianPayoff(
+      spec.center as number,
+      (spec.width as number) / Math.SQRT2,
+      g.mu,
+      g.sigma2,
+    );
   }
   if (belief.kind === 'student_t' && (spec.type === 'CALL' || spec.type === 'PUT')) {
     // (θ−K)±² grows quadratically into a polynomial tail — any finite quadrature
@@ -89,7 +94,8 @@ function studentTKinkSecondMoment(spec: ContractSpec, t: StudentTBelief): number
   const fd = s * t.pdf(K); // standard-t pdf at d
   const i0 = 1 - t.cdf(K);
   const i1 = (fd * (t.nu + d * d)) / (t.nu - 1);
-  const i2 = d * i1 + (t.nu / (t.nu - 2)) * (1 - studentTCdfStd(t.nu - 2, d * Math.sqrt((t.nu - 2) / t.nu)));
+  const i2 =
+    d * i1 + (t.nu / (t.nu - 2)) * (1 - studentTCdfStd(t.nu - 2, d * Math.sqrt((t.nu - 2) / t.nu)));
   const callSq = Math.max(0, t.scale2 * (i2 - 2 * d * i1 + d * d * i0));
   if (spec.type === 'CALL') return callSq;
   return Math.max(0, t.variance() + (t.mu - K) ** 2 - callSq);

@@ -98,7 +98,8 @@ function priceUnderStudentT(spec: ContractSpec, t: StudentTBelief): number {
       const K = spec.strike as number;
       const s = Math.sqrt(t.scale2);
       const d = (K - t.mu) / s;
-      const call = t.scale2 * t.pdf(K) * ((t.nu + d * d) / (t.nu - 1)) - (K - t.mu) * (1 - t.cdf(K));
+      const call =
+        t.scale2 * t.pdf(K) * ((t.nu + d * d) / (t.nu - 1)) - (K - t.mu) * (1 - t.cdf(K));
       return spec.type === 'CALL' ? call : call - (t.mu - K);
     }
     case 'BINARY_CALL':

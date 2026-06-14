@@ -134,7 +134,10 @@ describe.if(hasEnv)('settlement & claims (integration)', () => {
     const { fill } = (await buyRes.json()) as { fill: { balance: number } };
     const balAfterBuy = fill.balance;
 
-    await req('POST', `/admin/markets/${id}/resolve`, { token: adminToken, body: { thetaStar: 130 } });
+    await req('POST', `/admin/markets/${id}/resolve`, {
+      token: adminToken,
+      body: { thetaStar: 130 },
+    });
     await req('POST', `/admin/markets/${id}/settle`, { token: adminToken });
     // Admin archives BEFORE alice claims her 600.
     const closed = await req('POST', `/admin/markets/${id}/close`, { token: adminToken });
