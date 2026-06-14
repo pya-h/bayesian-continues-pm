@@ -82,6 +82,34 @@ describe.if(hasEnv)('market lifecycle (integration)', () => {
     expect(market.status).toBe('CREATED');
   });
 
+  test('new market reads back model = null (G0 migration applied)', async () => {
+    const rows = await db
+      .select({ model: markets.model })
+      .from(markets)
+      .where(eq(markets.marketId, marketId));
+    expect(rows[0]?.model).toBeNull();
+  });
+
+  test('gen_basis / gen_exact create rejected for now (G0 fail-closed) → 400', async () => {
+    for (const belief of [
+      { kind: 'gen_basis', bumps: [{ mu: 0, sigma: 1, weight: 1 }] },
+      { kind: 'gen_exact', lambdas: [1, 0, 0] },
+    ]) {
+      const res = await req('POST', '/admin/markets', {
+        token: adminToken,
+        body: {
+          title: 'unsupported model (test)',
+          outcomeUnit: 'USD',
+          initialMu: 1,
+          initialSigma: 1,
+          initialReserve: 1,
+          belief,
+        },
+      });
+      expect(res.status).toBe(400);
+    }
+  });
+
   test('GET /markets/:id shows belief μ/σ + pool NAV', async () => {
     const res = await req('GET', `/markets/${marketId}`);
     expect(res.status).toBe(200);

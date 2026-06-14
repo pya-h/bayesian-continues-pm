@@ -55,17 +55,26 @@ shapes. Companion to [`general-belief-form.md`](./general-belief-form.md),
 
 Goal: land the *shape* of the new surface with **zero runtime change**, so later phases are additive.
 
-- [ ] `shared/dto.ts`: add the `ModelTag` enum (`gaussian|student_t|mixture|gen_basis|gen_exact`); do
+- [x] `shared/dto.ts`: add the `ModelTag` enum (`gaussian|student_t|mixture|gen_basis|gen_exact`); do
   **not** wire it into validation yet. Add `gen_exact` to `beliefStateSchema` (discriminated union) and
   a `createGenExactSchema` / `createGenBasisSchema` to `createBeliefSchema` — but keep them unused.
-- [ ] `db/schema.ts`: add nullable `markets.model text`. Drizzle migration (additive, no backfill).
-- [ ] `core`: add a `BELIEF_TAIL` map (`gaussian|mixture|gen_basis|gen_exact → 'gaussian'`,
+  *(Done: `ModelTag` lives in `shared/enums.ts`; `genExactStateSchema` added to `beliefStateSchema`;
+  `gen_basis` (bump list, ≤12) and `gen_exact` (λ-tuple, reuses initialMu/Sigma) variants added to
+  `createBeliefSchema`. Parsed but unwired.)*
+- [x] `db/schema.ts`: add nullable `markets.model text`. Drizzle migration (additive, no backfill).
+  *(Done: `model: text('model').$type<ModelTag>()`; migration `0004_charming_exiles.sql` =
+  `ALTER TABLE "markets" ADD COLUMN "model" text;`, applied.)*
+- [x] `core`: add a `BELIEF_TAIL` map (`gaussian|mixture|gen_basis|gen_exact → 'gaussian'`,
   `student_t → 'polynomial'`) + a pure `contractBeliefCompatible(spec, tailKind)` stub returning
-  `true` for all current contracts. (Used in G5.)
-- [ ] **Tests:** schema parse round-trips for the new (unused) variants; migration applies and existing
-  rows read back with `model = null`.
+  `true` for all current contracts. (Used in G5.) *(Done: `core/compat.ts`, exported from `core/index.ts`.)*
+- [x] **Tests:** schema parse round-trips for the new (unused) variants; migration applies and existing
+  rows read back with `model = null`. *(Done: `shared` round-trips all five create kinds + gen_exact
+  state; `core/test/compat.test.ts` covers the tail map + stub; `markets.test.ts` asserts a new market
+  reads `model = null` and that gen_basis/gen_exact create fails closed with 400.)*
 - **Checkpoint:** all existing suites green; `markets.model` exists and is null everywhere; no code path
-  reads the new schemas yet. **math-doc: n/a.**
+  reads the new schemas yet. **math-doc: n/a.** *( 2026-06-14 — core 200, shared 14, api 136 pass;
+  typecheck clean across all 4 packages. makeInitialBelief fails closed on the new kinds rather than
+  silently constructing a Gaussian.)*
 
 ---
 

@@ -33,6 +33,21 @@ export const BeliefKind = {
 } as const;
 export type BeliefKind = (typeof BeliefKind)[keyof typeof BeliefKind];
 
+// Market-level model tag (multi-model refactor). This is the creator's *chosen*
+// model — it drives the create UI and the belief-update config — and is distinct
+// from `BeliefKind`, which is the math/serialization representation. Notably
+// `gen_basis` is stored as `belief_kind = 'mixture'` (an adaptive mixture); the
+// `model` tag is what carries its distinct identity. Legacy rows (model = null)
+// infer `model = belief_kind`. See model/).
+export const ModelTag = {
+  GAUSSIAN: 'gaussian',
+  STUDENT_T: 'student_t',
+  MIXTURE: 'mixture',
+  GEN_BASIS: 'gen_basis',
+  GEN_EXACT: 'gen_exact',
+} as const;
+export type ModelTag = (typeof ModelTag)[keyof typeof ModelTag];
+
 export const LpLedgerKind = {
   DEPOSIT: 'deposit',
   WITHDRAW: 'withdraw',

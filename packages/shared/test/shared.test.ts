@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
   addMoney,
+  beliefStateSchema,
   contractSpecSchema,
+  createBeliefSchema,
   createMarketSchema,
   marketCfgSchema,
   registerSchema,
@@ -93,5 +95,53 @@ describe('auth & market DTOs', () => {
   test('marketCfg rejects reserveAlpha out of (0,1)', () => {
     expect(marketCfgSchema.safeParse({ reserveAlpha: 1 }).success).toBe(false);
     expect(marketCfgSchema.safeParse({ reserveAlpha: 0.99 }).success).toBe(true);
+  });
+});
+
+// Multi-model refactor: the new belief variants parse and round-trip
+// but are otherwise unwired (no service constructs them yet).
+describe('gen_basis / gen_exact schemas (G0 scaffolding)', () => {
+  test('createBelief round-trips for all five kinds', () => {
+    const inputs = [
+      { kind: 'gaussian' },
+      {
+        kind: 'mixture',
+        components: [
+          { pi: 0.5, mu: 0, sigma: 1 },
+          { pi: 0.5, mu: 5, sigma: 1 },
+        ],
+      },
+      { kind: 'student_t', nu: 4 },
+      { kind: 'gen_basis', bumps: [{ mu: 0, sigma: 1, weight: 1 }] },
+      { kind: 'gen_exact', lambdas: [1, 0, 0] },
+    ];
+    for (const input of inputs) {
+      const parsed = createBeliefSchema.parse(input);
+      expect(parsed).toEqual(input as never);
+    }
+  });
+
+  test('createBelief gen_basis enforces ≥1 bump and the 12-bump cap', () => {
+    expect(createBeliefSchema.safeParse({ kind: 'gen_basis', bumps: [] }).success).toBe(false);
+    const tooMany = Array.from({ length: 13 }, (_, i) => ({ mu: i, sigma: 1, weight: 1 }));
+    expect(createBeliefSchema.safeParse({ kind: 'gen_basis', bumps: tooMany }).success).toBe(false);
+    expect(
+      createBeliefSchema.safeParse({ kind: 'gen_basis', bumps: [{ mu: 0, sigma: 0, weight: 1 }] })
+        .success,
+    ).toBe(false); // σ must be positive
+  });
+
+  test('createBelief gen_exact requires exactly three λ', () => {
+    expect(createBeliefSchema.safeParse({ kind: 'gen_exact', lambdas: [1, 0] }).success).toBe(
+      false,
+    );
+    expect(createBeliefSchema.safeParse({ kind: 'gen_exact', lambdas: [1, 0, 0, 0] }).success).toBe(
+      false,
+    );
+  });
+
+  test('belief_state round-trips a gen_exact snapshot', () => {
+    const state = { kind: 'gen_exact', mu: 2, sigma: 1.5, lambdas: [1, 0.2, 0.1] };
+    expect(beliefStateSchema.parse(state)).toEqual(state as never);
   });
 });

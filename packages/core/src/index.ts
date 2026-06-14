@@ -46,6 +46,14 @@ export {
   type PayoffBounds,
 } from './contracts.ts';
 
+// contract↔belief compatibility (multi-model refactor)
+export {
+  type TailKind,
+  type ModelTag,
+  BELIEF_TAIL,
+  contractBeliefCompatible,
+} from './compat.ts';
+
 // pricing
 export { price, dPriceDMu, priceGaussianPayoff, expectF } from './pricing.ts';
 

@@ -54,6 +54,11 @@ function makeInitialBelief(dto: CreateMarketDTO): BeliefModel {
     case 'student_t':
       // σ is the desired stddev; fromVariance converts to the t's scale² via ν/(ν−2).
       return StudentTBelief.fromVariance(dto.belief.nu, dto.initialMu, variance);
+    case 'gen_basis':
+    case 'gen_exact':
+      // Parsed by the DTO schema but not yet constructable —
+      // fail closed rather than silently fall through to Gaussian. Wired in G1/G2.
+      throw new HttpError(400, `belief kind "${dto.belief.kind}" is not yet available`);
     default:
       return new GaussianBelief(dto.initialMu, variance);
   }

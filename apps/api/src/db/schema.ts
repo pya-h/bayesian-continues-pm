@@ -9,6 +9,7 @@ import type {
   ContractType,
   LpLedgerKind,
   MarketStatus,
+  ModelTag,
   TransactionKind,
   UserRole,
 } from '@bmm/shared';
@@ -68,6 +69,10 @@ export const markets = pgTable('markets', {
     .notNull()
     .references(() => users.userId),
   beliefKind: varchar('belief_kind', { length: 16 }).notNull().default('gaussian'),
+  // Creator-chosen model tag (multi-model refactor). NULL ⇒ legacy row; readers
+  // infer model = belief_kind. Distinct from belief_kind (the math representation)
+  // e.g. a 'gen_basis' market stores belief_kind='mixture'. See ModelTag / D1, D3.
+  model: text('model').$type<ModelTag>(),
   initialMu: doublePrecision('initial_mu').notNull(),
   initialSigma: doublePrecision('initial_sigma').notNull(),
   currentMu: doublePrecision('current_mu').notNull(),

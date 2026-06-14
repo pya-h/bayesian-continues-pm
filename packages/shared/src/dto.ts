@@ -62,10 +62,23 @@ export const studentTStateSchema = z.object({
   mu: outcome,
   scale2: variance,
 });
+// The three exponent shape coefficients of a Gen·exact belief: [λ₂, λ₃, λ₄] of
+// `E(u) = ½λ₂u² + λ₃u³ + λ₄u⁴ (+ stabiliser λ₆u⁶)`, `u = (θ−μ)/σ`. Bounds stay
+// loose here (inert scaffolding — ); the sandbox-safe ranges are pinned
+// in when the belief class lands. See model/).
+export const genExactLambdasSchema = z.tuple([finite, finite, finite]);
+// Serialized snapshot of a max-entropy exp(−poly) belief (Gen·exact, kind G2).
+export const genExactStateSchema = z.object({
+  kind: z.literal('gen_exact'),
+  mu: outcome,
+  sigma: spread,
+  lambdas: genExactLambdasSchema,
+});
 export const beliefStateSchema = z.discriminatedUnion('kind', [
   gaussianStateSchema,
   mixtureStateSchema,
   studentTStateSchema,
+  genExactStateSchema,
 ]);
 export type BeliefStateDTO = z.infer<typeof beliefStateSchema>;
 
@@ -76,6 +89,15 @@ export const createMixtureComponentSchema = z.object({
   mu: outcome,
   sigma: spread,
 });
+// One Gen·basis bump as authored at creation: center + spread (stddev) + weight.
+// Whatever editor the UI offers (grid / modes-and-spread) just *generates* this
+// list; the belief itself is an adaptive Gaussian mixture.
+export const createGenBasisBumpSchema = z.object({
+  mu: outcome,
+  sigma: spread,
+  weight: positive,
+});
+export const MAX_GEN_BASIS_BUMPS = 12;
 export const createBeliefSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('gaussian') }),
   z.object({
@@ -87,6 +109,18 @@ export const createBeliefSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('student_t'),
     nu: z.number().finite().gt(2),
+  }),
+  // multi-model refactor --------
+  // Gen·basis: an adaptive Gaussian mixture authored as a list of bumps.
+  z.object({
+    kind: z.literal('gen_basis'),
+    bumps: z.array(createGenBasisBumpSchema).min(1).max(MAX_GEN_BASIS_BUMPS),
+  }),
+  // Gen·exact: max-entropy exp(−poly); reuses initialMu/initialSigma as μ/σ (like
+  // student_t), authoring only the exponent shape coefficients λ.
+  z.object({
+    kind: z.literal('gen_exact'),
+    lambdas: genExactLambdasSchema,
   }),
 ]);
 export type CreateBeliefDTO = z.infer<typeof createBeliefSchema>;
