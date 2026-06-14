@@ -179,7 +179,15 @@ meanwhile, restore: the page shows "live" again but stays OPEN with old μ/σ un
 manual reload. **Fix:** when a reconnect follows a drop, invalidate
 `qk.market/stats/historyAll`. (Nit: fixed 1.5s retry, no backoff/jitter.)
 
-### C52 · [Low — latent] math.js `computeSpread` is Gaussian-only; core's is belief-kind-aware
+### C52 · [Low — fixed 2026-06-14] math.js `computeSpread` is Gaussian-only; core's is belief-kind-aware
+**Fix:** routed `computeSpread`'s `fair`/`∂P/∂μ` through `priceAny`/`dPriceDMuAny`, so
+the doc widget dispatches by belief kind exactly like core's `spread.ts`. Gaussian
+beliefs fall straight through to the closed forms — verified numerically identical
+(`priceAny`==`price`, `dPriceDMuAny`==`dPriceDMu`, maxdiff 0), so every current widget
+call site is unchanged; a Student-t `BINARY_CALL` spread now prices its fair at the
+kind-aware 0.1955 instead of the wrong Gaussian 0.2819. Companion nit also fixed:
+mirrored core's C20 `erfcCF(+∞)=0` guard, so `Phi(±∞)` returns 1/0 instead of NaN.
+
 `docs/math/math.js:212-225` prices `fair`/`dPriceDMu` with the Gaussian closed forms
 even for mixture/Student-t beliefs, while core's `spread.ts` dispatches by kind.
 Verified divergence: t binary spread −23%, mixture SPREAD fair 2.2× vs core. Latent —
@@ -188,7 +196,14 @@ every current widget call site passes a Gaussian — but it contradicts the port
 `priceAny`/`dPriceDMuAny`. (Companion nit: math.js `Phi/erf/erfc(±∞)` still return
 NaN — the C20 guard wasn't mirrored; no widget passes ±∞ today.)
 
-### C53 · [Low] v1/TDD §10 still lists two routes that don't exist
+### C53 · [Low — fixed 2026-06-14] v1/TDD §10 still lists two routes that don't exist
+**Fix:** aligned `docs/v1/TDD.md` §10 with the implemented surface — replaced
+`GET /markets/:id/belief-history` with the real `GET /markets/:id/history` (noting its
+`?contractKey=` series), dropped the non-existent `GET /markets/:id/trades` (recent
+trades ride the WS `trade_executed` tape), and added the five implemented-but-undocumented
+routes: `POST /markets/:id/sell-all`, `GET /users/me/transactions`,
+`GET /admin/markets/:id/ledger`, `GET /admin/users/:id/transactions`, `GET /admin/audit`.
+
 Pre-existing lines the C32 rewrite didn't touch: `GET /markets/:id/belief-history`
 (actual: `GET /markets/:id/history`, `routes/stats.ts:25`) and `GET /markets/:id/trades`
 (no such route). Also absent from the doc though implemented: `POST /markets/:id/sell-all`,
@@ -203,12 +218,17 @@ Pre-existing lines the C32 rewrite didn't touch: `GET /markets/:id/belief-histor
   re-depositor (victimless but unearned), and a later *negative* NAV re-bricks
   deposits (`S_total = 0 ∧ nav < 0`). The plain withdraw-all → re-deposit → trade
   cycle is value-exact (verified).
-- **C55** [Nit] `AdminPage.tsx:343-364` MyMarkets/System sections render empty-state
-  text ("You haven't created any markets yet." / zeroed stats) on a failed fetch — no
-  error branch.
-- **C56** [Nit] `PositionPanel.tsx:169-173` — the expanded per-position stats query
-  (`qk.position`) is never invalidated by trade/claim successes; an open panel stays
-  stale until collapsed/reopened.
+- **C55** [Nit — fixed 2026-06-14] `AdminPage.tsx:343-364` MyMarkets/System sections
+  render empty-state text ("You haven't created any markets yet." / zeroed stats) on a
+  failed fetch — no error branch. **Fix:** both sections now short-circuit to an
+  `ErrorNote` when their query errors (System OR-s the markets/users errors; Alerts
+  still render above it), so a failed fetch reads as an error, not "empty".
+- **C56** [Nit — fixed 2026-06-14] `PositionPanel.tsx:169-173` — the expanded
+  per-position stats query (`qk.position`) is never invalidated by trade/claim
+  successes; an open panel stays stale until collapsed/reopened. **Fix:** the trade and
+  sell-all mutations (`QuotePanel`) now invalidate the `['position']` prefix, and the
+  position-claim mutation (`PositionPanel`) invalidates its own `qk.position(contractId)`
+  — so an open detail panel refetches in place.
 
 ---
 
@@ -238,5 +258,7 @@ Pre-existing lines the C32 rewrite didn't touch: `GET /markets/:id/belief-histor
 ## Status
 
 The original 48 findings remain **all fixed and verified**. This round's new items
-(C42–C56) are **open** — none blocks the others' correctness, and the test suites are
-green; C42 and C43 are the two worth fixing first.
+(C42–C56) are now **all resolved** except **C54** (info-only — the documented residual
+corners of the C11 re-genesis fix, value-exact on the normal cycle, left as a known
+note). C42–C53, C55, C56 are fixed and verified; the full suite is green (505 tests)
+and typecheck is clean.

@@ -174,6 +174,9 @@ export function PositionRow({
       if (user && !user.isInfinite && c.credited)
         setUser({ ...user, balance: user.balance + c.credited });
       qc.invalidateQueries({ queryKey: qk.portfolio });
+      // The claim flips this position's `claimed` flag — refresh the open detail panel
+      // so it doesn't show a stale unclaimed payout until reopened.
+      qc.invalidateQueries({ queryKey: qk.position(pos.contractId) });
     },
   });
 

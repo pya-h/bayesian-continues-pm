@@ -172,6 +172,9 @@ export function QuotePanel({
       qc.invalidateQueries({ queryKey: qk.stats(marketId) });
       qc.invalidateQueries({ queryKey: qk.historyAll(marketId) });
       qc.invalidateQueries({ queryKey: qk.portfolio });
+      // ['position'] prefix-matches every open per-position detail panel — the trade
+      // moved this contract's qty/basis/payout-distribution, so refetch it.
+      qc.invalidateQueries({ queryKey: ['position'] });
     },
   });
 
@@ -204,6 +207,8 @@ export function QuotePanel({
       qc.invalidateQueries({ queryKey: qk.stats(marketId) });
       qc.invalidateQueries({ queryKey: qk.historyAll(marketId) });
       qc.invalidateQueries({ queryKey: qk.portfolio });
+      // sell-all closed every position here — refresh any open detail panels.
+      qc.invalidateQueries({ queryKey: ['position'] });
     },
   });
 

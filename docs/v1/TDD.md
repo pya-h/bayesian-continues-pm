@@ -316,17 +316,19 @@ GET  /auth/me
 # markets (public read)
 GET  /markets                              list (+status filter)
 GET  /markets/:id                          detail incl. current belief, cfg, pool NAV
-GET  /markets/:id/belief-history           time series (μ,σ)
-GET  /markets/:id/trades                    recent trades
+GET  /markets/:id/history                   belief (μ,σ) + per-contract fair-price series (?contractKey=)
 GET  /markets/:id/stats                     market-level stats (§8)
+# (recent trades ride the WS `trade_executed` tape, not a REST route)
 
 # quoting & trading
 POST /markets/:id/quote        {spec,q} -> quote w/ spread breakdown (no state) (auth)
 POST /markets/:id/trade        {spec,q,maxPrice?} -> fill (auth)  [serialized]
+POST /markets/:id/sell-all     (no body) -> closes every position in the market (auth) [serialized]
 
 # positions / portfolio
 GET  /users/me/portfolio                    all markets + positions + PnL + stats
 GET  /users/me/positions/:contractId        position detail + payout distribution
+GET  /users/me/transactions                 the caller's full ledger history
 POST /markets/:id/claim        (no body) -> credits ALL pending payouts (SETTLED only)
 
 # LP
@@ -340,7 +342,10 @@ POST /admin/markets                          create market (+R0 from creator)
 POST /admin/markets/:id/open|suspend|resume|resolve|settle|cancel|close
 POST /admin/users/:id/topup    {amount}      grant play money
 GET  /admin/markets/:id/overview             creator-side PnL, trades, exposure, reserve
+GET  /admin/markets/:id/ledger               full per-market cash/share ledger
 GET  /admin/users                            list/manage
+GET  /admin/users/:id/transactions           any user's ledger history
+GET  /admin/audit                            audit-event log
 ```
 
 **WebSocket** (`/ws`): client subscribes by market/user. Server pushes `belief_update`, `trade_executed`, `price_change`, `reserve_update`, `lp_update`, `market_status`, `claim_paid`, `lp_claim`, `system:alert` (`MODEL.md §13.2`; position state rides on `trade_executed` + a portfolio refetch rather than a dedicated `position_update` event).

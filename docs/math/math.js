@@ -46,6 +46,7 @@
     return (2 / Math.sqrt(Math.PI)) * sum;
   }
   function erfcCF(z) {
+    if (z === Number.POSITIVE_INFINITY) return 0; // erfc(+∞)=0 ⇒ Φ(±∞)=1/0, not NaN
     const tiny = 1e-300;
     let f = tiny, c = f, d = 0;
     for (let n = 1; n < 300; n++) {
@@ -208,13 +209,18 @@
 
   // spread.ts: computeSpread ----------------------------------------
   function computeSpread(spec, q, mmShort, b, cfg) {
-    const fair = price(spec, b);
+    // Kind-aware fair / ∂P/∂μ (priceAny/dPriceDMuAny), mirroring core spread.ts: the
+    // Gaussian closed forms mis-price mixture/Student-t beliefs (t binary spread −23%
+    // mixture SPREAD fair 2.2×), so the spread's fair + adverse-selection term must
+    // dispatch by belief kind too. Gaussian beliefs fall straight
+    // through to the closed forms, so this is exact for the current widget call sites.
+    const fair = priceAny(spec, b);
     const absFair = Math.abs(fair);
     const sigma = b.sigma;
     const intensity = Math.abs(q) / cfg.qMax;
     const base = cfg.s0 * absFair;
     const inventory = cfg.gamma * Math.abs(mmShort + q) * absFair;
-    const perSigmaMove = Math.abs(dPriceDMu(spec, b)) * sigma;
+    const perSigmaMove = Math.abs(dPriceDMuAny(spec, b)) * sigma;
     const adverseSelection = cfg.lambda * intensity * perSigmaMove;
     const sigmaRel = sigma / Math.max(Math.abs(b.mu), sigma);
     const volatility = cfg.eta * sigmaRel * absFair;

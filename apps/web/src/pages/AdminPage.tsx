@@ -346,6 +346,14 @@ function MyMarkets({ creatorId }: { creatorId: string }) {
   );
 
   if (markets.isLoading) return <Spinner label="Loading markets…" />;
+  // Distinguish a failed fetch from a genuinely empty list — otherwise an API error
+  // reads as "you have no markets", hiding the problem.
+  if (markets.error)
+    return (
+      <ErrorNote>
+        {markets.error instanceof ApiError ? markets.error.message : 'Failed to load markets.'}
+      </ErrorNote>
+    );
 
   return (
     <Panel title="Your markets" right={<span className="text-xs text-muted">{mine.length}</span>}>
@@ -705,21 +713,31 @@ function SystemSection() {
     [markets.data],
   );
 
+  // A failed markets/users fetch would otherwise render zeroed counts as if the system
+  // were empty — surface the error instead. Alerts still render above it.
+  const err = markets.error ?? users.error;
+
   return (
     <div className="flex flex-col gap-5">
       <AlertsBanner />
-      <Panel title="System overview">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3 p-4 sm:grid-cols-3 lg:grid-cols-4">
-          <Stat label="Markets" value={markets.data?.length ?? 0} />
-          <Stat label="Users" value={users.data?.length ?? 0} />
-          <Stat label="Open" value={byStatus.get('OPEN') ?? 0} tone="buy" />
-          <Stat label="Resolved" value={byStatus.get('RESOLVED') ?? 0} tone="accent" />
-          <Stat label="Settled" value={byStatus.get('SETTLED') ?? 0} />
-          <Stat label="Suspended" value={byStatus.get('SUSPENDED') ?? 0} tone="warn" />
-          <Stat label="Cancelled" value={byStatus.get('CANCELLED') ?? 0} tone="sell" />
-          <Stat label="Total pool NAV" value={fmtCompact(totalPool)} tone="accent" />
-        </div>
-      </Panel>
+      {err ? (
+        <ErrorNote>
+          {err instanceof ApiError ? err.message : 'Failed to load system overview.'}
+        </ErrorNote>
+      ) : (
+        <Panel title="System overview">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 p-4 sm:grid-cols-3 lg:grid-cols-4">
+            <Stat label="Markets" value={markets.data?.length ?? 0} />
+            <Stat label="Users" value={users.data?.length ?? 0} />
+            <Stat label="Open" value={byStatus.get('OPEN') ?? 0} tone="buy" />
+            <Stat label="Resolved" value={byStatus.get('RESOLVED') ?? 0} tone="accent" />
+            <Stat label="Settled" value={byStatus.get('SETTLED') ?? 0} />
+            <Stat label="Suspended" value={byStatus.get('SUSPENDED') ?? 0} tone="warn" />
+            <Stat label="Cancelled" value={byStatus.get('CANCELLED') ?? 0} tone="sell" />
+            <Stat label="Total pool NAV" value={fmtCompact(totalPool)} tone="accent" />
+          </div>
+        </Panel>
+      )}
     </div>
   );
 }
