@@ -354,6 +354,43 @@ describe('buildCreateMarketBody', () => {
       buildCreateMarketBody({ ...base, beliefKind: 'gen_exact', lambdas: [1, 0, ''] }),
     ).toThrow('must be a number');
   });
+
+  // G3: the admin form leads with the two generals + folds the three classics under
+  // "More models". The build-body must produce a valid belief for every one of the five.
+  test('builds a valid belief for all five model kinds (G3)', () => {
+    const cases: { draft: Partial<CreateMarketDraft>; belief: unknown }[] = [
+      { draft: { beliefKind: 'gaussian' }, belief: undefined }, // gaussian ⇒ no belief override (v1 default)
+      {
+        draft: { beliefKind: 'gen_basis', components: [{ pi: 1, mu: 14, sigma: 3 }] },
+        belief: { kind: 'gen_basis', bumps: [{ mu: 14, sigma: 3, weight: 1 }] },
+      },
+      {
+        draft: { beliefKind: 'gen_exact', lambdas: [-1.5, 0, 0] },
+        belief: { kind: 'gen_exact', lambdas: [-1.5, 0, 0] },
+      },
+      { draft: { beliefKind: 'student_t', nu: 5 }, belief: { kind: 'student_t', nu: 5 } },
+      {
+        draft: {
+          beliefKind: 'mixture',
+          components: [
+            { pi: 1, mu: 10, sigma: 2 },
+            { pi: 1, mu: 18, sigma: 2 },
+          ],
+        },
+        belief: {
+          kind: 'mixture',
+          components: [
+            { pi: 1, mu: 10, sigma: 2 },
+            { pi: 1, mu: 18, sigma: 2 },
+          ],
+        },
+      },
+    ];
+    for (const c of cases) {
+      const body = buildCreateMarketBody({ ...base, ...c.draft });
+      expect(body.belief).toEqual(c.belief);
+    }
+  });
 });
 
 describe('lifecycleActions', () => {

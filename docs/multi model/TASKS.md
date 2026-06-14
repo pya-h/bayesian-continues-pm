@@ -241,17 +241,34 @@ Treat (μ,σ) as location/scale; **keep λ's fixed**; update in the **variance d
 Goal: surface **Gen·basis (default)** and **Gen·exact ** as primary, demote the three behind
 **"More models ▾"**. Pure presentation — every kind stays creatable.
 
-- [ ] `AdminPage` `CreateMarketForm`: replace the flat 3-button toggle with: a **primary row**
+- [x] `AdminPage` `CreateMarketForm`: replace the flat 3-button toggle with: a **primary row**
   (Gen·basis default-selected, Gen·exact), and a collapsible **More models** group
   (Gaussian / Student-t / Mixture). `EMPTY_DRAFT.beliefKind = 'gen_basis'`.
-- [ ] Per-model editors: Gen·basis (bump/grid/modes editor → bump list), Gen·exact (λ sliders + presets:
+  *(Done. Two-up `ModelButton` primary row + a `▸ More models` expander revealing the three classics;
+  selecting a classic auto-opens the group so the choice stays visible. `EMPTY_DRAFT` now defaults to
+  `gen_basis` seeded with one bump + a Gaussian λ-preset; `setKind` re-seeds per kind (≥1 bump for
+  gen_basis, ≥2 for mixture, ν=5 for t, [1,0,0] for gen_exact). `showMore` resets on create.)*
+- [x] Per-model editors: Gen·basis (bump/grid/modes editor → bump list), Gen·exact (λ sliders + presets:
   *Gaussian / Skew / Flat / Bimodal*), and the existing three unchanged.
-- [ ] Helper text per model; "Mixture" labelled as a Gen·basis preset; "Student-t" noted as *exact heavy
+  *(Done. Gen·basis and Mixture share the bump/mode-row editor (noun + min-count differ: "bump"/≥1 vs
+  "mode"/≥2). Gen·exact gets three range sliders bound to the sandbox-safe ranges + the four preset chips.
+  Student-t keeps its ν field; Gaussian has no editor.)*
+- [x] Helper text per model; "Mixture" labelled as a Gen·basis preset; "Student-t" noted as *exact heavy
   tails* (the one capability the generals don't do exactly).
-- [ ] **Tests:** default draft is `gen_basis`; build-body for all five kinds; the More-models expander
-  toggles; `derive` unit tests per kind.
+  *(Done via `MODEL_META[kind].help` shown under the selector — Mixture reads "a Gen·basis preset (fixed
+  camps, spawning off)", Student-t "exact heavy (polynomial) tails — the one capability the generals don't
+  reproduce exactly".)*
+- [x] **Tests:** default draft is `gen_basis`; build-body for all five kinds; the More-models expander
+  toggles; `derive` unit tests per kind. *(Done for the DOM-free surface: `derive.test.ts` gains a
+  consolidated "builds a valid belief for all five model kinds" test on top of the per-kind tests. **The
+  web suite is pure-function only (no RTL/DOM harness)** — `EMPTY_DRAFT`-default and the expander toggle are
+  React component state, so they're covered by typecheck + manual/visual review rather than a unit test, in
+  keeping with the existing form having no component tests. Standing up an RTL harness is out of scope for a
+  presentation phase.)*
 - **Checkpoint:** create flow leads with the two generals; the three remain one click away; nothing
-  about existing markets changes. **math-doc: n/a.**
+  about existing markets changes. **math-doc: n/a.** *( 2026-06-14 — full sweep **621 pass** (core 287 ·
+  shared 15 · api 143 · web 176); typecheck + biome clean. No api/core/shared changes — pure web
+  presentation; the `model` tag + all five create paths were already wired in G1/G2.)*
 
 ---
 

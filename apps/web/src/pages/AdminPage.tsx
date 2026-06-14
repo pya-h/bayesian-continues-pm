@@ -87,6 +87,58 @@ export function AdminPage() {
 
 // create market ---
 
+type BeliefKind = NonNullable<CreateMarketDraft['beliefKind']>;
+const PRIMARY_KINDS = ['gen_basis', 'gen_exact'] as const;
+const MORE_KINDS = ['gaussian', 'student_t', 'mixture'] as const;
+
+const MODEL_META: Record<BeliefKind, { label: string; sub: string; help: string }> = {
+  gen_basis: {
+    label: 'Gen·basis ⛓',
+    sub: 'default · adaptive',
+    help: 'The default general model — an adaptive Gaussian mixture. Author one or more bumps (weight π, center μ, spread σ); order flow grows a new mode where the crowd disagrees and merges modes back on consensus, so the shape adapts itself.',
+  },
+  gen_exact: {
+    label: 'Gen·exact ★',
+    sub: 'skew · peak · bimodal',
+    help: 'Max-entropy exp(−poly) — a few smooth shape dials around μ/σ (above): λ₂ well depth (<0 ⇒ bimodal), λ₃ skew, λ₄ flat-top / thinner tails. Exact analytic shapes in just a handful of parameters.',
+  },
+  gaussian: {
+    label: 'Gaussian',
+    sub: 'simple · exact',
+    help: 'A single symmetric bump N(μ, σ²) — the cheapest exact unimodal prior. A special case of Gen·basis (one bump).',
+  },
+  student_t: {
+    label: 'Student-t',
+    sub: 'exact heavy tails',
+    help: 'Like a Gaussian but with exact heavy (polynomial) tails — the one capability the generals do not reproduce exactly, so far-from-consensus outcomes stay plausible. Lower ν ⇒ heavier tails; ν > 2 for finite variance.',
+  },
+  mixture: {
+    label: 'Mixture',
+    sub: 'fixed camps · a Gen·basis preset',
+    help: 'A fixed set of explicit Gaussian camps (≥2 modes). Mathematically a subset of Gen·basis (the general mixture) with mode-spawning off — kept as a "few explicit camps" preset.',
+  },
+};
+
+// Gen·exact shape presets → [λ₂, λ₃, λ₄] (within the sandbox-safe ranges).
+const GEN_EXACT_PRESETS: { label: string; lambdas: [number, number, number] }[] = [
+  { label: 'Gaussian', lambdas: [1, 0, 0] },
+  { label: 'Skew', lambdas: [1, 0.3, 0] },
+  { label: 'Flat', lambdas: [1, 0, 1.2] },
+  { label: 'Bimodal', lambdas: [-1.5, 0, 0] },
+];
+// λ slider ranges, paired with the coefficient index they drive.
+const GEN_EXACT_SLIDERS: {
+  idx: 0 | 1 | 2;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+}[] = [
+  { idx: 0, label: 'λ₂ well depth (<0 ⇒ bimodal)', min: -4, max: 4, step: 0.1 },
+  { idx: 1, label: 'λ₃ skew', min: -0.35, max: 0.35, step: 0.01 },
+  { idx: 2, label: 'λ₄ flat-top / thin tails', min: 0, max: 1.6, step: 0.05 },
+];
+
 const EMPTY_DRAFT: CreateMarketDraft = {
   title: '',
   description: '',
@@ -96,16 +148,46 @@ const EMPTY_DRAFT: CreateMarketDraft = {
   initialMu: 0,
   initialSigma: 1,
   initialReserve: 10_000,
-  beliefKind: 'gaussian',
-  components: [],
+  beliefKind: 'gen_basis',
+  // Gen·basis (the default) opens with a single bump at the prior; switching kinds
+  // re-seeds as needed.
+  components: [{ pi: 1, mu: 0, sigma: 1 }],
   nu: 5,
+  lambdas: [1, 0, 0],
   cfg: {},
 };
+
+function ModelButton({
+  meta,
+  selected,
+  onClick,
+}: {
+  meta: { label: string; sub: string };
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`flex min-w-[8rem] flex-col items-start rounded-lg border px-3 py-1.5 text-left ${
+        selected
+          ? 'border-accent bg-accent text-ink'
+          : 'border-edge bg-panel-2 text-fg hover:border-accent'
+      }`}
+    >
+      <span className="text-xs font-semibold">{meta.label}</span>
+      <span className={`text-[10px] ${selected ? 'text-ink/80' : 'text-muted'}`}>{meta.sub}</span>
+    </button>
+  );
+}
 
 function CreateMarketForm() {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<CreateMarketDraft>(EMPTY_DRAFT);
   const [showCfg, setShowCfg] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const create = useMutation({
@@ -114,6 +196,7 @@ function CreateMarketForm() {
       qc.invalidateQueries({ queryKey: qk.markets });
       setDraft(EMPTY_DRAFT);
       setShowCfg(false);
+      setShowMore(false);
     },
   });
 
@@ -123,23 +206,35 @@ function CreateMarketForm() {
     setDraft((d) => ({ ...d, cfg: { ...d.cfg, [k]: v } }));
 
   // belief-shape editor helpers ---
-  const setKind = (kind: 'gaussian' | 'mixture' | 'student_t') =>
+  const setKind = (kind: BeliefKind) => {
+    if ((MORE_KINDS as readonly string[]).includes(kind)) setShowMore(true);
     setDraft((d) => ({
       ...d,
       beliefKind: kind,
-      // Seed two modes straddling μ on first switch to mixture, so the chart is
-      // visibly bimodal out of the box.
+      // Gen·basis opens with ≥1 bump; mixture needs ≥2 straddling modes so it's
+      // visibly multi-modal out of the box. Both edit the same `components` rows.
       components:
         kind === 'mixture' && (d.components?.length ?? 0) < 2
           ? [
               { pi: 1, mu: d.initialMu - d.initialSigma, sigma: d.initialSigma },
               { pi: 1, mu: d.initialMu + d.initialSigma, sigma: d.initialSigma },
             ]
-          : (d.components ?? []),
+          : kind === 'gen_basis' && (d.components?.length ?? 0) < 1
+            ? [{ pi: 1, mu: d.initialMu, sigma: d.initialSigma }]
+            : (d.components ?? []),
       // Seed a sensible ν (heavier tails than Gaussian, finite variance) on first
-      // switch to Student-t.
+      // switch to Student-t; seed a Gaussian λ-preset on first switch to Gen·exact.
       nu: kind === 'student_t' && !(Number(d.nu) > 2) ? 5 : d.nu,
+      lambdas: kind === 'gen_exact' && !d.lambdas ? [1, 0, 0] : d.lambdas,
     }));
+  };
+  const setLambda = (idx: 0 | 1 | 2, v: number) =>
+    setDraft((d) => {
+      const lam: [number | '', number | '', number | ''] = [...(d.lambdas ?? [1, 0, 0])];
+      lam[idx] = v;
+      return { ...d, lambdas: lam };
+    });
+  const applyPreset = (lambdas: [number, number, number]) => setDraft((d) => ({ ...d, lambdas }));
   const setMode = (i: number, k: 'pi' | 'mu' | 'sigma', v: number | '') =>
     setDraft((d) => {
       const comps = [...(d.components ?? [])];
@@ -208,77 +303,127 @@ function CreateMarketForm() {
         </Field>
       </div>
 
-      {/* Belief kind: Gaussian (default) or a multi-modal mixture (V2-1). */}
+      {/* Belief model: two primary generals lead; the three classics fold away under
+          "More models". Every kind stays one click from creatable (multi-model G3). */}
       <div className="border-t border-edge px-4 py-3">
-        <div className="mb-2 flex items-center gap-2">
-          <span className="text-xs text-muted">Belief shape</span>
-          <div className="flex overflow-hidden rounded-lg border border-edge">
-            {(['gaussian', 'mixture', 'student_t'] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setKind(k)}
-                className={`px-3 py-1 text-xs ${
-                  (draft.beliefKind ?? 'gaussian') === k
-                    ? 'bg-accent text-ink'
-                    : 'bg-panel-2 text-muted hover:text-fg'
-                }`}
-              >
-                {k === 'gaussian'
-                  ? 'Gaussian'
-                  : k === 'mixture'
-                    ? 'Mixture (multi-modal)'
-                    : 'Student-t (fat tails)'}
-              </button>
-            ))}
-          </div>
+        <div className="mb-2 text-xs text-muted">Belief model</div>
+        <div className="flex flex-wrap items-stretch gap-2">
+          {PRIMARY_KINDS.map((k) => (
+            <ModelButton
+              key={k}
+              meta={MODEL_META[k]}
+              selected={(draft.beliefKind ?? 'gen_basis') === k}
+              onClick={() => setKind(k)}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={() => setShowMore((s) => !s)}
+            className="rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-xs text-muted hover:text-fg"
+          >
+            {showMore ? '▾' : '▸'} More models
+          </button>
         </div>
-        {draft.beliefKind === 'mixture' && (
-          <div className="flex flex-col gap-2">
-            <p className="text-xs text-muted">
-              Each mode is a Gaussian bump (weight π, center μ, spread σ). Weights are normalized
-              automatically; you need at least 2 modes.
-            </p>
-            {(draft.components ?? []).map((c, i) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: transient form rows, no stable id
-              <div key={`mode-${i}`} className="flex items-end gap-2">
-                <Field label={`π${i + 1}`} className="w-20">
-                  <Num value={c.pi} onChange={(v) => setMode(i, 'pi', v)} />
-                </Field>
-                <Field label="center μ" className="flex-1">
-                  <Num value={c.mu} onChange={(v) => setMode(i, 'mu', v)} />
-                </Field>
-                <Field label="σ" className="w-24">
-                  <Num value={c.sigma} onChange={(v) => setMode(i, 'sigma', v)} />
-                </Field>
-                <button
-                  type="button"
-                  onClick={() => removeMode(i)}
-                  disabled={(draft.components?.length ?? 0) <= 2}
-                  className="mb-1 rounded-md border border-edge px-2 py-1 text-xs text-muted hover:text-sell disabled:opacity-40"
-                  title="Remove mode"
-                >
-                  ✕
-                </button>
-              </div>
+        {showMore && (
+          <div className="mt-2 flex flex-wrap items-stretch gap-2">
+            {MORE_KINDS.map((k) => (
+              <ModelButton
+                key={k}
+                meta={MODEL_META[k]}
+                selected={draft.beliefKind === k}
+                onClick={() => setKind(k)}
+              />
             ))}
-            <button
-              type="button"
-              onClick={addMode}
-              className="self-start rounded-md border border-edge px-3 py-1 text-xs text-muted hover:text-fg"
-            >
-              + Add mode
-            </button>
           </div>
         )}
+
+        <p className="mt-3 text-xs text-muted">
+          {MODEL_META[draft.beliefKind ?? 'gen_basis'].help}
+        </p>
+
+        {/* Gen·basis bumps / Mixture modes — same editor; Gen·basis allows a single
+            bump, Mixture needs ≥2 camps. */}
+        {(draft.beliefKind === 'gen_basis' || draft.beliefKind === 'mixture') &&
+          (() => {
+            const noun = draft.beliefKind === 'gen_basis' ? 'bump' : 'mode';
+            const minCount = draft.beliefKind === 'gen_basis' ? 1 : 2;
+            return (
+              <div className="mt-3 flex flex-col gap-2">
+                {(draft.components ?? []).map((c, i) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: transient form rows, no stable id
+                  <div key={`mode-${i}`} className="flex items-end gap-2">
+                    <Field label={`π${i + 1}`} className="w-20">
+                      <Num value={c.pi} onChange={(v) => setMode(i, 'pi', v)} />
+                    </Field>
+                    <Field label="center μ" className="flex-1">
+                      <Num value={c.mu} onChange={(v) => setMode(i, 'mu', v)} />
+                    </Field>
+                    <Field label="σ" className="w-24">
+                      <Num value={c.sigma} onChange={(v) => setMode(i, 'sigma', v)} />
+                    </Field>
+                    <button
+                      type="button"
+                      onClick={() => removeMode(i)}
+                      disabled={(draft.components?.length ?? 0) <= minCount}
+                      className="mb-1 rounded-md border border-edge px-2 py-1 text-xs text-muted hover:text-sell disabled:opacity-40"
+                      title={`Remove ${noun}`}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addMode}
+                  className="self-start rounded-md border border-edge px-3 py-1 text-xs text-muted hover:text-fg"
+                >
+                  + Add {noun}
+                </button>
+              </div>
+            );
+          })()}
+
+        {/* Gen·exact λ shape: presets + sliders. */}
+        {draft.beliefKind === 'gen_exact' && (
+          <div className="mt-3 flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted">Presets</span>
+              {GEN_EXACT_PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => applyPreset(p.lambdas)}
+                  className="rounded-md border border-edge px-2.5 py-1 text-xs text-muted hover:text-fg"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            {GEN_EXACT_SLIDERS.map((s) => {
+              const val = Number(draft.lambdas?.[s.idx] ?? 0);
+              return (
+                <div key={s.idx} className="flex items-center gap-3">
+                  <span className="w-52 text-xs text-muted">{s.label}</span>
+                  <input
+                    type="range"
+                    min={s.min}
+                    max={s.max}
+                    step={s.step}
+                    value={val}
+                    onChange={(e) => setLambda(s.idx, Number(e.target.value))}
+                    className="flex-1 accent-[var(--color-accent)]"
+                    aria-label={s.label}
+                  />
+                  <span className="tnum w-12 text-right text-xs text-fg">{val.toFixed(2)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Student-t ν. */}
         {draft.beliefKind === 'student_t' && (
-          <div className="flex flex-col gap-2">
-            <p className="text-xs text-muted">
-              A Student-t belief centered at μ with spread σ (above), but with <em>fatter tails</em>{' '}
-              than a Gaussian — so far-from-consensus outcomes stay more plausible. Lower ν ⇒
-              heavier tails; ν must exceed 2 for finite variance and approaches a Gaussian as ν
-              grows.
-            </p>
+          <div className="mt-3">
             <Field label="Degrees of freedom ν (> 2)" className="w-40">
               <Num value={draft.nu ?? ''} onChange={(v) => set('nu', v)} placeholder="5" />
             </Field>
