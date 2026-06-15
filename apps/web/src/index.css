@@ -396,6 +396,17 @@ select:not(:disabled) {
 .btn-glow-sell:hover {
   box-shadow: 0 7px 22px -4px color-mix(in oklab, var(--color-sell) 72%, transparent);
 }
+/* Amber/warn glow — for the cumulative-probability (CDF) controls + curve, which
+   are warn-tinted so the switch, legend, and curve read as one feature. */
+.glow-warn {
+  box-shadow: 0 8px 26px -8px color-mix(in oklab, var(--color-warn) 60%, transparent);
+}
+.btn-glow-warn {
+  box-shadow: 0 4px 14px -4px color-mix(in oklab, var(--color-warn) 55%, transparent);
+}
+.btn-glow-warn:hover {
+  box-shadow: 0 7px 22px -4px color-mix(in oklab, var(--color-warn) 72%, transparent);
+}
 
 /* A gradient hairline border via a masked pseudo-element — for hero panels and
    featured cards. Pair with `position: relative` (the rounded radius is matched

@@ -171,14 +171,18 @@ function ModelButton({
       type="button"
       onClick={onClick}
       aria-pressed={selected}
-      className={`flex min-w-[8rem] flex-col items-start rounded-lg border px-3 py-1.5 text-left ${
+      className={`sheen relative flex min-w-[8.5rem] flex-col items-start overflow-hidden rounded-lg border px-3 py-2 text-left transition-transform duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-0.5 ${
         selected
-          ? 'border-accent bg-accent text-ink'
-          : 'border-edge bg-panel-2 text-fg hover:border-accent'
+          ? 'bg-grad-accent btn-glow-accent border-transparent text-[var(--color-on-accent)]'
+          : 'surface-2 border-edge text-fg hover:border-accent'
       }`}
     >
-      <span className="text-xs font-semibold">{meta.label}</span>
-      <span className={`text-[10px] ${selected ? 'text-ink/80' : 'text-muted'}`}>{meta.sub}</span>
+      <span className="text-xs font-semibold tracking-tight">{meta.label}</span>
+      <span
+        className={`text-[10px] ${selected ? 'text-[var(--color-on-accent)]/80' : 'text-muted'}`}
+      >
+        {meta.sub}
+      </span>
     </button>
   );
 }
@@ -319,13 +323,19 @@ function CreateMarketForm() {
           <button
             type="button"
             onClick={() => setShowMore((s) => !s)}
-            className="rounded-lg border border-edge bg-panel-2 px-3 py-1.5 text-xs text-muted hover:text-fg"
+            className="surface-2 rounded-lg border border-edge px-3 py-1.5 text-xs text-muted transition-colors hover:border-accent hover:text-fg"
           >
-            {showMore ? '▾' : '▸'} More models
+            <span
+              className="inline-block transition-transform duration-200"
+              style={{ transform: showMore ? 'rotate(90deg)' : 'none' }}
+            >
+              ▸
+            </span>{' '}
+            More models
           </button>
         </div>
         {showMore && (
-          <div className="mt-2 flex flex-wrap items-stretch gap-2">
+          <div className="animate-slide-in mt-2 flex flex-wrap items-stretch gap-2">
             {MORE_KINDS.map((k) => (
               <ModelButton
                 key={k}
@@ -337,7 +347,10 @@ function CreateMarketForm() {
           </div>
         )}
 
-        <p className="mt-3 text-xs text-muted">
+        <p
+          key={draft.beliefKind ?? 'gen_basis'}
+          className="animate-fade-in mt-3 text-xs leading-relaxed text-muted"
+        >
           {MODEL_META[draft.beliefKind ?? 'gen_basis'].help}
         </p>
 
@@ -348,7 +361,7 @@ function CreateMarketForm() {
             const noun = draft.beliefKind === 'gen_basis' ? 'bump' : 'mode';
             const minCount = draft.beliefKind === 'gen_basis' ? 1 : 2;
             return (
-              <div className="mt-3 flex flex-col gap-2">
+              <div key={draft.beliefKind} className="animate-slide-in mt-3 flex flex-col gap-2">
                 {(draft.components ?? []).map((c, i) => (
                   // biome-ignore lint/suspicious/noArrayIndexKey: transient form rows, no stable id
                   <div key={`mode-${i}`} className="flex items-end gap-2">
@@ -385,19 +398,27 @@ function CreateMarketForm() {
 
         {/* Gen·exact λ shape: presets + sliders. */}
         {draft.beliefKind === 'gen_exact' && (
-          <div className="mt-3 flex flex-col gap-3">
+          <div className="animate-slide-in mt-3 flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-muted">Presets</span>
-              {GEN_EXACT_PRESETS.map((p) => (
-                <button
-                  key={p.label}
-                  type="button"
-                  onClick={() => applyPreset(p.lambdas)}
-                  className="rounded-md border border-edge px-2.5 py-1 text-xs text-muted hover:text-fg"
-                >
-                  {p.label}
-                </button>
-              ))}
+              {GEN_EXACT_PRESETS.map((p) => {
+                const active = p.lambdas.every((v, i) => Number(draft.lambdas?.[i]) === v);
+                return (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => applyPreset(p.lambdas)}
+                    aria-pressed={active}
+                    className={`sheen relative overflow-hidden rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                      active
+                        ? 'bg-grad-accent btn-glow-accent border-transparent text-[var(--color-on-accent)]'
+                        : 'border-edge text-muted hover:border-accent hover:text-fg'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
             </div>
             {GEN_EXACT_SLIDERS.map((s) => {
               const val = Number(draft.lambdas?.[s.idx] ?? 0);
@@ -411,10 +432,12 @@ function CreateMarketForm() {
                     step={s.step}
                     value={val}
                     onChange={(e) => setLambda(s.idx, Number(e.target.value))}
-                    className="flex-1 accent-[var(--color-accent)]"
+                    className="h-1.5 flex-1 cursor-pointer accent-[var(--color-accent)]"
                     aria-label={s.label}
                   />
-                  <span className="tnum w-12 text-right text-xs text-fg">{val.toFixed(2)}</span>
+                  <span className="tnum w-12 rounded bg-panel-2 px-1.5 py-0.5 text-right text-xs text-fg">
+                    {val.toFixed(2)}
+                  </span>
                 </div>
               );
             })}
@@ -423,7 +446,7 @@ function CreateMarketForm() {
 
         {/* Student-t ν. */}
         {draft.beliefKind === 'student_t' && (
-          <div className="mt-3">
+          <div className="animate-slide-in mt-3">
             <Field label="Degrees of freedom ν (> 2)" className="w-40">
               <Num value={draft.nu ?? ''} onChange={(v) => set('nu', v)} placeholder="5" />
             </Field>

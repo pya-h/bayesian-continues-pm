@@ -752,12 +752,14 @@ function BeliefChartImpl({
           (0→1, sharing the vertical zoom), so it tracks every pan / zoom / unit change */}
       {showCdf && (
         <path
+          className="animate-fade-in"
           d={toPath(cdf, sx, syCdf)}
           fill="none"
           stroke="var(--color-warn)"
           strokeWidth={2}
           strokeDasharray="5 3"
           opacity={0.9}
+          filter={dragging ? undefined : 'url(#bc-glow)'}
         />
       )}
 
@@ -1077,7 +1079,7 @@ function BeliefChartImpl({
               y={cross.ty + 77}
               textAnchor="end"
               fontSize={11}
-              className="fill-[var(--color-fg)] font-semibold"
+              className="fill-[var(--color-warn)] font-semibold"
             >
               {fmtPct(cross.cdfBelow)}
             </text>
@@ -1094,7 +1096,7 @@ function BeliefChartImpl({
               y={cross.ty + 90}
               textAnchor="end"
               fontSize={11}
-              className="fill-[var(--color-fg)] font-semibold"
+              className="fill-[var(--color-warn)] font-semibold"
             >
               {fmtPct(cross.cdfAbove)}
             </text>

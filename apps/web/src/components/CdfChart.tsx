@@ -6,7 +6,7 @@
 // Static auto-domain (μ ± k·σ, clamped to outcome bounds) with a hover readout; the
 // pan/zoom-shared variant lives as an overlay inside BeliefChart (the "overlay" mode).
 
-import { memo, useMemo, useRef, useState } from 'react';
+import { memo, useId, useMemo, useRef, useState } from 'react';
 import { beliefFromView } from '../lib/beliefFromView.ts';
 import { fmt, fmtPct } from '../lib/format.ts';
 import type { Belief } from '../lib/types.ts';
@@ -41,6 +41,9 @@ function CdfChartImpl({
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
+  const uid = useId().replace(/:/g, '');
+  const fillId = `cdf-fill-${uid}`;
+  const glowId = `cdf-glow-${uid}`;
 
   const model = useMemo(() => beliefFromView(belief), [belief]);
   const mu = belief.mu;
@@ -100,6 +103,21 @@ function CdfChartImpl({
       onPointerLeave={() => setHoverX(null)}
     >
       <title>Cumulative probability P(≤ θ)</title>
+
+      <defs>
+        <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--color-warn)" stopOpacity={0.28} />
+          <stop offset="70%" stopColor="var(--color-warn)" stopOpacity={0.08} />
+          <stop offset="100%" stopColor="var(--color-warn)" stopOpacity={0.02} />
+        </linearGradient>
+        <filter id={glowId} x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation={2.2} result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
 
       <rect
         x={PLOT.l}
@@ -184,8 +202,18 @@ function CdfChartImpl({
         />
       )}
 
-      {/* the cumulative curve */}
-      <path d={toPath(curve, sx, sy)} fill="none" stroke="var(--color-warn)" strokeWidth={2} />
+      {/* cumulative curve: gradient area fill + glowing stroke */}
+      <path
+        d={`${toPath(curve, sx, sy)} L${sx(hi).toFixed(2)} ${sy(0).toFixed(2)} L${sx(lo).toFixed(2)} ${sy(0).toFixed(2)} Z`}
+        fill={`url(#${fillId})`}
+      />
+      <path
+        d={toPath(curve, sx, sy)}
+        fill="none"
+        stroke="var(--color-warn)"
+        strokeWidth={2}
+        filter={`url(#${glowId})`}
+      />
 
       {/* hover crosshair + readout */}
       {hover && (

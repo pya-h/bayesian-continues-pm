@@ -181,18 +181,19 @@ export function MarketPage() {
             title="Belief & payoff"
             right={
               <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1 text-[11px] text-muted">
-                  <span>CDF</span>
-                  <div className="flex overflow-hidden rounded-md border border-edge">
+                <div className="flex items-center gap-1.5 text-[11px] text-muted">
+                  <span className="font-medium">CDF</span>
+                  <div className="surface-2 flex overflow-hidden rounded-md border border-edge p-0.5">
                     {(['off', 'overlay', 'panel'] as const).map((mode) => (
                       <button
                         key={mode}
                         type="button"
                         onClick={() => setCdfMode(mode)}
-                        className={`px-1.5 py-0.5 ${
+                        aria-pressed={cdfMode === mode}
+                        className={`rounded px-2 py-0.5 transition-all duration-200 ${
                           cdfMode === mode
-                            ? 'bg-warn text-ink'
-                            : 'bg-panel-2 text-muted hover:text-fg'
+                            ? 'btn-glow-warn bg-warn font-semibold text-ink'
+                            : 'text-muted hover:text-fg'
                         }`}
                       >
                         {mode}
@@ -229,8 +230,9 @@ export function MarketPage() {
               />
             </div>
             {cdfMode === 'panel' && (
-              <div className="border-t border-edge p-3">
-                <div className="mb-1 text-xs text-muted">
+              <div className="animate-fade-up border-t border-edge p-3">
+                <div className="mb-1 flex items-center gap-1.5 text-xs text-muted">
+                  <span className="inline-block h-2 w-2 rounded-full bg-warn" />
                   Cumulative probability — P(outcome ≤ θ)
                 </div>
                 <CdfChart
