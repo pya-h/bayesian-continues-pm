@@ -16,7 +16,7 @@ import { fmt, fmtPct, fmtSigned } from '../lib/format.ts';
 import { getLiveSpec, subscribeLiveSpec } from '../lib/liveSpec.ts';
 import { setProjectedBelief } from '../lib/projectedBelief.ts';
 import { sellCloseStats, tradeStats } from '../lib/tradeStats.ts';
-import type { Belief, ContractSpec, Fill, SellAllResult } from '../lib/types.ts';
+import type { Belief, ContractSpec, Fill, ModelTag, SellAllResult } from '../lib/types.ts';
 import { Button, ErrorNote, FlashNumber } from './ui.tsx';
 
 // Money formatters that survive an unbounded (±∞) best/worst case.
@@ -59,6 +59,7 @@ export function QuotePanel({
   mu,
   sigma,
   belief,
+  model,
   outcomeUnit,
   outcomeMin = null,
   outcomeMax = null,
@@ -71,6 +72,8 @@ export function QuotePanel({
   mu: number;
   sigma: number;
   belief: Belief;
+  // The market's model tag — so a Gen·basis bell trade previews as a placement.
+  model?: ModelTag;
   outcomeUnit: string;
   outcomeMin?: number | null;
   outcomeMax?: number | null;
@@ -285,11 +288,11 @@ export function QuotePanel({
   const projected = useMemo(() => {
     if (!tradable || Math.abs(signedQ) === 0) return null;
     try {
-      return projectBelief({ spec: previewSpec, signedQ, belief: beliefModel, cfg });
+      return projectBelief({ spec: previewSpec, signedQ, belief: beliefModel, cfg, model });
     } catch {
       return null;
     }
-  }, [tradable, previewSpec, signedQ, beliefModel, cfg]);
+  }, [tradable, previewSpec, signedQ, beliefModel, cfg, model]);
 
   // Publish it for the belief-over-time chart's "next" ghost point. Clear on
   // unmount.

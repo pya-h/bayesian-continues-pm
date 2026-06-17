@@ -8,18 +8,21 @@
 // mixture, or Student-t update), so a mixture/Student-t market projects with its
 // real update rule, not a Gaussian one. Runs live on every drag frame, no round-trip.
 
-import { type BeliefModel, type EngineConfig, extractSignal, updateBelief } from '@bmm/core';
-import type { ContractSpec } from './types.ts';
+import { type BeliefModel, type EngineConfig, updateBeliefForTrade } from '@bmm/core';
+import type { ContractSpec, ModelTag } from './types.ts';
 
 export function projectBelief(args: {
   spec: ContractSpec;
   signedQ: number;
   belief: BeliefModel;
   cfg: Record<string, number | boolean>;
+  // The market's model tag — so a Gen·basis bell trade previews as a placement.
+  model?: ModelTag;
 }): { mu: number; sigma: number } {
-  const { spec, signedQ, belief, cfg } = args;
+  const { spec, signedQ, belief, cfg, model } = args;
   const engineCfg = cfg as unknown as EngineConfig;
-  const sig = extractSignal(spec, signedQ, belief, engineCfg);
-  const next = updateBelief(belief, sig.signal, sig.weight, engineCfg);
+  // Mirror the server exactly: updateBeliefForTrade routes a Gen·basis bell to the
+  // placement update, everything else to the standard extractSignal → updateBelief.
+  const next = updateBeliefForTrade(spec, signedQ, belief, engineCfg, model);
   return { mu: next.mean(), sigma: next.stddev() };
 }

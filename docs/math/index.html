@@ -973,6 +973,21 @@
         parameter count is <em>data-driven</em> (it rises on disagreement, falls on consensus) yet stays under
         the \(K\)-cap. Spawning is off for the plain <code>mixture</code> kind, so that path is byte-identical
         to the above; it is on only when the market’s <code>model</code> tag is <code>gen_basis</code>.</p>
+
+        <p><strong>Gen·basis — placement ("paint the curve").</strong> On a Gen·basis market the
+        <strong>bell (GAUSSIAN) contract</strong> is a <em>placement</em> primitive (the trade engine routes it
+        to a <strong>weight-only</strong> update, <code>placeBasisBump</code>, instead of the responsibility step
+        above). A bell <em>buy</em> at center \(c\) with intensity \(w\) <em>adds</em> mass there — it spawns a
+        fresh bump \(\{\pi\propto w,\ \mu=c,\ \sigma^2=\sigma_\varepsilon^2\}\) if \(c\) is farther than
+        \(\tau_\text{spawn}\,\sigma_k\) from every mode, else it accumulates \(w\) onto the nearest bump and pulls
+        its mean toward \(c\); a bell <em>sell</em> near a bump <em>removes</em> mass from it (managed-out once it
+        falls below \(\pi_\text{min}\)). Weights are renormalised to \(\sum_k\pi_k=1\) and managed (prune / merge /
+        cap) as usual. The key difference from the responsibility update is that placement is <em>additive</em>:
+        it never multiplicatively reallocates the other bumps' weights or drifts their means, so repeated bells at
+        <em>distinct</em> prices accumulate into <em>distinct, persistent</em> camps — a user literally paints the
+        belief through trades. (The responsibility update is consensus-forming and would collapse weight onto the
+        most-recent camp; see <code>parametric-belief-families.md</code> §4.) Pricing, reserve and persistence are
+        unchanged — the result is an ordinary mixture.</p>
       </details>
 
       <details class="dev">

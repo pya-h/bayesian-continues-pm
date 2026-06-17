@@ -277,13 +277,32 @@ Goal: surface **Gen·basis (default)** and **Gen·exact ** as primary, demote th
 Goal: let a trade **sculpt** a Gen·basis belief directly — the half that makes flexibility usable
 (see `parametric-belief-families.md` §4). Optional but high-value.
 
-- [ ] Decide the primitive: (a) reuse the **bell (GAUSSIAN) contract** (already "a bump at c, width w")
+- [x] Decide the primitive: (a) reuse the **bell (GAUSSIAN) contract** (already "a bump at c, width w")
   as the placement bet, or (b) a thin **placement op** mapping a click(θ, strength) → a local
   basis-weight bump. Prefer (a) first (no new contract), (b) as the dedicated UX.
-- [ ] Wire the placement → spawn/weight update (reuses G1.1 spawning).
-- [ ] **Tests:** repeated bell bets at distinct centers carve distinct modes; weight conservation;
-  reserve stays bounded.
+  *(Decided **(a) the bell contract** — no new contract — but with the **(b) weight-only mechanism**: a
+  bell trade on a gen_basis market routes to a `placeBasisBump`. **Why both:** the G1.1 responsibility+spawn
+  update reliably grows ONE camp away from consensus but is **consensus/recency-forming** — verified that
+  sustained round-robin painting collapses to the last camp, so it can't hold 3+ balanced modes. The
+  design's recommended weight-only **additive** update (parametric-belief-families.md §4 option 3) does, so
+  G4 ships it: the bell is the gesture, the weight-only placement is the math.)*
+- [x] Wire the placement → spawn/weight update (reuses G1.1 spawning).
+  *(Done: `core/placement.ts` `placeBasisBump` (buy adds mass at the bell center / spawns a bump if far,
+  sell removes mass from a bump you're on, renormalise + manageMixture); `bayes.ts` `updateBeliefForTrade`
+  routes `gen_basis` + `GAUSSIAN` → placement, every other (model, contract) pair → the unchanged
+  `extractSignal → updateBelief`. Wired at all 3 `tradeSvc` belief-update sites + the web `projectBelief`
+  preview (so the projection mirrors the server). `QuotePanel`/`MarketPage` pass the `model` tag.)*
+- [x] **Tests:** repeated bell bets at distinct centers carve distinct modes; weight conservation;
+  reserve stays bounded. *(Done: `core/test/genBasisPlacement.test.ts` — 3 distinct persistent modes
+  (each π>0.05, which the responsibility update fails), Σπ=1 every step, K≤cap under chaotic painting,
+  sell-erases-a-camp, routing (only gen_basis bells paint), finite moments + MC reserve bounded by Σ mmShort.
+  `api/test/genBasisPlacement.test.ts` — end-to-end bell-buys at 3 centers sculpt a 3-bump belief read via
+  the view, reserveRequired finite & < R₀, and selling a bell back erases that camp.)*
 - **Checkpoint:** a user shapes a multi-bump belief through trades. **math-doc:** note the placement↔weight map.
+  *( 2026-06-14 — full sweep **634 pass** (core 297 · shared 15 · api 145 · web 177); typecheck + biome
+  clean. Math-doc: added a "Gen·basis — placement (paint the curve)" paragraph to §7 with the weight-only
+  add/remove rule and why it's additive (not consensus-forming). Web: a "Paint the curve" hint shows on
+  gen_basis markets. G1 gen_basis tests stay green — a far bell stream still grows a mode.)*
 
 ---
 

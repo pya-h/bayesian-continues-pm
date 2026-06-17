@@ -70,7 +70,9 @@ export {
   bayesUpdateStudentT,
   bayesUpdateGenExact,
   updateBelief,
+  updateBeliefForTrade,
 } from './bayes.ts';
+export { placeBasisBump } from './placement.ts';
 
 // solvency
 export {

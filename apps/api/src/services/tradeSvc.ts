@@ -19,7 +19,7 @@ import {
   extractSignal,
   price,
   requiredReserve,
-  updateBelief,
+  updateBeliefForTrade,
   validateContract,
   withMmShort,
 } from '@bmm/core';
@@ -90,8 +90,7 @@ export async function quote(marketId: string, dto: QuoteDTO): Promise<QuoteResul
   const execPrice = execPriceFor(side, fair, spread.total, spec);
   const totalCost = round8(execPrice * q);
 
-  const sig = extractSignal(spec, q, belief, cfg);
-  const projected = updateBelief(belief, sig.signal, sig.weight, cfg, mixtureOpsFor(m));
+  const projected = updateBeliefForTrade(spec, q, belief, cfg, m.model, mixtureOpsFor(m));
   const nextBook = withMmShort(book, spec, key, contractKey, mmShort + q);
   const reserveOpts = reserveOptsFor(cfg);
   // Preview the live reserve mark at the POST-update belief — the same value
@@ -262,8 +261,10 @@ export async function executeTrade(
       }
 
       // Tentative apply: belief, inventory, cash.
+      // `sig` feeds the belief-update audit row (signalExtracted/Weight); the actual
+      // belief update routes through updateBeliefForTrade (Gen·basis bell → placement).
       const sig = extractSignal(spec, filledQ, belief, cfg);
-      const newBelief = updateBelief(belief, sig.signal, sig.weight, cfg, mixtureOpsFor(m));
+      const newBelief = updateBeliefForTrade(spec, filledQ, belief, cfg, m.model, mixtureOpsFor(m));
       const newMmShort = round8(mmShort + filledQ);
       const newBook = withMmShort(book, spec, key, contractKey, newMmShort);
 
@@ -640,7 +641,14 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
         const execPrice = execPriceFor('sell', fair, spread.total, spec);
 
         const sig = extractSignal(spec, filledQ, belief, cfg);
-        const newBelief = updateBelief(belief, sig.signal, sig.weight, cfg, mixtureOpsFor(m));
+        const newBelief = updateBeliefForTrade(
+          spec,
+          filledQ,
+          belief,
+          cfg,
+          m.model,
+          mixtureOpsFor(m),
+        );
         const newMmShort = round8(mmShort + filledQ);
         mmShortByKey.set(key, newMmShort);
         const newBook = buildBook();

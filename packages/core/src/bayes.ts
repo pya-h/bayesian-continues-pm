@@ -7,8 +7,10 @@ import { GaussianBelief } from './gaussian.ts';
 import { GenExactBelief } from './gen_exact.ts';
 import { MixtureBelief, type MixtureComponent } from './mixture.ts';
 import { DEFAULT_MIXTURE_OPS, type MixtureOpsConfig, manageMixture } from './mixture_ops.ts';
+import { placeBasisBump } from './placement.ts';
+import { extractSignal } from './signal.ts';
 import { StudentTBelief } from './student_t.ts';
-import type { BeliefModel, EngineConfig } from './types.ts';
+import type { BeliefModel, ContractSpec, EngineConfig } from './types.ts';
 
 export function bayesUpdate(
   belief: GaussianBelief,
@@ -238,4 +240,29 @@ export function updateBelief(
     return bayesUpdateGenExact(belief as GenExactBelief, signal, weight, cfg);
   }
   throw new Error(`updateBelief: unsupported belief kind ${belief.kind}`);
+}
+
+// Belief update for a TRADE — the single entry point the trade engine (and the web
+// preview) call. It extracts the signal from the contract and dispatches by kind
+// with one special case: on a **Gen·basis** market a **bell (GAUSSIAN)** trade is a
+// *placement* ("paint the curve", G4) — it adds/removes mass at the bell's center
+// via the weight-only `placeBasisBump` so repeated bets at distinct centers grow
+// distinct, persistent modes. Every other (model, contract) pair keeps the standard
+// `extractSignal → updateBelief` path unchanged.
+export function updateBeliefForTrade(
+  spec: ContractSpec,
+  signedQ: number,
+  belief: BeliefModel,
+  cfg: EngineConfig,
+  model: string | null | undefined,
+  opsCfg?: MixtureOpsConfig,
+): BeliefModel {
+  if (model === 'gen_basis' && spec.type === 'GAUSSIAN' && belief.kind === 'mixture') {
+    const intensity = Math.min(1, Math.abs(signedQ) / cfg.qMax);
+    const reliability = 1 - Math.exp(-Math.abs(signedQ) / cfg.qThreshold);
+    const strength = (signedQ >= 0 ? 1 : -1) * intensity * reliability;
+    return placeBasisBump(belief as MixtureBelief, spec.center as number, strength, cfg, opsCfg);
+  }
+  const sig = extractSignal(spec, signedQ, belief, cfg);
+  return updateBelief(belief, sig.signal, sig.weight, cfg, opsCfg);
 }

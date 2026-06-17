@@ -244,6 +244,17 @@ export function MarketPage() {
                 />
               </div>
             )}
+            {m.model === 'gen_basis' && (
+              <div className="surface-2 animate-fade-in mx-4 mt-3 flex items-start gap-2 rounded-lg border border-accent/30 px-3 py-2 text-xs text-muted">
+                <span className="text-accent">⛓</span>
+                <span>
+                  <span className="font-medium text-fg">Paint the curve:</span> place a{' '}
+                  <span className="font-medium text-fg">Bell</span> bet at a price to sculpt a mode
+                  there — repeated bells at different prices grow distinct camps; sell a bell back
+                  to erase one.
+                </span>
+              </div>
+            )}
             <div className="border-t border-edge p-4">
               <ContractComposer spec={spec} onSpecChange={setSpec} mu={mu} sigma={sigma} />
             </div>
@@ -273,6 +284,7 @@ export function MarketPage() {
                 mu={mu}
                 sigma={sigma}
                 belief={m.belief}
+                model={m.model}
                 outcomeUnit={m.outcomeUnit}
                 outcomeMin={m.outcomeMin}
                 outcomeMax={m.outcomeMax}
