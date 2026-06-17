@@ -242,6 +242,28 @@ export function updateBelief(
   throw new Error(`updateBelief: unsupported belief kind ${belief.kind}`);
 }
 
+// A trade is a Gen·basis **placement** ("paint the curve", G4) when it's a bell
+// (GAUSSIAN) order on a `gen_basis` market (whose belief is always a `mixture`).
+// Such a trade adds/removes mass at the bell's center rather than nudging the
+// summary location via a standard signal.
+function isPlacementTrade(
+  spec: ContractSpec,
+  belief: BeliefModel,
+  model: string | null | undefined,
+): boolean {
+  return model === 'gen_basis' && spec.type === 'GAUSSIAN' && belief.kind === 'mixture';
+}
+
+// Signed placement strength of a bell trade: `+` a BUY (adds mass), `−` a SELL
+// (removes mass); magnitude is the trade's reliability (intensity·confidence), so a
+// bigger order paints a heavier stroke. Note this magnitude equals `extractSignal`'s
+// weight by construction — a placement is the same conviction, applied as mass.
+function placementStrength(signedQ: number, cfg: EngineConfig): number {
+  const intensity = Math.min(1, Math.abs(signedQ) / cfg.qMax);
+  const reliability = 1 - Math.exp(-Math.abs(signedQ) / cfg.qThreshold);
+  return (signedQ >= 0 ? 1 : -1) * intensity * reliability;
+}
+
 // Belief update for a TRADE — the single entry point the trade engine (and the web
 // preview) call. It extracts the signal from the contract and dispatches by kind
 // with one special case: on a **Gen·basis** market a **bell (GAUSSIAN)** trade is a
@@ -257,12 +279,30 @@ export function updateBeliefForTrade(
   model: string | null | undefined,
   opsCfg?: MixtureOpsConfig,
 ): BeliefModel {
-  if (model === 'gen_basis' && spec.type === 'GAUSSIAN' && belief.kind === 'mixture') {
-    const intensity = Math.min(1, Math.abs(signedQ) / cfg.qMax);
-    const reliability = 1 - Math.exp(-Math.abs(signedQ) / cfg.qThreshold);
-    const strength = (signedQ >= 0 ? 1 : -1) * intensity * reliability;
+  if (isPlacementTrade(spec, belief, model)) {
+    const strength = placementStrength(signedQ, cfg);
     return placeBasisBump(belief as MixtureBelief, spec.center as number, strength, cfg, opsCfg);
   }
   const sig = extractSignal(spec, signedQ, belief, cfg);
   return updateBelief(belief, sig.signal, sig.weight, cfg, opsCfg);
+}
+
+// The (signal, weight) pair that the belief-update **audit row** should record for a
+// trade — kept in lock-step with `updateBeliefForTrade` so the log reflects what was
+// actually applied. For a Gen·basis **placement** (bell) the standard `extractSignal`
+// is misleading (it reports a "pushed-away" location for sells and a generic
+// reliability), so we instead record the placement itself: `signal` = the painted
+// bell center, `weight` = the **signed** placement strength (`+` mass added, `−` mass
+// removed). Every other trade falls through to `extractSignal` unchanged.
+export function tradeSignal(
+  spec: ContractSpec,
+  signedQ: number,
+  belief: BeliefModel,
+  cfg: EngineConfig,
+  model: string | null | undefined,
+): { signal: number; weight: number } {
+  if (isPlacementTrade(spec, belief, model)) {
+    return { signal: spec.center as number, weight: placementStrength(signedQ, cfg) };
+  }
+  return extractSignal(spec, signedQ, belief, cfg);
 }

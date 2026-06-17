@@ -8,11 +8,12 @@
 // persistent* modes — which the consensus-forming responsibility update cannot hold.
 
 import { describe, expect, test } from 'bun:test';
-import { updateBeliefForTrade } from '../src/bayes.ts';
+import { tradeSignal, updateBeliefForTrade } from '../src/bayes.ts';
 import { makeEngineConfig } from '../src/config.ts';
 import { MixtureBelief } from '../src/mixture.ts';
 import { DEFAULT_MIXTURE_OPS, type MixtureOpsConfig } from '../src/mixture_ops.ts';
 import { placeBasisBump } from '../src/placement.ts';
+import { extractSignal } from '../src/signal.ts';
 import { type BookEntry, requiredReserve } from '../src/solvency.ts';
 import type { ContractSpec } from '../src/types.ts';
 
@@ -119,6 +120,34 @@ describe('placement — routing (only Gen·basis bells paint)', () => {
     // a CALL still updates via extractSignal→responsibility; it stays a valid mixture
     expect(out.kind).toBe('mixture');
     expect(Math.abs(sumPi(out) - 1)).toBeLessThan(1e-9);
+  });
+});
+
+describe('placement — audit signal reflects the placement (tradeSignal)', () => {
+  test('a Gen·basis bell audits as (center, signed strength), not extractSignal', () => {
+    const b = single();
+    const intensity = Math.min(1, 150 / cfg.qMax);
+    const reliability = 1 - Math.exp(-150 / cfg.qThreshold);
+
+    // BUY: positive strength, signal == the painted center.
+    const buy = tradeSignal(bell(120), 150, b, cfg, 'gen_basis');
+    expect(buy.signal).toBe(120);
+    expect(buy.weight).toBeCloseTo(intensity * reliability, 12);
+
+    // SELL: same center, strength flips sign (mass removed) — faithful to placeBasisBump.
+    const sell = tradeSignal(bell(120), -150, b, cfg, 'gen_basis');
+    expect(sell.signal).toBe(120);
+    expect(sell.weight).toBeCloseTo(-intensity * reliability, 12);
+  });
+
+  test('non-placement trades audit identically to extractSignal', () => {
+    const b = single();
+    const call: ContractSpec = { type: 'CALL', strike: 90 };
+    // a non-bell on Gen·basis, and any contract on a non-Gen·basis market, fall through
+    expect(tradeSignal(call, 150, b, cfg, 'gen_basis')).toEqual(extractSignal(call, 150, b, cfg));
+    expect(tradeSignal(bell(120), 150, b, cfg, 'mixture')).toEqual(
+      extractSignal(bell(120), 150, b, cfg),
+    );
   });
 });
 

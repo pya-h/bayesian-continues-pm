@@ -9,12 +9,12 @@
 
 import {
   type BeliefModel,
-  DEFAULT_MIXTURE_OPS,
   GaussianBelief,
   GenExactBelief,
   MixtureBelief,
   type MixtureOpsConfig,
   StudentTBelief,
+  mixtureOpsForModel,
 } from '@bmm/core';
 import type { BeliefStateDTO, ModelTag } from '@bmm/shared';
 
@@ -31,24 +31,14 @@ interface BeliefRow {
 // the value is ignored by `updateBelief` (only the mixture path reads it).
 // `model` is the creator's chosen tag; null ⇒ legacy row, inferred from
 // `beliefKind`. The tag — not `beliefKind` — distinguishes Gen·basis (which
-// is itself stored as a `mixture`) from the plain `mixture` kind.
-export const GEN_BASIS_MAX_COMPONENTS = 12;
-export const GEN_BASIS_TAU_SPAWN = 3;
-
+// is itself stored as a `mixture`) from the plain `mixture` kind. The actual
+// spawn/cap policy lives in `@bmm/core` (`mixtureOpsForModel`) so the web client
+// preview applies the identical update.
 export function mixtureOpsFor(row: {
   model: ModelTag | null;
   beliefKind: string;
 }): MixtureOpsConfig {
-  const model = row.model ?? row.beliefKind;
-  if (model === 'gen_basis') {
-    return {
-      ...DEFAULT_MIXTURE_OPS,
-      allowSpawn: true,
-      maxComponents: GEN_BASIS_MAX_COMPONENTS,
-      tauSpawn: GEN_BASIS_TAU_SPAWN,
-    };
-  }
-  return DEFAULT_MIXTURE_OPS;
+  return mixtureOpsForModel(row.model ?? row.beliefKind);
 }
 
 export function loadBelief(row: BeliefRow): BeliefModel {

@@ -16,9 +16,9 @@ import {
   computeSpread,
   contractKey,
   evalBreakers,
-  extractSignal,
   price,
   requiredReserve,
+  tradeSignal,
   updateBeliefForTrade,
   validateContract,
   withMmShort,
@@ -261,9 +261,10 @@ export async function executeTrade(
       }
 
       // Tentative apply: belief, inventory, cash.
-      // `sig` feeds the belief-update audit row (signalExtracted/Weight); the actual
-      // belief update routes through updateBeliefForTrade (Gen·basis bell → placement).
-      const sig = extractSignal(spec, filledQ, belief, cfg);
+      // `sig` feeds the belief-update audit row (signalExtracted/Weight) and mirrors
+      // what updateBeliefForTrade actually applies — for a Gen·basis bell that's the
+      // placement (center + signed strength), otherwise the standard extracted signal.
+      const sig = tradeSignal(spec, filledQ, belief, cfg, m.model);
       const newBelief = updateBeliefForTrade(spec, filledQ, belief, cfg, m.model, mixtureOpsFor(m));
       const newMmShort = round8(mmShort + filledQ);
       const newBook = withMmShort(book, spec, key, contractKey, newMmShort);
@@ -640,7 +641,7 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
         const spread = computeSpread(spec, filledQ, mmShort, belief, cfg);
         const execPrice = execPriceFor('sell', fair, spread.total, spec);
 
-        const sig = extractSignal(spec, filledQ, belief, cfg);
+        const sig = tradeSignal(spec, filledQ, belief, cfg, m.model);
         const newBelief = updateBeliefForTrade(
           spec,
           filledQ,

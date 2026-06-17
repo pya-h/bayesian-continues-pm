@@ -304,6 +304,20 @@ Goal: let a trade **sculpt** a Gen·basis belief directly — the half that make
   add/remove rule and why it's additive (not consensus-forming). Web: a "Paint the curve" hint shows on
   gen_basis markets. G1 gen_basis tests stay green — a far bell stream still grows a mode.)*
 
+> **Review pass G0→G4 (2026-06-18).** Two cross-phase fixes, full sweep **636 pass** (core 299 · shared 15
+> · api 145 · web 177), typecheck + biome clean:
+> 1. **Preview ↔ server parity (G1/G4).** The web client preview (`clientBelief.projectBelief`) called
+> `updateBeliefForTrade` *without* `opsCfg`, so a Gen·basis projection silently used `DEFAULT_MIXTURE_OPS`
+> (spawn **off**, cap 6) instead of the server's spawn-on/cap-12 — contradicting its own "mirrors the
+> server exactly" contract. Moved the ops policy into a shared `@bmm/core` `mixtureOpsForModel(model)`
+> (+ `GEN_BASIS_MAX_COMPONENTS`/`GEN_BASIS_TAU_SPAWN`); the api `mixtureOpsFor` now delegates to it and the
+> preview passes `mixtureOpsForModel(model)` — single source of truth, preview = server.
+> 2. **Audit fidelity for placement (G4).** A Gen·basis bell trade applies `placeBasisBump`, but the audit row
+> recorded the standard `extractSignal` (a "pushed-away" location for sells). Added `tradeSignal()` in
+> `@bmm/core`, kept in lock-step with `updateBeliefForTrade`: a placement audits as `(bell center, signed
+> strength)` — `+` mass added, `−` removed; everything else falls through to `extractSignal`. Wired at both
+> audited `tradeSvc` sites; covered by 2 new core tests.
+
 ---
 
 ## Phase G5 — Contract-shape extensions `[core, shared, api, web]` `[blocked-by: G0; independent of G1–G4]`

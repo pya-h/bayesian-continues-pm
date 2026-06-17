@@ -43,6 +43,30 @@ export const DEFAULT_MIXTURE_OPS: MixtureOpsConfig = {
   spawnSeedWeight: 0.1,
 };
 
+// Gen·basis ops policy (multi-model refactor G1/G4) ----------------------
+// A Gen·basis market turns on adaptive mode-spawning and relaxes the component
+// cap so order flow at new locations grows fresh modes. This is the single
+// source of truth shared by the API trade path and the web client preview, so
+// the projected belief mirrors the server EXACTLY (same spawn + cap policy).
+export const GEN_BASIS_MAX_COMPONENTS = 12;
+export const GEN_BASIS_TAU_SPAWN = 3;
+
+// Mixture-ops config for a market's belief update, keyed on the creator's model
+// tag. Gen·basis → spawning on, cap relaxed to 12; every other model uses
+// the shipped defaults (spawning off). The tag — not `belief_kind` — distinguishes
+// Gen·basis (itself stored as a `mixture`) from the plain `mixture` kind.
+export function mixtureOpsForModel(model: string | null | undefined): MixtureOpsConfig {
+  if (model === 'gen_basis') {
+    return {
+      ...DEFAULT_MIXTURE_OPS,
+      allowSpawn: true,
+      maxComponents: GEN_BASIS_MAX_COMPONENTS,
+      tauSpawn: GEN_BASIS_TAU_SPAWN,
+    };
+  }
+  return DEFAULT_MIXTURE_OPS;
+}
+
 // Moment-match two components into one (exact on weight, mean, variance).
 export function mergeTwo(a: MixtureComponent, b: MixtureComponent): MixtureComponent {
   const pi = a.pi + b.pi;

@@ -28,6 +28,9 @@ export { GenExactBelief, genExactLambda6, GEN_EXACT_L } from './gen_exact.ts';
 export {
   type MixtureOpsConfig,
   DEFAULT_MIXTURE_OPS,
+  GEN_BASIS_MAX_COMPONENTS,
+  GEN_BASIS_TAU_SPAWN,
+  mixtureOpsForModel,
   mergeTwo,
   pruneComponents,
   mergeComponents,
@@ -71,6 +74,7 @@ export {
   bayesUpdateGenExact,
   updateBelief,
   updateBeliefForTrade,
+  tradeSignal,
 } from './bayes.ts';
 export { placeBasisBump } from './placement.ts';
 
