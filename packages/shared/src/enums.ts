@@ -22,6 +22,10 @@ export const ContractType = {
   TENT: 'TENT',
   TRAPEZOID: 'TRAPEZOID',
   SIGMOID: 'SIGMOID',
+  // conditionally-compatible (unbounded; bounded-outcome markets only, and
+  // never EXPONENTIAL / high-degree POLYNOMIAL on a heavy-tailed Student-t belief).
+  POLYNOMIAL: 'POLYNOMIAL',
+  EXPONENTIAL: 'EXPONENTIAL',
 } as const;
 export type ContractType = (typeof ContractType)[keyof typeof ContractType];
 

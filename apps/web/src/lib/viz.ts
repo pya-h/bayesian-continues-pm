@@ -206,6 +206,10 @@ export function winningRegions(spec: ContractSpec, domain: Domain): Interval[] {
     }
     case 'SIGMOID':
       return clip(spec.center, hi); // "above c, softly"
+    case 'EXPONENTIAL':
+      // monotone: rate>0 pays more above the center, rate<0 below it.
+      return spec.rate >= 0 ? clip(spec.center, hi) : clip(lo, spec.center);
+    // POLYNOMIAL has no single "winning" ray (both tails can pay) — no shading.
     default:
       return [];
   }

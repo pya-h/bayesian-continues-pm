@@ -39,10 +39,33 @@ describe('contractSpecSchema', () => {
       { type: 'TENT', center: 100, width: 12 },
       { type: 'TRAPEZOID', lower: 90, upper: 110, width: 6 },
       { type: 'SIGMOID', center: 100, width: 3 },
+      // conditionally-compatible (unbounded)
+      { type: 'POLYNOMIAL', coeffs: [0, 0, 1] },
+      { type: 'POLYNOMIAL', coeffs: [3, -0.4, 0, 0.002] },
+      { type: 'EXPONENTIAL', center: 100, rate: 0.05 },
     ]) {
       const parsed = contractSpecSchema.parse(spec);
       expect(parsed).toEqual(spec as never);
     }
+  });
+
+  test('G5.2 unbounded contracts reject malformed params', () => {
+    // constant polynomial (no θ^≥1 term)
+    expect(contractSpecSchema.safeParse({ type: 'POLYNOMIAL', coeffs: [5] }).success).toBe(false);
+    expect(contractSpecSchema.safeParse({ type: 'POLYNOMIAL', coeffs: [3, 0, 0] }).success).toBe(
+      false,
+    );
+    // degree above the cap (length > 5)
+    expect(
+      contractSpecSchema.safeParse({ type: 'POLYNOMIAL', coeffs: [0, 1, 0, 0, 0, 1] }).success,
+    ).toBe(false);
+    // empty coeffs
+    expect(contractSpecSchema.safeParse({ type: 'POLYNOMIAL', coeffs: [] }).success).toBe(false);
+    // zero / missing rate
+    expect(contractSpecSchema.safeParse({ type: 'EXPONENTIAL', center: 1, rate: 0 }).success).toBe(
+      false,
+    );
+    expect(contractSpecSchema.safeParse({ type: 'EXPONENTIAL', center: 1 }).success).toBe(false);
   });
 
   test('G5.1 shape-extensions reject malformed params', () => {

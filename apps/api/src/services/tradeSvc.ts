@@ -32,7 +32,7 @@ import { type UserRow, marketRepo } from '../db/repos.ts';
 import { beliefUpdates, contracts, markets, positions, trades, users } from '../db/schema.ts';
 import { writeAudit } from '../lib/audit.ts';
 import { beliefPersistFields, loadBelief, mixtureOpsFor } from '../lib/belief.ts';
-import { paramsFromSpec, specFromRow } from '../lib/contract.ts';
+import { assertContractCompatible, paramsFromSpec, specFromRow } from '../lib/contract.ts';
 import { HttpError } from '../lib/errors.ts';
 import { publish, topics } from '../realtime.ts';
 import { recordTx } from './ledgerSvc.ts';
@@ -75,6 +75,7 @@ export async function quote(marketId: string, dto: QuoteDTO): Promise<QuoteResul
   if (!m) throw new HttpError(404, 'Market not found');
 
   const spec = validateContract(dto.spec);
+  assertContractCompatible(spec, m);
   const cfg = m.cfg as unknown as EngineConfig;
   const belief = loadBelief(m);
   const q = dto.q;
@@ -176,6 +177,7 @@ export async function executeTrade(
       if (m.status !== 'OPEN') throw new HttpError(409, 'Market is not open for trading');
       sigma0 = m.initialSigma;
 
+      assertContractCompatible(spec, m);
       const cfg = m.cfg as unknown as EngineConfig;
       const reserveOpts = reserveOptsFor(cfg);
       const belief = loadBelief(m);

@@ -35,6 +35,27 @@ function priceSkewGaussian(c: number, wL: number, wR: number, mu: number, sigma2
   return half(wL, true) + half(wR, false);
 }
 
+// Raw moments E[θᵏ] (k=0..n) of N(μ,σ²) via the recurrence
+// m₀=1, m₁=μ, mₖ = μ·mₖ₋₁ + (k−1)σ²·mₖ₋₂.
+// Exact and cheap — the closed form behind POLYNOMIAL pricing under a Gaussian.
+function gaussianRawMoments(mu: number, sigma2: number, n: number): number[] {
+  const m = new Array<number>(n + 1);
+  m[0] = 1;
+  if (n >= 1) m[1] = mu;
+  for (let k = 2; k <= n; k++) {
+    m[k] = mu * (m[k - 1] as number) + (k - 1) * sigma2 * (m[k - 2] as number);
+  }
+  return m;
+}
+
+// Closed-form price E[Σ aₖθᵏ] = Σ aₖ·E[θᵏ] under N(μ,σ²) (POLYNOMIAL).
+function pricePolynomialGaussian(coeffs: number[], mu: number, sigma2: number): number {
+  const m = gaussianRawMoments(mu, sigma2, coeffs.length - 1);
+  let sum = 0;
+  for (let k = 0; k < coeffs.length; k++) sum += (coeffs[k] as number) * (m[k] as number);
+  return sum;
+}
+
 // Fair price of a contract under a SINGLE Gaussian N(μ, σ²).
 function priceUnderGaussian(spec: ContractSpec, mu: number, sigma2: number): number {
   const sigma = Math.sqrt(sigma2);
@@ -70,6 +91,14 @@ function priceUnderGaussian(spec: ContractSpec, mu: number, sigma2: number): num
         mu,
         sigma2,
       );
+    case 'POLYNOMIAL':
+      return pricePolynomialGaussian(spec.coeffs as number[], mu, sigma2);
+    case 'EXPONENTIAL': {
+      // Gaussian MGF: E[exp(a(θ−c))] = exp(a(μ−c) + ½a²σ²).
+      const a = spec.rate as number;
+      const c = spec.center as number;
+      return Math.exp(a * (mu - c) + 0.5 * a * a * sigma2);
+    }
     default:
       throw new Error(`price: unknown contract type ${(spec as ContractSpec).type}`);
   }
@@ -331,6 +360,18 @@ export function dPriceDMu(spec: ContractSpec, belief: BeliefModel): number {
       return -((x - c) / (w * w)) * Math.exp(-((x - c) ** 2) / (2 * w * w));
     };
     return expectFeature(belief, deriv, c, Math.min(wL, wR));
+  }
+  // contracts, also kind-agnostic via ∂E[f]/∂μ = E[f′]
+  if (spec.type === 'POLYNOMIAL') {
+    // f′ is the derivative polynomial: coeff of θʲ is (j+1)·a_{j+1}.
+    const a = spec.coeffs as number[];
+    const deriv = a.slice(1).map((coef, j) => (j + 1) * coef);
+    if (deriv.length === 0) return 0; // constant payoff (validation forbids, but be safe)
+    return price({ type: 'POLYNOMIAL', coeffs: deriv }, belief);
+  }
+  if (spec.type === 'EXPONENTIAL') {
+    // ∂E[exp(a(θ−c))]/∂μ = a·E[exp(a(θ−c))] = a·price.
+    return (spec.rate as number) * price(spec, belief);
   }
 
   if (belief.kind === 'gaussian') {

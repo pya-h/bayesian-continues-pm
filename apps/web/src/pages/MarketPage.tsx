@@ -256,7 +256,15 @@ export function MarketPage() {
               </div>
             )}
             <div className="border-t border-edge p-4">
-              <ContractComposer spec={spec} onSpecChange={setSpec} mu={mu} sigma={sigma} />
+              <ContractComposer
+                spec={spec}
+                onSpecChange={setSpec}
+                mu={mu}
+                sigma={sigma}
+                model={m.model}
+                outcomeMin={m.outcomeMin}
+                outcomeMax={m.outcomeMax}
+              />
             </div>
           </Panel>
 

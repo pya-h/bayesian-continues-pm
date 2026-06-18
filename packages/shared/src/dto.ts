@@ -14,6 +14,11 @@ const positive = z.number().finite().positive();
 const OUTCOME_BOUND = 1e12;
 const outcome = z.number().finite().min(-OUTCOME_BOUND).max(OUTCOME_BOUND);
 const spread = z.number().finite().positive().max(OUTCOME_BOUND);
+
+// Max degree of a POLYNOMIAL contract.
+// Kept as a local literal so `shared` stays free of a `core` dependency.
+const MAX_POLYNOMIAL_DEGREE = 4;
+const coeff = z.number().finite().min(-OUTCOME_BOUND).max(OUTCOME_BOUND);
 const variance = z
   .number()
   .finite()
@@ -41,6 +46,16 @@ export const contractSpecSchema = z
     z.object({ type: z.literal('TENT'), center: outcome, width: spread }),
     z.object({ type: z.literal('TRAPEZOID'), lower: outcome, upper: outcome, width: spread }),
     z.object({ type: z.literal('SIGMOID'), center: outcome, width: spread }),
+    // conditionally-compatible (unbounded). The market-belief integrability +
+    // bounded-outcome guard is enforced server-side at quote/trade, not here.
+    z.object({
+      type: z.literal('POLYNOMIAL'),
+      coeffs: z
+        .array(coeff)
+        .min(1)
+        .max(MAX_POLYNOMIAL_DEGREE + 1),
+    }),
+    z.object({ type: z.literal('EXPONENTIAL'), center: outcome, rate: finite }),
   ])
   .superRefine((val, ctx) => {
     if (val.type === 'SPREAD' && !(val.lower < val.upper)) {
@@ -48,6 +63,15 @@ export const contractSpecSchema = z
     }
     if (val.type === 'TRAPEZOID' && !(val.lower < val.upper)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'TRAPEZOID requires lower < upper' });
+    }
+    if (val.type === 'POLYNOMIAL' && !val.coeffs.some((a, k) => k >= 1 && a !== 0)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'POLYNOMIAL must be non-constant' });
+    }
+    if (val.type === 'EXPONENTIAL' && val.rate === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'EXPONENTIAL requires a non-zero rate',
+      });
     }
   });
 export type ContractSpecDTO = z.infer<typeof contractSpecSchema>;

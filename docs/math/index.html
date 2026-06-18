@@ -678,6 +678,30 @@
       <pre class="codecap-pre"><code><span class="cmt">// packages/core/src/contracts.ts</span>
 <span class="kw">case</span> <span class="str">'CALL'</span>: <span class="kw">return</span> Math.max(<span class="num">0</span>, theta - spec.strike);
 <span class="kw">case</span> <span class="str">'GAUSSIAN'</span>: <span class="kw">return</span> Math.exp(-((theta - c) ** <span class="num">2</span>) / (<span class="num">2</span> * w * w));</code></pre>
+
+      <h3>Extension contracts — wider trade curves (Phase G5)</h3>
+      <p>The orthogonality of belief and contract (the price is just \(\mathbb E_p[f]\)) means a new
+      payoff is "add an \(f\) (+ its kinks, + a closed form where one exists)" — the belief side is
+      untouched. Two tiers were added. <strong>G5.1 — bounded, \(f\in[0,1]\)</strong> (zero risk-model
+      change, drop in everywhere):</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Type</th><th>Payoff \(f(\theta)\)</th><th>Range</th><th>Bet shape</th></tr></thead>
+        <tbody>
+          <tr><td><code>SKEW_GAUSSIAN</code></td><td>\( \exp\!\big(-\tfrac{(\theta-c)^2}{2w_\pm^2}\big),\ w_-=w_L\ (\theta&lt;c),\ w_+=w_R \)</td><td>\((0,1]\)</td><td>asymmetric proximity to \(c\)</td></tr>
+          <tr><td><code>TENT</code></td><td>\( \max\!\big(0,\ 1-\tfrac{|\theta-c|}{w}\big) \)</td><td>\([0,1]\)</td><td>triangular band, peak at \(c\)</td></tr>
+          <tr><td><code>TRAPEZOID</code></td><td>\( 1 \) on \([a,b]\), linear ramps of run \(w\)</td><td>\([0,1]\)</td><td>a range with soft edges</td></tr>
+          <tr><td><code>SIGMOID</code></td><td>\( \big(1+e^{-(\theta-c)/w}\big)^{-1} \)</td><td>\((0,1)\)</td><td>"above \(c\), softly" (smoothed binary)</td></tr>
+        </tbody>
+      </table></div>
+      <p><strong>G5.2 — unbounded, conditionally compatible</strong> (allowed only where they integrate
+      and where liability can be bounded — see the compatibility table in §4):</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Type</th><th>Payoff \(f(\theta)\)</th><th>Range</th><th>Bet shape</th></tr></thead>
+        <tbody>
+          <tr><td><code>POLYNOMIAL</code></td><td>\( \sum_{k} a_k\,\theta^k \) (degree \(\le 4\))</td><td>unbounded</td><td>e.g. \((\theta-c)^2\): a "distance / variance" bet</td></tr>
+          <tr><td><code>EXPONENTIAL</code></td><td>\( e^{a(\theta-c)} \)</td><td>\((0,\infty)\)</td><td>convex, one-sided "tail" bet</td></tr>
+        </tbody>
+      </table></div>
     </section>
 
     <!-- =============================================================== -->
@@ -745,6 +769,47 @@
       \( d=-0.5,\ \varphi(d)=0.3521 \), is \( 10(0.3521)+(-5)(0.3085)=\mathbf{1.978} \). And a
       <code>SPREAD</code> over \([95,105]\) prices to \( \Phi(0.5)-\Phi(-0.5)=\mathbf{0.3829} \), i.e.
       a 38.29% chance of landing in the band.</div>
+
+      <h3>Closed forms for the extension contracts (Phase G5)</h3>
+      <p>Every extension contract still prices closed-form under a Gaussian (and, by linearity,
+      \(\text{Price}(f,\sum_k\pi_k\mathcal N_k)=\sum_k\pi_k\,\text{Price}(f,\mathcal N_k)\), under a
+      mixture — including <strong>Gen·basis</strong>):</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Type</th><th>Fair price under \(\mathcal N(\mu,\sigma^2)\)</th><th>Why it's exact</th></tr></thead>
+        <tbody>
+          <tr><td><code>SKEW_GAUSSIAN</code></td><td>\( \sum_{\pm}\sqrt{\tfrac{w_\pm^2}{w_\pm^2+\sigma^2}}\,e^{-\frac{(c-\mu)^2}{2(w_\pm^2+\sigma^2)}}\cdot\Phi(\mp z_\pm) \)</td><td>each half-bell = the GAUSSIAN form × the \(\Phi\) truncation factor of the product-Gaussian</td></tr>
+          <tr><td><code>TENT</code></td><td>\( \tfrac1w\big[R(c{-}w)-2R(c)+R(c{+}w)\big] \)</td><td>exact sum of CALL ramps \(R(K)=\mathbb E[\max(0,\theta{-}K)]\) — closed-form under <em>every</em> kind</td></tr>
+          <tr><td><code>TRAPEZOID</code></td><td>\( \tfrac1w\big[R(a{-}w)-R(a)-R(b)+R(b{+}w)\big] \)</td><td>likewise a CALL-ramp sum</td></tr>
+          <tr><td><code>SIGMOID</code></td><td>bounded quadrature (no Gaussian closed form)</td><td>smooth, bounded \(\Rightarrow\) cheap fixed Simpson window</td></tr>
+          <tr><td><code>POLYNOMIAL</code></td><td>\( \sum_k a_k\,m_k,\quad m_k=\mathbb E[\theta^k] \)</td><td>raw Gaussian moments \(m_k=\mu m_{k-1}+(k{-}1)\sigma^2 m_{k-2}\)</td></tr>
+          <tr><td><code>EXPONENTIAL</code></td><td>\( e^{a(\mu-c)+\frac12 a^2\sigma^2} \)</td><td>the Gaussian MGF \(\mathbb E[e^{a\theta}]=e^{a\mu+\frac12 a^2\sigma^2}\)</td></tr>
+        </tbody>
+      </table></div>
+      <p>The price sensitivity \( \partial\,\text{Price}/\partial\mu \) used by the adverse-selection
+      spread (§5) is <strong>kind-agnostic</strong> for all of these via the translation identity
+      \( \partial_\mu\mathbb E[f(\theta)]=\mathbb E[f'(\theta)] \): TENT/TRAPEZOID differentiate their
+      CALL decomposition, POLYNOMIAL drops to its derivative polynomial \(\sum_k k\,a_k\theta^{k-1}\),
+      and EXPONENTIAL gives simply \( a\cdot\text{Price} \).</p>
+
+      <h3>Which contracts are compatible — integrability &amp; boundedness</h3>
+      <p>A contract is usable only if its price \( \mathbb E_p[f] \) is <strong>finite</strong> (a race
+      between how fast \(f\) grows and how fast the belief's tail \(p\) decays) <em>and</em> its
+      liability is <strong>boundable</strong> for the reserve (§6). The two conditions:</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Belief tail</th><th>\(p(\theta)\) decays like</th><th>Safe \(f(\theta)\) growth</th></tr></thead>
+        <tbody>
+          <tr><td>Gaussian / Gen·basis / Gen·exact</td><td>\( e^{-c\theta^2} \) (or thinner)</td><td><strong>anything sub-\(e^{\theta^2}\)</strong> — every polynomial <em>and</em> exponential integrates</td></tr>
+          <tr><td>Student-t \((\nu)\)</td><td>\( \theta^{-(\nu+1)} \) (polynomial)</td><td>only \( \mathbb E[|\theta|^n]&lt;\infty\iff n&lt;\nu \): degree-\(n\) POLYNOMIAL needs \(n&lt;\nu\); EXPONENTIAL <strong>never</strong> (price diverges)</td></tr>
+        </tbody>
+      </table></div>
+      <p>So <code>EXPONENTIAL</code> is rejected on a Student-t market (its \( \mathbb E[e^{a\theta}] \)
+      is infinite), and a <code>POLYNOMIAL</code> of degree \(n\) needs \(n&lt;\nu\) there. Independently,
+      both unbounded contracts are allowed <strong>only on bounded-outcome markets</strong>
+      (\(\theta^\star\in[\theta_{\min},\theta_{\max}]\)) so the worst-case payout — and the reserve — is
+      finite; the EXPONENTIAL rate is additionally capped to \(|a|(\theta_{\max}-\theta_{\min})\le 20\).
+      This is a precise, kind-dependent rule enforced at quote and trade
+      (<code>contractBeliefCompatible</code>), not a nicety.</p>
+
       <p>The plot draws the payoff \( f(\theta) \) and the belief \( p(\theta) \) (green, scaled to
       fit). The fair price is the area of their product — change the belief or the contract and watch
       it move:</p>

@@ -364,18 +364,44 @@ Goal: wider user-trade curves. Math/compat analysis in [`contract-extensions.md`
 > integrability guard + outcome-bounds machinery is the next, separately-reviewable concern.
 
 ### G5.2 — conditionally-compatible contracts + the compatibility guard
-- [ ] `POLYNOMIAL` (closed-form Gaussian moments) and `EXPONENTIAL` (Gaussian MGF) — **bounded-outcome
-  markets only / capped**.
-- [ ] Implement `contractBeliefCompatible(spec, tailKind)` (G0 stub → real): reject `EXPONENTIAL` and
+- [x] `POLYNOMIAL` (closed-form Gaussian moments) and `EXPONENTIAL` (Gaussian MGF) — **bounded-outcome
+  markets only / capped**. *(Done. `POLYNOMIAL` = `coeffs:[a₀..aₙ]` (deg ≤ 4, stored as `c0..cN` so the
+  jsonb `params` stays `Record<string,number>`), priced via raw Gaussian moments `mₖ=μmₖ₋₁+(k−1)σ²mₖ₋₂`;
+  `EXPONENTIAL` = `exp(a(θ−c))`, priced via the Gaussian MGF `e^{a(μ−c)+½a²σ²}`. Both unbounded
+  (`payoffBounds.bounded=false`); both compose for mixture/Gen·basis automatically. `dPriceDMu` is
+  kind-agnostic via the translation identity (POLYNOMIAL → derivative poly; EXPONENTIAL → `a·price`).
+  `extractSignal`: EXPONENTIAL directional by `sign(rate)`, POLYNOMIAL neutral (a shape, not a location,
+  bet). EXPONENTIAL payoff clamps its exponent at ±700 so a contrived far-tail MC draw can't overflow.)*
+- [x] Implement `contractBeliefCompatible(spec, tailKind)` (G0 stub → real): reject `EXPONENTIAL` and
   `POLYNOMIAL(deg ≥ ν)` on `student_t` (polynomial-tail) markets; require `outcomeMin/Max` (or a cap)
-  for unbounded payoffs. Enforce at **create** (spec presets) and **quote/trade**.
-- [ ] **Tests:** integrability guard rejects exp-on-Student-t (would diverge) with a clear error;
-  polynomial finite iff `deg < ν`; bounded-outcome polynomial prices vs MC.
-- [ ] `web`: extend `ContractComposer` + `BeliefChart` handles for the new specs; disabled options with
-  reasons when incompatible with the market's belief.
+  for unbounded payoffs. Enforce at **create** (spec presets) and **quote/trade**. *(Done. Signature
+  generalised to `contractBeliefCompatible(spec, { tail, nu?, outcomeBounded, outcomeSpan? })
+  → { ok, reason? }`. Rules: unbounded ⇒ require bounded outcome; EXPONENTIAL rejected on polynomial
+  tail + `|a|·span ≤ 20`; POLYNOMIAL deg ≥ ν rejected on polynomial tail. Wired via the api
+  `assertContractCompatible(spec, m)` at both `quote` and `executeTrade` — markets create contracts
+  lazily on first trade, so quote+trade IS the "create" enforcement point. ν read from the persisted
+  `belief_state` for student_t.)*
+- [x] **Tests:** integrability guard rejects exp-on-Student-t (would diverge) with a clear error;
+  polynomial finite iff `deg < ν`; bounded-outcome polynomial prices vs MC. *(Done: `core/test/polyExp.test.ts`
+  (price==expectF==MC on gaussian+mixture, dPriceDMu vs central diff + analytic identities, payoff/
+  validation/bounds/key, overflow clamp) and the rewritten `core/test/compat.test.ts` (the full guard
+  matrix). `shared.test.ts` round-trips + rejects both. `api/test/polyExpContracts.test.ts` — bounded
+  Gaussian quote==price() + POLYNOMIAL buy persists `c0..cN`; unbounded market → 400; Student-t EXP → 400;
+  Student-t deg<ν accepted / deg≥ν → 400.)*
+- [x] `web`: extend `ContractComposer` + `BeliefChart` handles for the new specs; disabled options with
+  reasons when incompatible with the market's belief. *(Done: composer gains the two type buttons + a
+  POLYNOMIAL coeff/degree editor and EXPONENTIAL center/rate fields; incompatible types render **disabled
+  with the guard's reason** (mirrors `contractBeliefCompatible` client-side) and the selected-but-blocked
+  spec shows a warn banner. `viz.winningRegions` (EXPONENTIAL by rate sign; POLYNOMIAL none), `specLabel`,
+  and `PriceCurveChart` param-sweep extended. BeliefChart drag handles: none for these two — they're edited
+  via the composer fields, like LINEAR.)*
 - **Checkpoint:** richer contracts trade where mathematically valid; invalid combinations are
-  blocked with an explanation, never mispriced. **math-doc:** add the new payoffs + the compatibility
-  table to §3/§4.
+  blocked with an explanation, never mispriced. **math-doc:** added the G5.1 + G5.2 payoffs to §3, the
+  extension closed forms + the integrability/boundedness compatibility table to §4 (this also clears the
+  G5.1-deferred doc note). *( 2026-06-18 — full sweep **713 pass** (core 361 · shared 17 · api 155 ·
+  web 180); typecheck + biome clean (pre-existing `docs/math/multimodel.js` lint nits are unrelated and
+  untouched). KaTeX not auto-verified locally — katex not installed, same as prior phases; macros reuse
+  the existing §3/§4 conventions.)*
 
 ---
 

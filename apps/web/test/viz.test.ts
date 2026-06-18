@@ -184,6 +184,8 @@ describe('payoffCurve faithfulness to core.payoff', () => {
     { type: 'BINARY_CALL', strike: 55 },
     { type: 'SPREAD', lower: 45, upper: 65 },
     { type: 'GAUSSIAN', center: 50, width: 8 },
+    { type: 'POLYNOMIAL', coeffs: [0, 0, 1] },
+    { type: 'EXPONENTIAL', center: 50, rate: 0.05 },
   ];
   for (const spec of specs) {
     test(`every sample equals core.payoff — ${spec.type}`, () => {
@@ -220,6 +222,15 @@ describe('winningRegions', () => {
   });
   test('LINEAR has no discrete winning region', () => {
     expect(winningRegions({ type: 'LINEAR' }, [10, 90])).toEqual([]);
+  });
+  test('EXPONENTIAL shades by rate sign; POLYNOMIAL has no single region', () => {
+    expect(winningRegions({ type: 'EXPONENTIAL', center: 50, rate: 0.05 }, [10, 90])).toEqual([
+      [50, 90],
+    ]);
+    expect(winningRegions({ type: 'EXPONENTIAL', center: 50, rate: -0.05 }, [10, 90])).toEqual([
+      [10, 50],
+    ]);
+    expect(winningRegions({ type: 'POLYNOMIAL', coeffs: [0, 0, 1] }, [10, 90])).toEqual([]);
   });
 });
 

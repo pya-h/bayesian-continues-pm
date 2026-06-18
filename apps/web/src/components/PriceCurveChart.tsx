@@ -27,6 +27,7 @@ function withParam(spec: ContractSpec, x: number): ContractSpec | null {
     case 'SKEW_GAUSSIAN':
     case 'TENT':
     case 'SIGMOID':
+    case 'EXPONENTIAL':
       return { ...spec, center: x };
     case 'SPREAD': {
       const half = (spec.upper - spec.lower) / 2;
@@ -52,6 +53,7 @@ function currentParam(spec: ContractSpec): number | null {
     case 'SKEW_GAUSSIAN':
     case 'TENT':
     case 'SIGMOID':
+    case 'EXPONENTIAL':
       return spec.center;
     case 'SPREAD':
     case 'TRAPEZOID':
@@ -62,7 +64,13 @@ function currentParam(spec: ContractSpec): number | null {
 }
 
 function paramLabel(type: ContractSpec['type']): string {
-  if (type === 'GAUSSIAN' || type === 'SKEW_GAUSSIAN' || type === 'TENT' || type === 'SIGMOID')
+  if (
+    type === 'GAUSSIAN' ||
+    type === 'SKEW_GAUSSIAN' ||
+    type === 'TENT' ||
+    type === 'SIGMOID' ||
+    type === 'EXPONENTIAL'
+  )
     return 'c';
   if (type === 'SPREAD' || type === 'TRAPEZOID') return 'mid';
   return 'K';

@@ -63,10 +63,15 @@ export interface BeliefModel {
 }
 
 // Contract type tags. The first seven are the
-// v1 set; the last four are the bounded shape-extensions (all payoffs
+// v1 set; the next four are the bounded shape-extensions (all payoffs
 // ∈ [0,1], so they add zero risk-model change and price closed-form under our
 // Gaussian-tailed beliefs — TENT/TRAPEZOID as CALL-ramp sums, SKEW_GAUSSIAN
 // per-side, SIGMOID via bounded quadrature).
+// The last two are the conditionally-compatible contracts: both are
+// UNBOUNDED (so allowed only on bounded-outcome markets, per the integrability +
+// liability guard) and closed-form under a Gaussian belief — POLYNOMIAL via raw
+// Gaussian moments, EXPONENTIAL via the Gaussian MGF. EXPONENTIAL is never valid
+// on a Student-t (polynomial-tail) belief; POLYNOMIAL only when degree < ν.
 export type ContractType =
   | 'LINEAR'
   | 'CALL'
@@ -78,7 +83,9 @@ export type ContractType =
   | 'SKEW_GAUSSIAN'
   | 'TENT'
   | 'TRAPEZOID'
-  | 'SIGMOID';
+  | 'SIGMOID'
+  | 'POLYNOMIAL'
+  | 'EXPONENTIAL';
 
 // A user-composable contract. Only the params relevant to `type` are used
 // CALL/PUT/BINARY_CALL/BINARY_PUT → strike
@@ -88,6 +95,8 @@ export type ContractType =
 // TENT → center, width (triangle, peak at center, 0 at ±width)
 // TRAPEZOID → lower, upper (flat top), width (ramp run on each side)
 // SIGMOID → center, width (soft step; width = softness scale)
+// POLYNOMIAL → coeffs [a₀..aₙ], f(θ)=Σ aₖθᵏ (deg ≤ 4)
+// EXPONENTIAL → center, rate (a), f(θ)=exp(a·(θ−center))
 // LINEAR → (none)
 export interface ContractSpec {
   type: ContractType;
@@ -98,6 +107,10 @@ export interface ContractSpec {
   width?: number;
   widthLeft?: number;
   widthRight?: number;
+  // POLYNOMIAL coefficients [a₀, a₁, …, aₙ]; payoff Σ aₖθᵏ, degree = length − 1.
+  coeffs?: number[];
+  // EXPONENTIAL rate `a` in exp(a·(θ−center)).
+  rate?: number;
 }
 
 // Per-market engine parameters. Defaults from live in config.ts.

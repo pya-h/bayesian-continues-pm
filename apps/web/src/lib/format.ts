@@ -45,6 +45,15 @@ export function fmtPct(frac: number | null | undefined, decimals = 1): string {
   return `${(frac * 100).toFixed(decimals)}%`;
 }
 
+// Render coeffs [a₀..aₙ] as a compact "a₀ + a₁θ + a₂θ² …" string (skips zero terms).
+function polyLabel(coeffs: number[]): string {
+  const terms = coeffs
+    .map((a, k) => ({ a, k }))
+    .filter(({ a }) => a !== 0)
+    .map(({ a, k }) => (k === 0 ? fmt(a, 2) : `${fmt(a, 2)}θ${k > 1 ? `^${k}` : ''}`));
+  return terms.length ? terms.join(' + ') : '0';
+}
+
 export function specLabel(spec: {
   type: string;
   strike?: number;
@@ -54,6 +63,8 @@ export function specLabel(spec: {
   width?: number;
   widthLeft?: number;
   widthRight?: number;
+  coeffs?: number[];
+  rate?: number;
 }): string {
   switch (spec.type) {
     case 'LINEAR':
@@ -84,6 +95,10 @@ export function specLabel(spec: {
       )}`;
     case 'SIGMOID':
       return `Sigmoid · c=${fmt(spec.center ?? 0, 0)} w=${fmt(spec.width ?? 0, 0)}`;
+    case 'POLYNOMIAL':
+      return `Polynomial · ${polyLabel(spec.coeffs ?? [])}`;
+    case 'EXPONENTIAL':
+      return `Exponential · e^(${fmt(spec.rate ?? 0, 3)}·(θ−${fmt(spec.center ?? 0, 0)}))`;
     default:
       return spec.type;
   }

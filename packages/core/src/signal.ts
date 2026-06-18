@@ -71,6 +71,16 @@ export function extractSignal(
       signal = c + direction * a * sigma * (1 + intensity);
       break;
     }
+    case 'EXPONENTIAL': {
+      // e^{a(θ−c)} is monotone: rate>0 is bullish, rate<0 bearish; a buy bets that
+      // direction, a sell the opposite (around the current mean).
+      const bull = Math.sign(spec.rate as number) || 1;
+      signal = mu + direction * bull * a * sigma * (1 + intensity);
+      break;
+    }
+    // POLYNOMIAL (falls through to default): a general Σaₖθᵏ is a *shape* bet
+    // (e.g. (θ−c)² rewards both tails), not a directional location bet, so it carries
+    // no well-defined μ-signal — leave the location neutral (it still prices/reserves).
     default:
       signal = mu;
   }

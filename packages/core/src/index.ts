@@ -49,13 +49,18 @@ export {
   payoffKinks,
   payoffBounds,
   type PayoffBounds,
+  MAX_POLYNOMIAL_DEGREE,
+  polynomialDegree,
 } from './contracts.ts';
 
 // contract↔belief compatibility (multi-model refactor)
 export {
   type TailKind,
   type ModelTag,
+  type BeliefTailContext,
+  type CompatResult,
   BELIEF_TAIL,
+  EXP_MAX_LOG_RANGE,
   contractBeliefCompatible,
 } from './compat.ts';
 
