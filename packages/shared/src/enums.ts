@@ -17,6 +17,11 @@ export const ContractType = {
   BINARY_PUT: 'BINARY_PUT',
   SPREAD: 'SPREAD',
   GAUSSIAN: 'GAUSSIAN',
+  // bounded shape-extensions (all payoffs ∈ [0,1], zero risk-model change).
+  SKEW_GAUSSIAN: 'SKEW_GAUSSIAN',
+  TENT: 'TENT',
+  TRAPEZOID: 'TRAPEZOID',
+  SIGMOID: 'SIGMOID',
 } as const;
 export type ContractType = (typeof ContractType)[keyof typeof ContractType];
 
@@ -37,8 +42,8 @@ export type BeliefKind = (typeof BeliefKind)[keyof typeof BeliefKind];
 // model — it drives the create UI and the belief-update config — and is distinct
 // from `BeliefKind`, which is the math/serialization representation. Notably
 // `gen_basis` is stored as `belief_kind = 'mixture'` (an adaptive mixture); the
-// `model` tag is what carries its distinct identity. Legacy rows (model = null)
-// infer `model = belief_kind`. See model/).
+// `model` tag is what carries its distinct identity. Set on every market at
+// creation. See model/).
 export const ModelTag = {
   GAUSSIAN: 'gaussian',
   STUDENT_T: 'student_t',

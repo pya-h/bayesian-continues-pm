@@ -17,6 +17,24 @@ export function priceGaussianPayoff(c: number, w: number, mu: number, sigma2: nu
   return Math.sqrt(w2 / denom) * Math.exp(-((c - mu) ** 2) / (2 * denom));
 }
 
+// Closed-form price of an asymmetric (skew) bell — width `wL` below the center
+// `wR` above — under a single Gaussian N(μ,σ²). Each side is the full-line bell
+// price `priceGaussianPayoff` scaled by the truncation factor `P(Y ≷ c)`, where
+// Y is the (normalised) product of the bell and the belief: Y ~ N(m, s²) with
+// precision τ = 1/w² + 1/σ². So the half-line integral is exact, no quadrature.
+function priceSkewGaussian(c: number, wL: number, wR: number, mu: number, sigma2: number): number {
+  const half = (w: number, left: boolean): number => {
+    const w2 = w * w;
+    const tau = 1 / w2 + 1 / sigma2;
+    const s = Math.sqrt(1 / tau);
+    const m = (c / w2 + mu / sigma2) / tau;
+    const z = (c - m) / s; // P(Y ≤ c) = Φ(z)
+    const trunc = left ? Phi(z) : 1 - Phi(z);
+    return priceGaussianPayoff(c, w, mu, sigma2) * trunc;
+  };
+  return half(wL, true) + half(wR, false);
+}
+
 // Fair price of a contract under a SINGLE Gaussian N(μ, σ²).
 function priceUnderGaussian(spec: ContractSpec, mu: number, sigma2: number): number {
   const sigma = Math.sqrt(sigma2);
@@ -44,6 +62,14 @@ function priceUnderGaussian(spec: ContractSpec, mu: number, sigma2: number): num
     }
     case 'GAUSSIAN':
       return priceGaussianPayoff(spec.center as number, spec.width as number, mu, sigma2);
+    case 'SKEW_GAUSSIAN':
+      return priceSkewGaussian(
+        spec.center as number,
+        spec.widthLeft as number,
+        spec.widthRight as number,
+        mu,
+        sigma2,
+      );
     default:
       throw new Error(`price: unknown contract type ${(spec as ContractSpec).type}`);
   }
@@ -79,6 +105,54 @@ function expectGaussianBump(belief: BeliefModel, c: number, bw: number): number 
 // E[(GAUSSIAN payoff)²] under a belief — the square is a bell of width w/√2.
 export function expectGaussianBumpSquared(belief: BeliefModel, c: number, w: number): number {
   return expectGaussianBump(belief, c, w / Math.SQRT2);
+}
+
+// E[fn(θ)] under any belief via a feature-aware composite-Simpson window — the
+// generalisation of `expectGaussianBump` to an arbitrary localized integrand
+// (the SIGMOID and the quadrature path of SKEW_GAUSSIAN). The window covers BOTH
+// the belief (mean ± L·σ) and the contract feature (center ± L·feature), and the
+// node count resolves the NARROWER of the two scales — so a far or narrow feature
+// is neither missed nor under-sampled. Use only for SMOOTH/bounded integrands.
+function expectFeature(
+  belief: BeliefModel,
+  fn: (theta: number) => number,
+  center: number,
+  feature: number,
+): number {
+  const mean = belief.mean();
+  const sigma = belief.stddev();
+  const L = 12;
+  const lo = Math.min(mean - L * sigma, center - L * feature);
+  const hi = Math.max(mean + L * sigma, center + L * feature);
+  const scale = Math.max(Math.min(sigma, feature), 1e-300);
+  let n = Math.ceil((hi - lo) / (scale / 24));
+  n = Math.min(Math.max(n, 4000), 200_000);
+  if (n % 2 === 1) n += 1;
+  const h = (hi - lo) / n;
+  const ig = (x: number) => fn(x) * belief.pdf(x);
+  let sum = ig(lo) + ig(hi);
+  for (let i = 1; i < n; i++) sum += (i % 2 === 0 ? 2 : 4) * ig(lo + i * h);
+  return (sum * h) / 3;
+}
+
+// TENT and TRAPEZOID are exact linear combinations of CALL ramps, so they price
+// closed-form under EVERY belief kind by reusing `price(CALL)`
+// tent(θ) = (1/w)[ R(c−w) − 2R(c) + R(c+w) ] (R = CALL ramp)
+// trap(θ) = (1/w)[ R(a−w) − R(a) − R(b) + R(b+w) ]
+// No new per-kind math, exact wherever CALL is exact.
+function tentPrice(spec: ContractSpec, belief: BeliefModel): number {
+  const c = spec.center as number;
+  const w = spec.width as number;
+  const call = (K: number) => price({ type: 'CALL', strike: K }, belief);
+  return (call(c - w) - 2 * call(c) + call(c + w)) / w;
+}
+
+function trapezoidPrice(spec: ContractSpec, belief: BeliefModel): number {
+  const a = spec.lower as number;
+  const b = spec.upper as number;
+  const w = spec.width as number;
+  const call = (K: number) => price({ type: 'CALL', strike: K }, belief);
+  return (call(a - w) - call(a) - call(b) + call(b + w)) / w;
 }
 
 // Fair price under a Student-t(ν, μ, s²) belief — closed forms via the t pdf/cdf.
@@ -176,6 +250,24 @@ function dPriceDMuUnderGaussian(spec: ContractSpec, mu: number, sigma2: number):
 // closed forms. Student-t and other kinds fall back to the
 // general `expectF` quadrature on the payoff.
 export function price(spec: ContractSpec, belief: BeliefModel): number {
+  // shape-extensions. TENT/TRAPEZOID reduce to CALL sums (exact, any kind)
+  // SIGMOID is bounded quadrature (no closed form); SKEW_GAUSSIAN is closed-form
+  // under Gaussian/mixture (handled in priceUnderGaussian) and quadrature otherwise.
+  if (spec.type === 'TENT') return tentPrice(spec, belief);
+  if (spec.type === 'TRAPEZOID') return trapezoidPrice(spec, belief);
+  if (spec.type === 'SIGMOID') {
+    return expectFeature(
+      belief,
+      (x) => payoff(spec, x),
+      spec.center as number,
+      spec.width as number,
+    );
+  }
+  if (spec.type === 'SKEW_GAUSSIAN' && belief.kind !== 'gaussian' && belief.kind !== 'mixture') {
+    const feature = Math.min(spec.widthLeft as number, spec.widthRight as number);
+    return expectFeature(belief, (x) => payoff(spec, x), spec.center as number, feature);
+  }
+
   if (belief.kind === 'gaussian') {
     return priceUnderGaussian(spec, belief.mean(), belief.variance());
   }
@@ -203,6 +295,44 @@ export function price(spec: ContractSpec, belief: BeliefModel): number {
 // same dμ (which shifts the belief mean by dμ): Σ π_k·∂Price_k/∂μ_k. Used by the
 // adverse-selection spread term.
 export function dPriceDMu(spec: ContractSpec, belief: BeliefModel): number {
+  // shape-extensions, kind-agnostic via the translation identity
+  // ∂E[f(θ)]/∂μ = E[f'(θ)] (shifting μ translates the whole density). TENT/TRAPEZOID
+  // differentiate their CALL decomposition; SIGMOID/SKEW integrate the analytic f'.
+  if (spec.type === 'TENT') {
+    const c = spec.center as number;
+    const w = spec.width as number;
+    const dca = (K: number) => dPriceDMu({ type: 'CALL', strike: K }, belief);
+    return (dca(c - w) - 2 * dca(c) + dca(c + w)) / w;
+  }
+  if (spec.type === 'TRAPEZOID') {
+    const a = spec.lower as number;
+    const b = spec.upper as number;
+    const w = spec.width as number;
+    const dca = (K: number) => dPriceDMu({ type: 'CALL', strike: K }, belief);
+    return (dca(a - w) - dca(a) - dca(b) + dca(b + w)) / w;
+  }
+  if (spec.type === 'SIGMOID') {
+    const c = spec.center as number;
+    const w = spec.width as number;
+    // f' = f·(1−f)/w (logistic derivative), a bounded bump centred at c.
+    const deriv = (x: number) => {
+      const s = 1 / (1 + Math.exp(-(x - c) / w));
+      return (s * (1 - s)) / w;
+    };
+    return expectFeature(belief, deriv, c, w);
+  }
+  if (spec.type === 'SKEW_GAUSSIAN') {
+    const c = spec.center as number;
+    const wL = spec.widthLeft as number;
+    const wR = spec.widthRight as number;
+    // f'(θ) = −(θ−c)/w²·exp(−(θ−c)²/2w²), with w = wL below c, wR above.
+    const deriv = (x: number) => {
+      const w = x < c ? wL : wR;
+      return -((x - c) / (w * w)) * Math.exp(-((x - c) ** 2) / (2 * w * w));
+    };
+    return expectFeature(belief, deriv, c, Math.min(wL, wR));
+  }
+
   if (belief.kind === 'gaussian') {
     return dPriceDMuUnderGaussian(spec, belief.mean(), belief.variance());
   }

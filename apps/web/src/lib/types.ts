@@ -44,7 +44,7 @@ export interface Belief {
 
 // Creator-chosen model tag (multi-model refactor). Distinct from `Belief.kind`
 // (the math representation): a `gen_basis` market reports `model: 'gen_basis'`
-// but `belief.kind: 'mixture'`. Inferred from belief_kind for legacy markets.
+// but `belief.kind: 'mixture'`. Set on every market at creation.
 export type ModelTag = 'gaussian' | 'student_t' | 'mixture' | 'gen_basis' | 'gen_exact';
 
 export interface MarketView {

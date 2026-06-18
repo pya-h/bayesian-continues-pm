@@ -24,7 +24,7 @@ export function projectBelief(args: {
   belief: BeliefModel;
   cfg: Record<string, number | boolean>;
   // The market's model tag — so a Gen·basis bell trade previews as a placement.
-  model?: ModelTag;
+  model: ModelTag;
 }): { mu: number; sigma: number } {
   const { spec, signedQ, belief, cfg, model } = args;
   const engineCfg = cfg as unknown as EngineConfig;

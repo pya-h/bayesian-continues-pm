@@ -15,6 +15,22 @@ const TYPES: { type: ContractSpec['type']; label: string; hint: string }[] = [
   { type: ContractType.BINARY_PUT, label: 'Binary ≤', hint: 'Pays 1 if θ ≤ K, else 0.' },
   { type: ContractType.SPREAD, label: 'Spread', hint: 'Pays 1 if lo ≤ θ ≤ hi (a box).' },
   { type: ContractType.GAUSSIAN, label: 'Bell', hint: 'Pays exp(−(θ−c)²/2w²) — peaked at c.' },
+  {
+    type: ContractType.SKEW_GAUSSIAN,
+    label: 'Skew bell',
+    hint: 'Asymmetric bell — width wL below c, wR above. Peaks at c.',
+  },
+  { type: ContractType.TENT, label: 'Tent', hint: 'Triangle — peak 1 at c, 0 at c ± w.' },
+  {
+    type: ContractType.TRAPEZOID,
+    label: 'Trapezoid',
+    hint: 'Flat 1 on [lo, hi] with soft ramps of run w.',
+  },
+  {
+    type: ContractType.SIGMOID,
+    label: 'Sigmoid',
+    hint: 'Soft step 1/(1+e^−(θ−c)/w) — “above c, softly.”',
+  },
 ];
 
 export function defaultSpec(type: ContractSpec['type'], mu: number, sigma: number): ContractSpec {
@@ -32,6 +48,19 @@ export function defaultSpec(type: ContractSpec['type'], mu: number, sigma: numbe
       return { type, lower: round(mu - sigma), upper: round(mu + sigma) };
     case 'GAUSSIAN':
       return { type, center: round(mu), width: round(sigma) || 1 };
+    case 'SKEW_GAUSSIAN':
+      return {
+        type,
+        center: round(mu),
+        widthLeft: round(sigma) || 1,
+        widthRight: round(1.6 * sigma) || 1,
+      };
+    case 'TENT':
+      return { type, center: round(mu), width: round(2 * sigma) || 1 };
+    case 'TRAPEZOID':
+      return { type, lower: round(mu - sigma), upper: round(mu + sigma), width: round(sigma) || 1 };
+    case 'SIGMOID':
+      return { type, center: round(mu), width: Math.max(1, round(0.5 * sigma)) };
   }
 }
 
@@ -126,7 +155,7 @@ export function ContractComposer({
             />
           </>
         )}
-        {spec.type === 'GAUSSIAN' && (
+        {(spec.type === 'GAUSSIAN' || spec.type === 'TENT' || spec.type === 'SIGMOID') && (
           <>
             <NumField
               label="Center c"
@@ -136,6 +165,54 @@ export function ContractComposer({
             />
             <NumField
               label="Width w"
+              value={spec.width}
+              step={step}
+              onChange={(width) => onSpecChange({ ...spec, width: Math.max(1e-6, width) })}
+            />
+          </>
+        )}
+        {spec.type === 'SKEW_GAUSSIAN' && (
+          <>
+            <NumField
+              label="Center c"
+              value={spec.center}
+              step={step}
+              onChange={(center) => onSpecChange({ ...spec, center })}
+            />
+            <NumField
+              label="Width L"
+              value={spec.widthLeft}
+              step={step}
+              onChange={(widthLeft) =>
+                onSpecChange({ ...spec, widthLeft: Math.max(1e-6, widthLeft) })
+              }
+            />
+            <NumField
+              label="Width R"
+              value={spec.widthRight}
+              step={step}
+              onChange={(widthRight) =>
+                onSpecChange({ ...spec, widthRight: Math.max(1e-6, widthRight) })
+              }
+            />
+          </>
+        )}
+        {spec.type === 'TRAPEZOID' && (
+          <>
+            <NumField
+              label="Lower"
+              value={spec.lower}
+              step={step}
+              onChange={(lower) => onSpecChange({ ...spec, lower })}
+            />
+            <NumField
+              label="Upper"
+              value={spec.upper}
+              step={step}
+              onChange={(upper) => onSpecChange({ ...spec, upper })}
+            />
+            <NumField
+              label="Ramp w"
               value={spec.width}
               step={step}
               onChange={(width) => onSpecChange({ ...spec, width: Math.max(1e-6, width) })}

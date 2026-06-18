@@ -31,10 +31,23 @@ export const contractSpecSchema = z
     z.object({ type: z.literal('BINARY_PUT'), strike: outcome }),
     z.object({ type: z.literal('SPREAD'), lower: outcome, upper: outcome }),
     z.object({ type: z.literal('GAUSSIAN'), center: outcome, width: spread }),
+    // bounded shape-extensions.
+    z.object({
+      type: z.literal('SKEW_GAUSSIAN'),
+      center: outcome,
+      widthLeft: spread,
+      widthRight: spread,
+    }),
+    z.object({ type: z.literal('TENT'), center: outcome, width: spread }),
+    z.object({ type: z.literal('TRAPEZOID'), lower: outcome, upper: outcome, width: spread }),
+    z.object({ type: z.literal('SIGMOID'), center: outcome, width: spread }),
   ])
   .superRefine((val, ctx) => {
     if (val.type === 'SPREAD' && !(val.lower < val.upper)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'SPREAD requires lower < upper' });
+    }
+    if (val.type === 'TRAPEZOID' && !(val.lower < val.upper)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'TRAPEZOID requires lower < upper' });
     }
   });
 export type ContractSpecDTO = z.infer<typeof contractSpecSchema>;

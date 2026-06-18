@@ -73,7 +73,7 @@ export function QuotePanel({
   sigma: number;
   belief: Belief;
   // The market's model tag — so a Gen·basis bell trade previews as a placement.
-  model?: ModelTag;
+  model: ModelTag;
   outcomeUnit: string;
   outcomeMin?: number | null;
   outcomeMax?: number | null;

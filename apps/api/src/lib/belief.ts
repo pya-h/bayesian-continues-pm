@@ -24,21 +24,17 @@ interface BeliefRow {
   beliefState: BeliefStateDTO | null;
 }
 
-// Mixture-management config for a market's belief update. Legacy `mixture`
-// markets use the shipped defaults (spawning off). A Gen·basis market turns on
+// Mixture-management config for a market's belief update. A plain `mixture`
+// market uses the shipped defaults (spawning off); a Gen·basis market turns on
 // adaptive mode-spawning and relaxes the component cap, so order flow at new
 // locations grows fresh modes (multi-model refactor G1). For every other model
 // the value is ignored by `updateBelief` (only the mixture path reads it).
-// `model` is the creator's chosen tag; null ⇒ legacy row, inferred from
-// `beliefKind`. The tag — not `beliefKind` — distinguishes Gen·basis (which
-// is itself stored as a `mixture`) from the plain `mixture` kind. The actual
-// spawn/cap policy lives in `@bmm/core` (`mixtureOpsForModel`) so the web client
-// preview applies the identical update.
-export function mixtureOpsFor(row: {
-  model: ModelTag | null;
-  beliefKind: string;
-}): MixtureOpsConfig {
-  return mixtureOpsForModel(row.model ?? row.beliefKind);
+// The `model` tag — not `beliefKind` — distinguishes Gen·basis (which is itself
+// stored as a `mixture`) from the plain `mixture` kind. The actual spawn/cap
+// policy lives in `@bmm/core` (`mixtureOpsForModel`) so the web client preview
+// applies the identical update.
+export function mixtureOpsFor(row: { model: ModelTag }): MixtureOpsConfig {
+  return mixtureOpsForModel(row.model);
 }
 
 export function loadBelief(row: BeliefRow): BeliefModel {

@@ -34,10 +34,41 @@ describe('contractSpecSchema', () => {
       { type: 'CALL', strike: 100 },
       { type: 'SPREAD', lower: 90, upper: 110 },
       { type: 'GAUSSIAN', center: 100, width: 5 },
+      // bounded shape-extensions
+      { type: 'SKEW_GAUSSIAN', center: 100, widthLeft: 4, widthRight: 9 },
+      { type: 'TENT', center: 100, width: 12 },
+      { type: 'TRAPEZOID', lower: 90, upper: 110, width: 6 },
+      { type: 'SIGMOID', center: 100, width: 3 },
     ]) {
       const parsed = contractSpecSchema.parse(spec);
       expect(parsed).toEqual(spec as never);
     }
+  });
+
+  test('G5.1 shape-extensions reject malformed params', () => {
+    // non-positive widths
+    expect(
+      contractSpecSchema.safeParse({
+        type: 'SKEW_GAUSSIAN',
+        center: 1,
+        widthLeft: 0,
+        widthRight: 2,
+      }).success,
+    ).toBe(false);
+    expect(contractSpecSchema.safeParse({ type: 'TENT', center: 1, width: -1 }).success).toBe(
+      false,
+    );
+    expect(contractSpecSchema.safeParse({ type: 'SIGMOID', center: 1, width: 0 }).success).toBe(
+      false,
+    );
+    // trapezoid plateau must be ordered
+    expect(
+      contractSpecSchema.safeParse({ type: 'TRAPEZOID', lower: 110, upper: 90, width: 6 }).success,
+    ).toBe(false);
+    // missing a required width
+    expect(
+      contractSpecSchema.safeParse({ type: 'SKEW_GAUSSIAN', center: 1, widthLeft: 2 }).success,
+    ).toBe(false);
   });
 
   test('CALL without strike rejected', () => {

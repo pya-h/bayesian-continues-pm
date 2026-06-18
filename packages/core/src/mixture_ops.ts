@@ -14,6 +14,7 @@
 // update path): when one component must explain signals on both sides of its
 // mean, splitting it into two seeded ±σ halves lets the mixture grow a new mode.
 
+import type { ModelTag } from './compat.ts';
 import { MixtureBelief, type MixtureComponent } from './mixture.ts';
 
 export interface MixtureOpsConfig {
@@ -52,10 +53,10 @@ export const GEN_BASIS_MAX_COMPONENTS = 12;
 export const GEN_BASIS_TAU_SPAWN = 3;
 
 // Mixture-ops config for a market's belief update, keyed on the creator's model
-// tag. Gen·basis → spawning on, cap relaxed to 12; every other model uses
-// the shipped defaults (spawning off). The tag — not `belief_kind` — distinguishes
+// tag. Gen·basis → spawning on, cap relaxed to 12; every other model uses the
+// shipped defaults (spawning off). The tag — not `belief_kind` — distinguishes
 // Gen·basis (itself stored as a `mixture`) from the plain `mixture` kind.
-export function mixtureOpsForModel(model: string | null | undefined): MixtureOpsConfig {
+export function mixtureOpsForModel(model: ModelTag): MixtureOpsConfig {
   if (model === 'gen_basis') {
     return {
       ...DEFAULT_MIXTURE_OPS,

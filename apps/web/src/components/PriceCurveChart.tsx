@@ -24,10 +24,17 @@ function withParam(spec: ContractSpec, x: number): ContractSpec | null {
     case 'BINARY_PUT':
       return { ...spec, strike: x };
     case 'GAUSSIAN':
+    case 'SKEW_GAUSSIAN':
+    case 'TENT':
+    case 'SIGMOID':
       return { ...spec, center: x };
     case 'SPREAD': {
       const half = (spec.upper - spec.lower) / 2;
       return { type: 'SPREAD', lower: x - half, upper: x + half };
+    }
+    case 'TRAPEZOID': {
+      const half = (spec.upper - spec.lower) / 2;
+      return { ...spec, lower: x - half, upper: x + half };
     }
     default:
       return null; // LINEAR has no strike-like parameter
@@ -42,8 +49,12 @@ function currentParam(spec: ContractSpec): number | null {
     case 'BINARY_PUT':
       return spec.strike;
     case 'GAUSSIAN':
+    case 'SKEW_GAUSSIAN':
+    case 'TENT':
+    case 'SIGMOID':
       return spec.center;
     case 'SPREAD':
+    case 'TRAPEZOID':
       return (spec.lower + spec.upper) / 2;
     default:
       return null;
@@ -51,7 +62,10 @@ function currentParam(spec: ContractSpec): number | null {
 }
 
 function paramLabel(type: ContractSpec['type']): string {
-  return type === 'GAUSSIAN' ? 'c' : type === 'SPREAD' ? 'mid' : 'K';
+  if (type === 'GAUSSIAN' || type === 'SKEW_GAUSSIAN' || type === 'TENT' || type === 'SIGMOID')
+    return 'c';
+  if (type === 'SPREAD' || type === 'TRAPEZOID') return 'mid';
+  return 'K';
 }
 
 export function PriceCurveChart({
@@ -93,7 +107,15 @@ export function PriceCurveChart({
       ? `G:${spec.width}`
       : spec.type === 'SPREAD'
         ? `S:${spec.upper - spec.lower}`
-        : spec.type; // strike family: the curve is independent of the strike value
+        : spec.type === 'SKEW_GAUSSIAN'
+          ? `SK:${spec.widthLeft}:${spec.widthRight}`
+          : spec.type === 'TENT'
+            ? `T:${spec.width}`
+            : spec.type === 'SIGMOID'
+              ? `SG:${spec.width}`
+              : spec.type === 'TRAPEZOID'
+                ? `TR:${spec.upper - spec.lower}:${spec.width}`
+                : spec.type; // strike family: the curve is independent of the strike value
 
   // SPREAD / GAUSSIAN (Bell) DO reshape as their width handle is dragged, so their
   // curve can't be cached away like the strike family — every frame re-sweeps. With
@@ -101,7 +123,13 @@ export function PriceCurveChart({
   // full 80-point re-sweep per frame janks. While such a drag is live we coarsen the
   // sweep (cheap closed-form kinds stay full-res); it snaps back to full on release.
   const dragging = liveSpec != null;
-  const reshapesWhileDragging = spec.type === 'SPREAD' || spec.type === 'GAUSSIAN';
+  const reshapesWhileDragging =
+    spec.type === 'SPREAD' ||
+    spec.type === 'GAUSSIAN' ||
+    spec.type === 'SKEW_GAUSSIAN' ||
+    spec.type === 'TENT' ||
+    spec.type === 'TRAPEZOID' ||
+    spec.type === 'SIGMOID';
   const expensive = beliefView.kind === 'student_t'; // quadrature-priced, no closed form
   const n = dragging && reshapesWhileDragging && expensive ? 22 : 80;
 

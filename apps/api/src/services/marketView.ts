@@ -95,7 +95,7 @@ export async function buildMarketView(m: MarketRow): Promise<MarketView> {
     outcomeMax: m.outcomeMax,
     status: m.status,
     creatorId: m.creatorId,
-    model: (m.model ?? belief.kind) as ModelTag,
+    model: m.model,
     belief: {
       kind: belief.kind,
       mu: round8(belief.mean()),

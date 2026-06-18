@@ -23,6 +23,7 @@
     "format": "biome format --write .",
     "db:up": "docker compose up -d 2>/dev/null || docker-compose up -d",
     "db:down": "docker compose down 2>/dev/null || docker-compose down",
+    "db:reset": "bun run --filter '@bmm/api' db:reset",
     "db:migrate": "bun run --filter '@bmm/api' db:migrate",
     "db:seed": "bun run --filter '@bmm/api' db:seed"
   },

@@ -50,16 +50,25 @@ export function extractSignal(
       signal = K - direction * a * sigma * (1 + intensity);
       break;
     }
-    case 'GAUSSIAN': {
+    case 'GAUSSIAN':
+    case 'SKEW_GAUSSIAN':
+    case 'TENT': {
       // point bet on center c: buy pulls belief toward c, sell pushes away
       const c = spec.center as number;
       signal = pointBet(c, mu, direction, a, sigma, intensity);
       break;
     }
-    case 'SPREAD': {
+    case 'SPREAD':
+    case 'TRAPEZOID': {
       // range bet [a,b]: buy pulls toward midpoint, sell pushes away
       const m = ((spec.lower as number) + (spec.upper as number)) / 2;
       signal = pointBet(m, mu, direction, a, sigma, intensity);
+      break;
+    }
+    case 'SIGMOID': {
+      // soft "above c" bet: bullish like a CALL/BINARY_CALL with strike c
+      const c = spec.center as number;
+      signal = c + direction * a * sigma * (1 + intensity);
       break;
     }
     default:

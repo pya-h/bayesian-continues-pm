@@ -12,6 +12,7 @@
     "sim": "bun src/sim/runner.ts",
     "demo": "bun --env-file=../../.env src/scripts/demo.ts",
     "db:generate": "drizzle-kit generate",
+    "db:reset": "bun --env-file=../../.env src/db/reset.ts",
     "db:migrate": "bun --env-file=../../.env src/db/migrate.ts",
     "db:seed": "bun --env-file=../../.env src/db/seed.ts"
   },

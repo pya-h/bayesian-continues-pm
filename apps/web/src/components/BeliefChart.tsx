@@ -81,9 +81,22 @@ function handlesFor(spec: ContractSpec): Handle[] {
         { id: 'upper', value: spec.upper, label: 'hi' },
       ];
     case 'GAUSSIAN':
+    case 'TENT':
+    case 'SIGMOID':
       return [
         { id: 'center', value: spec.center, label: 'c' },
         { id: 'width', value: spec.center + spec.width, label: 'w' },
+      ];
+    case 'SKEW_GAUSSIAN':
+      return [
+        { id: 'center', value: spec.center, label: 'c' },
+        { id: 'widthLeft', value: spec.center - spec.widthLeft, label: 'wL' },
+        { id: 'widthRight', value: spec.center + spec.widthRight, label: 'wR' },
+      ];
+    case 'TRAPEZOID':
+      return [
+        { id: 'lower', value: spec.lower, label: 'lo' },
+        { id: 'upper', value: spec.upper, label: 'hi' },
       ];
     default:
       return [];
@@ -101,9 +114,20 @@ function applyHandle(spec: ContractSpec, id: string, x: number): ContractSpec {
       if (id === 'lower') return { ...spec, lower: Math.min(x, spec.upper - 1e-6) };
       return { ...spec, upper: Math.max(x, spec.lower + 1e-6) };
     }
-    case 'GAUSSIAN': {
+    case 'GAUSSIAN':
+    case 'TENT':
+    case 'SIGMOID': {
       if (id === 'center') return { ...spec, center: x };
       return { ...spec, width: Math.max(1e-6, Math.abs(x - spec.center)) };
+    }
+    case 'SKEW_GAUSSIAN': {
+      if (id === 'center') return { ...spec, center: x };
+      if (id === 'widthLeft') return { ...spec, widthLeft: Math.max(1e-6, spec.center - x) };
+      return { ...spec, widthRight: Math.max(1e-6, x - spec.center) };
+    }
+    case 'TRAPEZOID': {
+      if (id === 'lower') return { ...spec, lower: Math.min(x, spec.upper - 1e-6) };
+      return { ...spec, upper: Math.max(x, spec.lower + 1e-6) };
     }
     default:
       return spec;

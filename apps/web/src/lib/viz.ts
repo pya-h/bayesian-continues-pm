@@ -189,10 +189,23 @@ export function winningRegions(spec: ContractSpec, domain: Domain): Interval[] {
       return clip(lo, spec.strike);
     case 'SPREAD':
       return clip(spec.lower, spec.upper);
+    case 'TRAPEZOID':
+      return clip(spec.lower, spec.upper); // the flat-top core
     case 'GAUSSIAN': {
       const hw = spec.width * Math.sqrt(2 * Math.LN2); // half-width at half-max
       return clip(spec.center - hw, spec.center + hw);
     }
+    case 'SKEW_GAUSSIAN': {
+      // FWHM band, asymmetric: each side uses its own width.
+      const k = Math.sqrt(2 * Math.LN2);
+      return clip(spec.center - spec.widthLeft * k, spec.center + spec.widthRight * k);
+    }
+    case 'TENT': {
+      const hw = spec.width / 2; // half-max at half the base
+      return clip(spec.center - hw, spec.center + hw);
+    }
+    case 'SIGMOID':
+      return clip(spec.center, hi); // "above c, softly"
     default:
       return [];
   }

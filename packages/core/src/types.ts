@@ -62,6 +62,11 @@ export interface BeliefModel {
   serialize(): BeliefStateDTO;
 }
 
+// Contract type tags. The first seven are the
+// v1 set; the last four are the bounded shape-extensions (all payoffs
+// ∈ [0,1], so they add zero risk-model change and price closed-form under our
+// Gaussian-tailed beliefs — TENT/TRAPEZOID as CALL-ramp sums, SKEW_GAUSSIAN
+// per-side, SIGMOID via bounded quadrature).
 export type ContractType =
   | 'LINEAR'
   | 'CALL'
@@ -69,12 +74,20 @@ export type ContractType =
   | 'BINARY_CALL'
   | 'BINARY_PUT'
   | 'SPREAD'
-  | 'GAUSSIAN';
+  | 'GAUSSIAN'
+  | 'SKEW_GAUSSIAN'
+  | 'TENT'
+  | 'TRAPEZOID'
+  | 'SIGMOID';
 
 // A user-composable contract. Only the params relevant to `type` are used
 // CALL/PUT/BINARY_CALL/BINARY_PUT → strike
 // SPREAD → lower, upper
 // GAUSSIAN → center, width
+// SKEW_GAUSSIAN → center, widthLeft, widthRight (asymmetric bell)
+// TENT → center, width (triangle, peak at center, 0 at ±width)
+// TRAPEZOID → lower, upper (flat top), width (ramp run on each side)
+// SIGMOID → center, width (soft step; width = softness scale)
 // LINEAR → (none)
 export interface ContractSpec {
   type: ContractType;
@@ -83,6 +96,8 @@ export interface ContractSpec {
   upper?: number;
   center?: number;
   width?: number;
+  widthLeft?: number;
+  widthRight?: number;
 }
 
 // Per-market engine parameters. Defaults from live in config.ts.

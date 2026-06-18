@@ -26,6 +26,33 @@ export function payoff(spec: ContractSpec, theta: number): number {
       const w = req(spec.width, 'width');
       return Math.exp(-((theta - c) ** 2) / (2 * w * w));
     }
+    case 'SKEW_GAUSSIAN': {
+      // asymmetric bell: width wL below the center, wR above. Peak 1 at c.
+      const c = req(spec.center, 'center');
+      const w = theta < c ? req(spec.widthLeft, 'widthLeft') : req(spec.widthRight, 'widthRight');
+      return Math.exp(-((theta - c) ** 2) / (2 * w * w));
+    }
+    case 'TENT': {
+      // triangle: peak 1 at c, linear down to 0 at c ± w.
+      const c = req(spec.center, 'center');
+      const w = req(spec.width, 'width');
+      return Math.max(0, 1 - Math.abs(theta - c) / w);
+    }
+    case 'TRAPEZOID': {
+      // flat top 1 on [a,b]; linear ramps down to 0 over `w` outside each edge.
+      const a = req(spec.lower, 'lower');
+      const b = req(spec.upper, 'upper');
+      const w = req(spec.width, 'width');
+      if (theta >= a && theta <= b) return 1;
+      if (theta < a) return Math.max(0, 1 - (a - theta) / w);
+      return Math.max(0, 1 - (theta - b) / w);
+    }
+    case 'SIGMOID': {
+      // soft step: 1/(1+e^{-(θ-c)/w}), rising through ½ at c. width = softness.
+      const c = req(spec.center, 'center');
+      const w = req(spec.width, 'width');
+      return 1 / (1 + Math.exp(-(theta - c) / w));
+    }
     default:
       throw new Error(`payoff: unknown contract type ${(spec as ContractSpec).type}`);
   }
@@ -60,6 +87,34 @@ export function validateContract(spec: ContractSpec): ContractSpec {
       if (!(w > 0)) throw new Error(`GAUSSIAN requires width > 0 (got ${w})`);
       break;
     }
+    case 'SKEW_GAUSSIAN': {
+      req(spec.center, 'center');
+      const wl = req(spec.widthLeft, 'widthLeft');
+      const wr = req(spec.widthRight, 'widthRight');
+      if (!(wl > 0)) throw new Error(`SKEW_GAUSSIAN requires widthLeft > 0 (got ${wl})`);
+      if (!(wr > 0)) throw new Error(`SKEW_GAUSSIAN requires widthRight > 0 (got ${wr})`);
+      break;
+    }
+    case 'TENT': {
+      req(spec.center, 'center');
+      const w = req(spec.width, 'width');
+      if (!(w > 0)) throw new Error(`TENT requires width > 0 (got ${w})`);
+      break;
+    }
+    case 'TRAPEZOID': {
+      const a = req(spec.lower, 'lower');
+      const b = req(spec.upper, 'upper');
+      const w = req(spec.width, 'width');
+      if (!(a < b)) throw new Error(`TRAPEZOID requires lower < upper (got ${a}, ${b})`);
+      if (!(w > 0)) throw new Error(`TRAPEZOID requires width > 0 (got ${w})`);
+      break;
+    }
+    case 'SIGMOID': {
+      req(spec.center, 'center');
+      const w = req(spec.width, 'width');
+      if (!(w > 0)) throw new Error(`SIGMOID requires width > 0 (got ${w})`);
+      break;
+    }
     default:
       throw new Error(`validateContract: unknown type ${(spec as ContractSpec).type}`);
   }
@@ -86,6 +141,18 @@ export function contractKey(spec: ContractSpec): string {
       return `SPREAD:a=${norm(spec.lower as number)}:b=${norm(spec.upper as number)}`;
     case 'GAUSSIAN':
       return `GAUSSIAN:c=${norm(spec.center as number)}:w=${norm(spec.width as number)}`;
+    case 'SKEW_GAUSSIAN':
+      return `SKEW_GAUSSIAN:c=${norm(spec.center as number)}:wl=${norm(
+        spec.widthLeft as number,
+      )}:wr=${norm(spec.widthRight as number)}`;
+    case 'TENT':
+      return `TENT:c=${norm(spec.center as number)}:w=${norm(spec.width as number)}`;
+    case 'TRAPEZOID':
+      return `TRAPEZOID:a=${norm(spec.lower as number)}:b=${norm(spec.upper as number)}:w=${norm(
+        spec.width as number,
+      )}`;
+    case 'SIGMOID':
+      return `SIGMOID:c=${norm(spec.center as number)}:w=${norm(spec.width as number)}`;
     default:
       throw new Error(`contractKey: unknown type ${(spec as ContractSpec).type}`);
   }
@@ -105,7 +172,21 @@ export function payoffKinks(spec: ContractSpec): number[] {
     case 'SPREAD':
       return [spec.lower as number, spec.upper as number];
     case 'GAUSSIAN':
+    case 'SIGMOID':
       return [spec.center as number];
+    case 'SKEW_GAUSSIAN':
+      return [spec.center as number];
+    case 'TENT': {
+      const c = spec.center as number;
+      const w = spec.width as number;
+      return [c - w, c, c + w];
+    }
+    case 'TRAPEZOID': {
+      const a = spec.lower as number;
+      const b = spec.upper as number;
+      const w = spec.width as number;
+      return [a - w, a, b, b + w];
+    }
     default:
       return [];
   }
@@ -125,7 +206,12 @@ export function payoffBounds(spec: ContractSpec): PayoffBounds {
     case 'BINARY_PUT':
     case 'SPREAD':
       return { bounded: true, min: 0, max: 1 };
+    // All shape-extensions are bounded bumps/steps in [0,1].
     case 'GAUSSIAN':
+    case 'SKEW_GAUSSIAN':
+    case 'TENT':
+    case 'TRAPEZOID':
+    case 'SIGMOID':
       return { bounded: true, min: 0, max: 1 };
     case 'LINEAR':
     case 'CALL':

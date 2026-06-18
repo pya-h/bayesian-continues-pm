@@ -52,6 +52,8 @@ export function specLabel(spec: {
   upper?: number;
   center?: number;
   width?: number;
+  widthLeft?: number;
+  widthRight?: number;
 }): string {
   switch (spec.type) {
     case 'LINEAR':
@@ -68,6 +70,20 @@ export function specLabel(spec: {
       return `Spread [${fmt(spec.lower ?? 0, 0)}, ${fmt(spec.upper ?? 0, 0)}]`;
     case 'GAUSSIAN':
       return `Bell · c=${fmt(spec.center ?? 0, 0)} w=${fmt(spec.width ?? 0, 0)}`;
+    case 'SKEW_GAUSSIAN':
+      return `Skew bell · c=${fmt(spec.center ?? 0, 0)} wL=${fmt(spec.widthLeft ?? 0, 0)} wR=${fmt(
+        spec.widthRight ?? 0,
+        0,
+      )}`;
+    case 'TENT':
+      return `Tent · c=${fmt(spec.center ?? 0, 0)} w=${fmt(spec.width ?? 0, 0)}`;
+    case 'TRAPEZOID':
+      return `Trapezoid [${fmt(spec.lower ?? 0, 0)}, ${fmt(spec.upper ?? 0, 0)}] w=${fmt(
+        spec.width ?? 0,
+        0,
+      )}`;
+    case 'SIGMOID':
+      return `Sigmoid · c=${fmt(spec.center ?? 0, 0)} w=${fmt(spec.width ?? 0, 0)}`;
     default:
       return spec.type;
   }

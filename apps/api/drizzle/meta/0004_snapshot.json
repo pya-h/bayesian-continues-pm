@@ -1,5 +1,5 @@
 {
-  "id": "d748553c-6b2a-4b07-8096-cf98d3c2f3b8",
+  "id": "bac8f1ab-d4c1-4afb-8892-ac990f0a7564",
   "prevId": "b0635fa6-4cab-4d65-9906-9d0faddf8438",
   "version": "7",
   "dialect": "postgresql",
@@ -744,7 +744,8 @@
           "name": "model",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "'gaussian'"
         },
         "initial_mu": {
           "name": "initial_mu",

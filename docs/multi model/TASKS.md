@@ -40,9 +40,15 @@ shapes. Companion to [`general-belief-form.md`](./general-belief-form.md),
   Quadrature-priced (routes through the existing `expectF` fallback). **v1 update = fixed-shape
   location/scale** (variance-domain precision rule, like Student-t); **v2 = moment-projection** (shape
   adapts) is deferred.
-- **D3 — `markets.model` column** (`gaussian | student_t | mixture | gen_basis | gen_exact`), nullable;
-  legacy rows infer `model = belief_kind`. This is the creator's chosen model (drives UI + update
-  config); `belief_kind` stays the math representation.
+- **D3 — `markets.model` column** (`gaussian | student_t | mixture | gen_basis | gen_exact`). This is the
+  creator's chosen model (drives UI + update config); `belief_kind` stays the math representation.
+  *(Originally nullable with legacy `model = belief_kind` inference for pre-refactor rows. **Simplified
+  2026-06-18:** since the platform is pre-launch we dropped the back-compat path entirely — the column is
+  now `NOT NULL DEFAULT 'gaussian'` (set on every market at creation by `resolveModel`), the `?? beliefKind`
+  inference fallbacks were removed (api `mixtureOpsFor`, `marketView`), and `mixtureOpsForModel` tightened to
+  take a non-null `ModelTag`. The original add-column + the `NOT NULL` were squashed into a single clean
+  migration `0004_mysterious_pete_wisdom` (`ADD COLUMN "model" text DEFAULT 'gaussian' NOT NULL`); the DB
+  was reset (`db:reset` → `db:migrate` → `db:seed`).)*
 - **D4 — Admin UI:** two **primary** buttons — **Gen·basis (default)**, **Gen·exact ** — and a
   collapsed **"More models ▾"** revealing **Gaussian / Student-t / Mixture**. All five remain fully
   creatable; only the emphasis changes.
@@ -62,8 +68,8 @@ Goal: land the *shape* of the new surface with **zero runtime change**, so later
   `gen_basis` (bump list, ≤12) and `gen_exact` (λ-tuple, reuses initialMu/Sigma) variants added to
   `createBeliefSchema`. Parsed but unwired.)*
 - [x] `db/schema.ts`: add nullable `markets.model text`. Drizzle migration (additive, no backfill).
-  *(Done: `model: text('model').$type<ModelTag>()`; migration `0004_charming_exiles.sql` =
-  `ALTER TABLE "markets" ADD COLUMN "model" text;`, applied.)*
+  *(Done: `model: text('model').$type<ModelTag>()`. Note: originally an additive nullable column; on
+  2026-06-18 it was simplified to `NOT NULL DEFAULT 'gaussian'` and the migration squashed — see D3.)*
 - [x] `core`: add a `BELIEF_TAIL` map (`gaussian|mixture|gen_basis|gen_exact → 'gaussian'`,
   `student_t → 'polynomial'`) + a pure `contractBeliefCompatible(spec, tailKind)` stub returning
   `true` for all current contracts. (Used in G5.) *(Done: `core/compat.ts`, exported from `core/index.ts`.)*
@@ -325,13 +331,37 @@ Goal: let a trade **sculpt** a Gen·basis belief directly — the half that make
 Goal: wider user-trade curves. Math/compat analysis in [`contract-extensions.md`](./contract-extensions.md).
 
 ### G5.1 — bounded, closed-form contracts (zero risk-model change)
-- [ ] `core/contracts.ts`: add `SKEW_GAUSSIAN` (asymmetric bell, two widths), `TENT` (triangle),
+- [x] `core/contracts.ts`: add `SKEW_GAUSSIAN` (asymmetric bell, two widths), `TENT` (triangle),
   `TRAPEZOID`, `SIGMOID`. For each: `payoff`, `payoffKinks`, **closed-form price under Gaussian** where
   one exists (skew-bell = per-side Gaussian×Gaussian → `Φ/φ`; tent/trapezoid = sums of `CALL`-ramps →
   `Φ/φ`), else quadrature; `dPriceDMu`; a `winningRegion`.
-- [ ] `pricing.ts`: per-component closed forms compose for mixture (`Σπₖ·priceₖ`) automatically.
-- [ ] **Tests:** closed-form price **= `expectF` = MC** (± 1e-3 / ± 0.01); kinks exact; `dPriceDMu`
+  *(Done. payoff/validate/contractKey/payoffKinks/payoffBounds extended; all four bounded ∈[0,1].
+  **Headline simplification:** `TENT`/`TRAPEZOID` are exact CALL-ramp sums — `tent=(R(c−w)−2R(c)+R(c+w))/w`,
+  `trap=(R(a−w)−R(a)−R(b)+R(b+w))/w` — so they price closed-form under EVERY belief kind by reusing
+  `price(CALL)` (no per-kind math). `SKEW_GAUSSIAN` = exact per-side half-bell closed form under Gaussian
+  (`priceSkewGaussian`: full-line `priceGaussianPayoff` × the `Φ` truncation factor of the product-Gaussian),
+  quadrature for t/gen_exact. `SIGMOID` = bounded `expectFeature` quadrature (new feature-aware window, the
+  generalisation of `expectGaussianBump`). **`dPriceDMu` for all four is kind-agnostic via the translation
+  identity ∂E[f]/∂μ = E[f′]:** TENT/TRAPEZOID differentiate their CALL decomposition; SIGMOID/SKEW integrate
+  the analytic f′. `winningRegion` = web `viz.winningRegions` (FWHM band / flat-top / "above c").)*
+- [x] `pricing.ts`: per-component closed forms compose for mixture (`Σπₖ·priceₖ`) automatically.
+  *(Done — `SKEW_GAUSSIAN` rides the existing mixture `Σπₖ·priceUnderGaussian` loop; TENT/TRAPEZOID compose
+  through `price(CALL)` which is itself per-component for mixture; verified equal to the CALL-combo to 1e-9.)*
+- [x] **Tests:** closed-form price **= `expectF` = MC** (± 1e-3 / ± 0.01); kinks exact; `dPriceDMu`
   finite-difference; bounded payoff ⇒ bounded liability check.
+  *(Done: `core/test/contractShapes.test.ts` (42 tests) — price≈expectF≈MC across gaussian/mixture/student_t/
+  gen_exact, far-AND-narrow SKEW/SIGMOID vs 4M-draw MC, dPriceDMu vs central-difference, TENT/TRAPEZOID ==
+  CALL-combo to 1e-9, shape/kinks/bounds/key/validation. `shared.test.ts` round-trips + rejects the four
+  variants. `api/test/contractShapes.test.ts` — quote fair == core `price()` and a SKEW_GAUSSIAN buy executes
+  + persists its contract row. **Web wiring landed here too** (composer buttons + per-param inputs, chart drag
+  handles, `winningRegions`, `specLabel`) so the four are creatable/renderable; POLYNOMIAL/EXPONENTIAL composer
+  entries + the disabled-with-reason UX stay in G5.2.)*
+
+> **G5.1 checkpoint (2026-06-18).** Full sweep **684 pass** (core 341 · shared 16 · api 150 · web 177);
+> typecheck + biome clean. Zero risk-model change (all four payoffs bounded ∈[0,1]); legacy contracts
+> untouched. **math-doc: deferred to the G5 checkpoint** (after G5.2, per the §3/§4 payoff + compatibility-
+> table pass). **G5.2 NOT started** — POLYNOMIAL/EXPONENTIAL + the real `contractBeliefCompatible`
+> integrability guard + outcome-bounds machinery is the next, separately-reviewable concern.
 
 ### G5.2 — conditionally-compatible contracts + the compatibility guard
 - [ ] `POLYNOMIAL` (closed-form Gaussian moments) and `EXPONENTIAL` (Gaussian MGF) — **bounded-outcome
@@ -358,6 +388,12 @@ Goal: wider user-trade curves. Math/compat analysis in [`contract-extensions.md`
 - [ ] **Perf:** Gen·exact quadrature caching (improvement I3); reuse the `PriceCurveChart` drag-coarsening
   lesson for any quadrature-priced preview.
 - [ ] **Math-doc consolidating pass:** §21 sandbox ↔ shipped code parity; re-verify 0 KaTeX errors.
+- [ ] **Demo-data seed (FINAL step, after every phase is done).** Extend `db:seed` (or a sibling
+  `db:seed:markets`) to create a handful of ready-to-use markets covering the full surface — one per model
+  (Gaussian, Student-t, Mixture, **Gen·basis**, **Gen·exact**) and a spread of the new contract shapes —
+  each opened with a few seeded trades so the charts/history look alive. Idempotent and re-runnable so the
+  user can reset + reseed at will (`db:reset && db:migrate && db:seed`). *(Deferred by request until the
+  refactor is complete; planned now so it isn't forgotten.)*
 - **Checkpoint:** green suites; migration golden-master passes; demo exercises both generals + extras +
   new contracts.
 

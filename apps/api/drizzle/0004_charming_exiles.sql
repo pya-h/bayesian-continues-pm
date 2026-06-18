@@ -1,1 +1,0 @@
-ALTER TABLE "markets" ADD COLUMN "model" text;
