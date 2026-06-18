@@ -81,22 +81,26 @@ export function defaultSpec(type: ContractSpec['type'], mu: number, sigma: numbe
   }
 }
 
-// Why a contract type is unavailable on this market, or null if it's allowed.
+// Why a contract is unavailable on this market, or null if it's allowed.
 // Mirrors the server-side `contractBeliefCompatible` guard so incompatible
 // options are visibly disabled (with the reason) instead of failing at trade.
-function disabledReason(
-  type: ContractSpec['type'],
-  mu: number,
-  sigma: number,
+// Evaluates the *actual* spec passed in — the EXPONENTIAL rate cap and the
+// POLYNOMIAL degree-vs-ν rule depend on user-edited params, so the selected
+// spec must be checked as-is (not a default), and ν must be threaded through
+// for Student-t markets.
+export function disabledReason(
+  spec: ContractSpec,
   model: ModelTag | undefined,
   outcomeMin: number | null,
   outcomeMax: number | null,
+  nu: number | undefined,
 ): string | null {
-  if (!model || (type !== 'POLYNOMIAL' && type !== 'EXPONENTIAL')) return null;
+  if (!model || (spec.type !== 'POLYNOMIAL' && spec.type !== 'EXPONENTIAL')) return null;
   const outcomeBounded = outcomeMin != null && outcomeMax != null;
   const outcomeSpan = outcomeBounded ? outcomeMax - outcomeMin : undefined;
-  const r = contractBeliefCompatible(defaultSpec(type, mu, sigma), {
+  const r = contractBeliefCompatible(spec, {
     tail: BELIEF_TAIL[model],
+    nu,
     outcomeBounded,
     outcomeSpan,
   });
@@ -189,6 +193,7 @@ export function ContractComposer({
   model,
   outcomeMin = null,
   outcomeMax = null,
+  nu,
 }: {
   spec: ContractSpec;
   onSpecChange: (s: ContractSpec) => void;
@@ -197,15 +202,24 @@ export function ContractComposer({
   model?: ModelTag;
   outcomeMin?: number | null;
   outcomeMax?: number | null;
+  nu?: number;
 }) {
   const step = Math.max(1, 10 ** Math.floor(Math.log10(Math.max(1, sigma))) / 10);
-  const selectedReason = disabledReason(spec.type, mu, sigma, model, outcomeMin, outcomeMax);
+  // The selected spec is checked as-edited (rate/degree matter); the per-type
+  // buttons preview their default spec since their params aren't set yet.
+  const selectedReason = disabledReason(spec, model, outcomeMin, outcomeMax, nu);
 
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-4 gap-1.5">
         {TYPES.map((t) => {
-          const reason = disabledReason(t.type, mu, sigma, model, outcomeMin, outcomeMax);
+          const reason = disabledReason(
+            defaultSpec(t.type, mu, sigma),
+            model,
+            outcomeMin,
+            outcomeMax,
+            nu,
+          );
           const disabled = reason != null && spec.type !== t.type;
           return (
             <button

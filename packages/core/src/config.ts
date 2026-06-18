@@ -18,6 +18,7 @@ export const DEFAULT_PARAMS = {
   decay: 0.05, // simplified-update variance decay
   reserveAlpha: 0.99, // reserve VaR confidence
   useSimplifiedUpdate: false,
+  genExactShapeAdapt: true, // gen_exact: order flow sculpts the shape (v2 moment-projection, I4)
   qMax: 500, // max trade size (normalizes intensity)
   qThreshold: 10, // size below which belief impact ~ 0
   sigmaMinRatio: 0.1, // σ_min = 10% of σ₀
@@ -46,6 +47,7 @@ export function makeEngineConfig(
     decay: DEFAULT_PARAMS.decay,
     reserveAlpha: DEFAULT_PARAMS.reserveAlpha,
     useSimplifiedUpdate: DEFAULT_PARAMS.useSimplifiedUpdate,
+    genExactShapeAdapt: DEFAULT_PARAMS.genExactShapeAdapt,
   };
   return { ...base, ...overrides };
 }

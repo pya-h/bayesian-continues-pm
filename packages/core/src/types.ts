@@ -35,11 +35,26 @@ export interface StudentTStateDTO {
 // Serializable snapshot of a max-entropy exp(−poly) belief (Gen·exact). The
 // exponent shape is carried by [λ₂, λ₃, λ₄]; the confining λ₆ stabiliser is
 // derived from (λ₃, λ₄) on reconstruction, so it is not persisted.
+// Cached standardised numerics of a Gen·exact shape. These are a
+// pure function of the λ tuple (location/scale-invariant), so they stay valid
+// across a fixed-shape v1 update and only need recomputing when λ itself changes.
+// Persisting them lets `loadBelief` skip the normalisation quadrature on hot reads.
+export interface GenExactMoments {
+  // Min energy over the standardised grid — the exp-shift for numerical stability.
+  emin: number;
+  // Standardised normaliser ∫ exp(−(E−emin)) du over [−L, L].
+  z: number;
+  eu: number;
+  // Standardised second moment E[u²].
+  eu2: number;
+}
+
 export interface GenExactStateDTO {
   kind: 'gen_exact';
   mu: number;
   sigma: number;
   lambdas: [number, number, number];
+  moments?: GenExactMoments;
 }
 
 export type BeliefStateDTO =
@@ -131,4 +146,5 @@ export interface EngineConfig {
   decay: number; // uncertainty decay (simplified update path)
   reserveAlpha: number; // reserve VaR confidence (e.g. 0.99)
   useSimplifiedUpdate: boolean; // false → precision-weighted Bayes (default)
+  genExactShapeAdapt: boolean; // gen_exact: true → v2 moment-projection (shape adapts), false → v1 fixed-shape
 }

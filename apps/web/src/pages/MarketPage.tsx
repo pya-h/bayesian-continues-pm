@@ -264,6 +264,7 @@ export function MarketPage() {
                 model={m.model}
                 outcomeMin={m.outcomeMin}
                 outcomeMax={m.outcomeMax}
+                nu={m.belief.nu}
               />
             </div>
           </Panel>

@@ -17,6 +17,7 @@ export type {
   MixtureComponentDTO,
   StudentTStateDTO,
   GenExactStateDTO,
+  GenExactMoments,
   ContractType,
   ContractSpec,
   EngineConfig,
@@ -24,7 +25,14 @@ export type {
 export { GaussianBelief } from './gaussian.ts';
 export { StudentTBelief } from './student_t.ts';
 export { MixtureBelief, type MixtureComponent } from './mixture.ts';
-export { GenExactBelief, genExactLambda6, GEN_EXACT_L } from './gen_exact.ts';
+export {
+  GenExactBelief,
+  genExactLambda6,
+  genExactStandardisedMoments,
+  genExactShapeStats,
+  type GenExactShapeStats,
+  GEN_EXACT_L,
+} from './gen_exact.ts';
 export {
   type MixtureOpsConfig,
   DEFAULT_MIXTURE_OPS,
@@ -77,6 +85,7 @@ export {
   bayesUpdateMixture,
   bayesUpdateStudentT,
   bayesUpdateGenExact,
+  bayesUpdateGenExactShape,
   updateBelief,
   updateBeliefForTrade,
   tradeSignal,

@@ -25,7 +25,8 @@
     "db:down": "docker compose down 2>/dev/null || docker-compose down",
     "db:reset": "bun run --filter '@bmm/api' db:reset",
     "db:migrate": "bun run --filter '@bmm/api' db:migrate",
-    "db:seed": "bun run --filter '@bmm/api' db:seed"
+    "db:seed": "bun run --filter '@bmm/api' db:seed",
+    "db:seed:markets": "bun run --filter '@bmm/api' db:seed:markets"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

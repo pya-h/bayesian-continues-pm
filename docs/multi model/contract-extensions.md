@@ -55,7 +55,8 @@ This is a real, precise compatibility matrix the refactor must enforce, not a ni
 - **Polynomial** `f(θ)=Σ aₖθᵏ` (e.g. quadratic `(θ−c)²`) — **closed-form under Gaussian/mixture**
   (Gaussian moments are closed-form), but **unbounded** ⇒ unbounded liability. Allow **only** when the
   market has `outcomeMin/Max` set (bounded support caps the payoff), or with an explicit payoff cap.
-  **Disallow on Student-t** unless `degree < ν−1`.
+  **Disallow on Student-t** unless `degree < ν` (a t(ν) has finite moments only up to order `< ν`,
+  per the table above).
 - **Exponential** `f(θ)=e^{aθ}` — **closed-form under Gaussian** (MGF), but **unbounded** and tail-heavy
   ⇒ severe liability. Allow only bounded-outcome / small-`a` / capped, and **never on Student-t**
   (infinite price).

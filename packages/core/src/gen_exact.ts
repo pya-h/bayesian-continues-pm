@@ -20,7 +20,7 @@
 // see pricing.ts.
 
 import type { Rng } from './numerics.ts';
-import type { BeliefModel, GenExactStateDTO } from './types.ts';
+import type { BeliefModel, GenExactMoments, GenExactStateDTO } from './types.ts';
 
 export const GEN_EXACT_L = 7;
 // Composite-Simpson node count over [−L, L] (must be even).
@@ -34,6 +34,113 @@ export function genExactLambda6(lam3: number, lam4: number): number {
   return 0.004 + 0.06 * Math.max(0, -lam4) + 0.03 * Math.abs(lam3);
 }
 
+// The standardised exponent E(u) = ½λ₂u² + λ₃u³ + λ₄u⁴ + λ₆u⁶.
+function genExactEnergy(u: number, l2: number, l3: number, l4: number, l6: number): number {
+  const u2 = u * u;
+  return 0.5 * l2 * u2 + l3 * u2 * u + l4 * u2 * u2 + l6 * u2 * u2 * u2;
+}
+
+// Compute the standardised moments {emin, z, E[u], E[u²]} of a Gen·exact shape via
+// fixed composite-Simpson over u ∈ [−L, L] with a min-energy shift. These depend
+// only on the λ tuple (location/scale-invariant) — the basis of the I3 cache.
+export function genExactStandardisedMoments(
+  lambdas: readonly [number, number, number],
+): GenExactMoments {
+  const [l2, l3, l4] = lambdas;
+  const l6 = genExactLambda6(l3, l4);
+  const L = GEN_EXACT_L;
+  const N = GEN_EXACT_NODES;
+  const h = (2 * L) / N;
+
+  // 1. Min-energy shift: largest exp argument is then 0, so nothing overflows.
+  let emin = Number.POSITIVE_INFINITY;
+  for (let i = 0; i <= N; i++) {
+    const e = genExactEnergy(-L + i * h, l2, l3, l4, l6);
+    if (e < emin) emin = e;
+  }
+
+  // 2. Composite Simpson for Z, E[u], E[u²] (w_i = exp(−(E(u_i) − Eₘᵢₙ))).
+  let zS = 0;
+  let m1S = 0;
+  let m2S = 0;
+  for (let i = 0; i <= N; i++) {
+    const u = -L + i * h;
+    const w = Math.exp(-(genExactEnergy(u, l2, l3, l4, l6) - emin));
+    const sw = i === 0 || i === N ? 1 : i % 2 ? 4 : 2;
+    zS += sw * w;
+    m1S += sw * w * u;
+    m2S += sw * w * u * u;
+  }
+  const z = (zS * h) / 3;
+  return { emin, z, eu: (m1S * h) / 3 / z, eu2: (m2S * h) / 3 / z };
+}
+
+// Standardised shape statistics of a Gen·exact density (skew/kurtosis are λ-only).
+export interface GenExactShapeStats {
+  eu: number;
+  // Var[u] — standardised variance (the σ↔belief-variance bridge).
+  varU: number;
+  // Skewness γ₁ = μ₃/μ₂^{3/2} (note: λ₃>0 ⇒ negative skew).
+  skew: number;
+  // Excess kurtosis γ₂ = μ₄/μ₂² − 3.
+  exKurt: number;
+}
+
+// Standardised central-moment statistics (E[u], Var[u], skewness, excess kurtosis)
+// of a Gen·exact shape — a pure function of λ, used by the v2 moment-projection
+// update (I4) to fit (λ₃,λ₄) to a target skew/kurtosis. Same fixed Simpson grid as
+// {@link genExactStandardisedMoments}, extended to the 3rd/4th raw moments.
+export function genExactShapeStats(lambdas: readonly [number, number, number]): GenExactShapeStats {
+  const [l2, l3, l4] = lambdas;
+  const l6 = genExactLambda6(l3, l4);
+  const L = GEN_EXACT_L;
+  const N = GEN_EXACT_NODES;
+  const h = (2 * L) / N;
+
+  let emin = Number.POSITIVE_INFINITY;
+  for (let i = 0; i <= N; i++) {
+    const e = genExactEnergy(-L + i * h, l2, l3, l4, l6);
+    if (e < emin) emin = e;
+  }
+
+  let zS = 0;
+  let s1 = 0;
+  let s2 = 0;
+  let s3 = 0;
+  let s4 = 0;
+  for (let i = 0; i <= N; i++) {
+    const u = -L + i * h;
+    const w = Math.exp(-(genExactEnergy(u, l2, l3, l4, l6) - emin));
+    const sw = i === 0 || i === N ? 1 : i % 2 ? 4 : 2;
+    const wu = w * u;
+    zS += sw * w;
+    s1 += sw * wu;
+    s2 += sw * wu * u;
+    s3 += sw * wu * u * u;
+    s4 += sw * wu * u * u * u;
+  }
+  // Raw standardised moments (the h/3 Simpson factor cancels in every ratio).
+  const e1 = s1 / zS;
+  const e2 = s2 / zS;
+  const e3 = s3 / zS;
+  const e4 = s4 / zS;
+  const m2 = Math.max(1e-12, e2 - e1 * e1);
+  const m3 = e3 - 3 * e1 * e2 + 2 * e1 * e1 * e1;
+  const m4 = e4 - 4 * e1 * e3 + 6 * e1 * e1 * e2 - 3 * e1 * e1 * e1 * e1;
+  return { eu: e1, varU: m2, skew: m3 / m2 ** 1.5, exKurt: m4 / (m2 * m2) - 3 };
+}
+
+function validMoments(m: GenExactMoments | undefined): m is GenExactMoments {
+  return (
+    !!m &&
+    Number.isFinite(m.emin) &&
+    Number.isFinite(m.z) &&
+    m.z > 0 &&
+    Number.isFinite(m.eu) &&
+    Number.isFinite(m.eu2)
+  );
+}
+
 export class GenExactBelief implements BeliefModel {
   readonly kind = 'gen_exact' as const;
   readonly mu: number;
@@ -43,15 +150,26 @@ export class GenExactBelief implements BeliefModel {
   // Derived confining coefficient (not persisted; recomputed from λ₃,λ₄).
   readonly lambda6: number;
 
-  // cached numerics (constructed once) ---
+  // cached numerics ---
+  // Standardised moments {emin, z, E[u], E[u²]} — λ-only, persistable (I3).
+  readonly moments: GenExactMoments;
   private readonly emin: number; // min energy over the grid (the shift)
   private readonly zNorm: number; // ∫ exp(−(E−Eₘᵢₙ)) du over [−L,L]
   private readonly meanCache: number;
   private readonly varianceCache: number;
   private readonly hStep: number; // grid spacing 2L/N
-  private readonly cdfGrid: Float64Array; // cumulative mass at each node, in [0,1]
+  // The cumulative-mass table (for cdf/quantile/sample) is built lazily on first
+  // use — pure-pricing reads (mean/pdf) never pay for it, which is the I3 win.
+  private cdfGridCache: Float64Array | null = null;
 
-  constructor(mu: number, sigma: number, lambdas: readonly [number, number, number]) {
+  // valid object is supplied the normalisation quadrature is skipped; otherwise
+  // it is computed. Stale/non-finite caches are ignored and recomputed.
+  constructor(
+    mu: number,
+    sigma: number,
+    lambdas: readonly [number, number, number],
+    moments?: GenExactMoments,
+  ) {
     if (!Number.isFinite(mu)) throw new Error(`GenExactBelief: μ must be finite, got ${mu}`);
     if (!(sigma > 0) || !Number.isFinite(sigma)) {
       throw new Error(`GenExactBelief: σ must be > 0 and finite, got ${sigma}`);
@@ -64,56 +182,42 @@ export class GenExactBelief implements BeliefModel {
     this.sigma = sigma;
     this.lambdas = [l2, l3, l4];
     this.lambda6 = genExactLambda6(l3, l4);
+    this.hStep = (2 * GEN_EXACT_L) / GEN_EXACT_NODES;
 
-    const L = GEN_EXACT_L;
-    const N = GEN_EXACT_NODES;
-    const h = (2 * L) / N;
-    this.hStep = h;
-
-    // 1. Min-energy shift: find Eₘᵢₙ on the grid so the largest exp argument is 0.
-    let emin = Number.POSITIVE_INFINITY;
-    for (let i = 0; i <= N; i++) {
-      const e = this.energy(-L + i * h);
-      if (e < emin) emin = e;
-    }
-    this.emin = emin;
-
-    // 2. Composite Simpson for Z, E[u], E[u²]; cumulative trapezoid for the CDF.
-    // w_i = exp(−(E(u_i) − Eₘᵢₙ)) is the unnormalised standardised density.
-    const cum = new Float64Array(N + 1);
-    let zS = 0;
-    let m1S = 0;
-    let m2S = 0;
-    let wPrev = 0;
-    for (let i = 0; i <= N; i++) {
-      const u = -L + i * h;
-      const w = Math.exp(-(this.energy(u) - emin));
-      const sw = i === 0 || i === N ? 1 : i % 2 ? 4 : 2; // Simpson weight
-      zS += sw * w;
-      m1S += sw * w * u;
-      m2S += sw * w * u * u;
-      if (i === 0) cum[i] = 0;
-      else cum[i] = (cum[i - 1] as number) + 0.5 * (wPrev + w) * h; // trapezoid
-      wPrev = w;
-    }
-    const z = (zS * h) / 3;
-    const eu = (m1S * h) / 3 / z;
-    const eu2 = (m2S * h) / 3 / z;
-    this.zNorm = z;
-    this.meanCache = mu + sigma * eu;
-    this.varianceCache = sigma * sigma * Math.max(1e-9, eu2 - eu * eu);
-
-    // Normalise the cumulative table to end exactly at 1 → a monotone CDF in [0,1].
-    const total = cum[N] as number;
-    for (let i = 0; i <= N; i++) cum[i] = (cum[i] as number) / total;
-    this.cdfGrid = cum;
+    const m = validMoments(moments) ? moments : genExactStandardisedMoments(this.lambdas);
+    this.moments = m;
+    this.emin = m.emin;
+    this.zNorm = m.z;
+    this.meanCache = mu + sigma * m.eu;
+    this.varianceCache = sigma * sigma * Math.max(1e-9, m.eu2 - m.eu * m.eu);
   }
 
   // The exponent E(u) = ½λ₂u² + λ₃u³ + λ₄u⁴ + λ₆u⁶.
   private energy(u: number): number {
     const [l2, l3, l4] = this.lambdas;
-    const u2 = u * u;
-    return 0.5 * l2 * u2 + l3 * u2 * u + l4 * u2 * u2 + this.lambda6 * u2 * u2 * u2;
+    return genExactEnergy(u, l2, l3, l4, this.lambda6);
+  }
+
+  // Cumulative-mass table over the standardised grid, normalised to end at 1 — a
+  // monotone CDF in [0,1]. Built once, lazily (cdf/quantile/sample need it; pure
+  // pricing does not).
+  private get cdfGrid(): Float64Array {
+    if (this.cdfGridCache !== null) return this.cdfGridCache;
+    const L = GEN_EXACT_L;
+    const N = GEN_EXACT_NODES;
+    const h = this.hStep;
+    const cum = new Float64Array(N + 1);
+    let wPrev = 0;
+    for (let i = 0; i <= N; i++) {
+      const w = Math.exp(-(this.energy(-L + i * h) - this.emin));
+      if (i === 0) cum[i] = 0;
+      else cum[i] = (cum[i - 1] as number) + 0.5 * (wPrev + w) * h; // trapezoid
+      wPrev = w;
+    }
+    const total = cum[N] as number;
+    for (let i = 0; i <= N; i++) cum[i] = (cum[i] as number) / total;
+    this.cdfGridCache = cum;
+    return cum;
   }
 
   mean(): number {
@@ -176,11 +280,18 @@ export class GenExactBelief implements BeliefModel {
   }
 
   static fromDTO(dto: GenExactStateDTO): GenExactBelief {
-    return new GenExactBelief(dto.mu, dto.sigma, dto.lambdas);
+    return new GenExactBelief(dto.mu, dto.sigma, dto.lambdas, dto.moments);
   }
 
   serialize(): GenExactStateDTO {
     const [l2, l3, l4] = this.lambdas;
-    return { kind: 'gen_exact', mu: this.mu, sigma: this.sigma, lambdas: [l2, l3, l4] };
+    const { emin, z, eu, eu2 } = this.moments;
+    return {
+      kind: 'gen_exact',
+      mu: this.mu,
+      sigma: this.sigma,
+      lambdas: [l2, l3, l4],
+      moments: { emin, z, eu, eu2 },
+    };
   }
 }

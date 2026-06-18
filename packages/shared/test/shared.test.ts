@@ -199,6 +199,20 @@ describe('gen_basis / gen_exact schemas (G0 scaffolding)', () => {
     expect(beliefStateSchema.parse(state)).toEqual(state as never);
   });
 
+  test('belief_state round-trips a gen_exact snapshot with the I3 moment cache', () => {
+    const state = {
+      kind: 'gen_exact',
+      mu: 2,
+      sigma: 1.5,
+      lambdas: [1, 0.2, 0.1],
+      moments: { emin: -0.01, z: 2.5, eu: -0.12, eu2: 0.95 },
+    };
+    expect(beliefStateSchema.parse(state)).toEqual(state as never);
+    // a non-positive normaliser is structurally invalid and must be rejected.
+    const bad = { ...state, moments: { emin: 0, z: 0, eu: 0, eu2: 1 } };
+    expect(beliefStateSchema.safeParse(bad).success).toBe(false);
+  });
+
   test('createBelief gen_exact enforces the sandbox-safe λ ranges (G2.4)', () => {
     const ok = (l: number[]) =>
       createBeliefSchema.safeParse({ kind: 'gen_exact', lambdas: l }).success;

@@ -1,7 +1,7 @@
 // integration — Gen·exact markets. A Gen·exact market stores a `gen_exact`
 // belief (max-entropy exp(−poly)) carrying a `model = 'gen_exact'` tag. It prices
-// via quadrature, trades (the v1 fixed-shape update moves μ toward the signal while
-// the λ shape is preserved), and round-trips through the DB. Hits the real DB.
+// via quadrature, trades (the v2 shape-adapting update moves μ toward the signal and
+// lets (λ₃,λ₄) adapt while λ₂ is held), and round-trips through the DB. Hits the real DB.
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { GenExactBelief, price } from '@bmm/core';
@@ -128,7 +128,7 @@ describe.if(hasEnv)('gen_exact market (G2.4 integration)', () => {
     expect(res.status).toBe(400);
   });
 
-  test('a buy stream moves μ toward the signal while the λ shape is preserved', async () => {
+  test('a buy stream moves μ toward the signal under the shape-adapting v2 update', async () => {
     const id = await createMarket({
       title: 'Gen·exact trade (test)',
       outcomeUnit: 'USD',
@@ -154,8 +154,18 @@ describe.if(hasEnv)('gen_exact market (G2.4 integration)', () => {
     const after = (await db.select().from(markets).where(eq(markets.marketId, id)))[0];
     expect(after?.currentMu ?? 0).toBeGreaterThan(muBefore); // μ moved up
     expect(after?.beliefState?.kind).toBe('gen_exact'); // shape kind preserved
-    const lam = (after?.beliefState as { lambdas: number[] }).lambdas;
-    expect(lam).toEqual([1, 0.2, 0.1]); // λ unchanged (fixed-shape v1 update)
+    // v2 moment-projection (I4): λ₂ (the creator's unimodal/bimodal choice) is held
+    // (λ₃,λ₄) adapt but stay within the sandbox-safe ranges; the moment cache persists.
+    const st = after?.beliefState as {
+      lambdas: [number, number, number];
+      moments?: { z: number };
+    };
+    expect(st.lambdas[0]).toBe(1); // λ₂ preserved
+    expect(st.lambdas[1]).toBeGreaterThanOrEqual(-0.35);
+    expect(st.lambdas[1]).toBeLessThanOrEqual(0.35);
+    expect(st.lambdas[2]).toBeGreaterThanOrEqual(0);
+    expect(st.lambdas[2]).toBeLessThanOrEqual(1.6);
+    expect(st.moments?.z).toBeGreaterThan(0); // I3 cache round-trips through the DB
   });
 
   test('the view quote matches an independent price() of the reconstructed belief', async () => {

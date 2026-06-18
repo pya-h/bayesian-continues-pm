@@ -1110,8 +1110,27 @@
         </div>
         <p>Variance \(\propto\sigma^2\) at fixed shape, so rescaling \(\sigma\) by \(\sqrt{V'/V}\) makes the
         belief variance land exactly on \(V'\). The skew/peak the creator authored is preserved; only the
-        centre and width learn. <em>(Shape-adapting v2 — re-fitting \(\lambda_3,\lambda_4\) to the
-        post-update skew/kurtosis by moment-projection — is a deferred sub-phase.)</em></p>
+        centre and width learn.</p>
+        <p><strong>v2 update — moment-projection (shape adapts).</strong> The default for Gen·exact
+        (<code>genExactShapeAdapt</code>). This is <em>assumed-density filtering</em>: form the exact
+        Bayesian posterior — prior times the Gaussian likelihood of the trade signal —</p>
+        <div class="eqbox named">
+          <span>$$ \tilde p(\theta)\ \propto\ p(\theta)\;\exp\!\Big(-\tfrac{(\theta-s)^2}{2\,\sigma_\varepsilon^2/w}\Big), $$</span>
+          <span class="eqlabel">bayes.ts</span>
+        </div>
+        <p>take its first four moments \((m,\,V,\,\gamma_1,\,\gamma_2)\) by quadrature, then <strong>project
+        back onto the family</strong>: hold \(\lambda_2\) (the creator's unimodal/bimodal choice), re-fit
+        \((\lambda_3,\lambda_4)\) so the standardised shape's skewness/excess-kurtosis match
+        \((\gamma_1,\gamma_2)\) — a damped Gauss-Newton solve clamped to the sandbox-safe ranges — and set
+        \(\sigma=\sqrt{V/\mathrm{Var}[u]}\), \(\mu=m-\sigma\,\mathbb{E}[u]\) to match the posterior
+        mean/variance. So order flow <em>sculpts</em> the curve (skew, tails), not just slides it. A symmetric
+        update leaves \(\lambda_3\approx0\) (it reduces to the v1 step), and the simplified / zero-weight /
+        degenerate paths fall back to v1. MC-verified against an importance-sampled posterior.</p>
+        <p><strong>Caching (I3).</strong> The standardised moments \(\{E_{\min},Z,\mathbb{E}[u],\mathbb{E}[u^2]\}\)
+        depend only on \(\lambda\) (not \(\mu,\sigma\)), so a fixed-shape v1 update reuses them and they are
+        persisted in <code>belief_state</code> — a hot read reconstructs the belief without re-running the
+        normalisation quadrature. The cumulative grid (CDF/quantile/sampler) is built lazily, only when a jump
+        payoff or the reserve Monte-Carlo actually needs it.</p>
       </details>
     </section>
 

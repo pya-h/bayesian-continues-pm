@@ -4,7 +4,7 @@
 // Posterior variance is floored at σ_min² to prevent overconfidence.
 
 import { GaussianBelief } from './gaussian.ts';
-import { GenExactBelief } from './gen_exact.ts';
+import { GEN_EXACT_L, GenExactBelief, genExactShapeStats } from './gen_exact.ts';
 import { MixtureBelief, type MixtureComponent } from './mixture.ts';
 import { DEFAULT_MIXTURE_OPS, type MixtureOpsConfig, manageMixture } from './mixture_ops.ts';
 import { placeBasisBump } from './placement.ts';
@@ -195,9 +195,11 @@ export function bayesUpdateGenExact(
   const lambdas = belief.lambdas;
 
   // Rescale σ so the belief variance becomes `targetVar`, keeping the shape fixed.
+  // λ is unchanged, so the cached standardised moments stay valid — propagate them
+  // (I3) to skip the normalisation quadrature on the posterior belief too.
   const withVariance = (mu: number, targetVar: number): GenExactBelief => {
     const sigmaNew = belief.sigma * Math.sqrt(Math.max(targetVar, sigmaMin2) / priorVar);
-    return new GenExactBelief(mu, sigmaNew, lambdas);
+    return new GenExactBelief(mu, sigmaNew, lambdas, belief.moments);
   };
 
   if (weight <= 0) {
@@ -216,6 +218,157 @@ export function bayesUpdateGenExact(
   const total = precisionPrior + precisionSignal;
   const muNew = (precisionPrior * belief.mu + precisionSignal * signal) / total;
   return withVariance(muNew, 1 / total);
+}
+
+// Sandbox-safe λ ranges (mirror @bmm/shared genExactLambdasSchema; core stays
+// dependency-free). The v2 shape fit clamps (λ₃,λ₄) here so a projected belief is
+// always a valid, persistable Gen·exact shape.
+const GEN_EXACT_LAM3_MAX = 0.35;
+const GEN_EXACT_LAM4_MIN = 0;
+const GEN_EXACT_LAM4_MAX = 1.6;
+// Composite-Simpson node count for the v2 posterior-moment quadrature (even).
+const GEN_EXACT_POST_NODES = 2000;
+
+const clamp = (x: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, x));
+
+// First four moments (mean, variance, skewness, excess kurtosis) of the exact
+// posterior `prior(θ)·N(θ; s, σ_ℓ²)`, by Simpson quadrature over the prior support.
+function genExactPosteriorMoments(
+  prior: GenExactBelief,
+  s: number,
+  sigmaL2: number,
+): { mean: number; variance: number; skew: number; exKurt: number } {
+  const lo = prior.mu - GEN_EXACT_L * prior.sigma;
+  const hi = prior.mu + GEN_EXACT_L * prior.sigma;
+  const N = GEN_EXACT_POST_NODES;
+  const h = (hi - lo) / N;
+  let z = 0;
+  let s1 = 0;
+  let s2 = 0;
+  let s3 = 0;
+  let s4 = 0;
+  for (let i = 0; i <= N; i++) {
+    const theta = lo + i * h;
+    const d = theta - s;
+    const val = prior.pdf(theta) * Math.exp(-(d * d) / (2 * sigmaL2));
+    const sw = i === 0 || i === N ? 1 : i % 2 ? 4 : 2;
+    const vt = val * theta;
+    z += sw * val;
+    s1 += sw * vt;
+    s2 += sw * vt * theta;
+    s3 += sw * vt * theta * theta;
+    s4 += sw * vt * theta * theta * theta;
+  }
+  const m1 = s1 / z;
+  const e2 = s2 / z;
+  const e3 = s3 / z;
+  const e4 = s4 / z;
+  const v = Math.max(1e-12, e2 - m1 * m1);
+  const mu3 = e3 - 3 * m1 * e2 + 2 * m1 * m1 * m1;
+  const mu4 = e4 - 4 * m1 * e3 + 6 * m1 * m1 * e2 - 3 * m1 * m1 * m1 * m1;
+  return { mean: m1, variance: v, skew: mu3 / v ** 1.5, exKurt: mu4 / (v * v) - 3 };
+}
+
+// Fit (λ₃,λ₄) — λ₂ held — so the standardised Gen·exact shape matches a target
+// (skewness, excess kurtosis), via damped Gauss-Newton with a finite-difference
+// Jacobian, clamped to the sandbox-safe ranges. Returns the best-seen point; an
+// infeasible target projects onto the boundary. Falls back to the start on any
+// non-finite step.
+function fitGenExactShape(
+  l2: number,
+  startL3: number,
+  startL4: number,
+  targetSkew: number,
+  targetExKurt: number,
+): [number, number] {
+  let l3 = clamp(startL3, -GEN_EXACT_LAM3_MAX, GEN_EXACT_LAM3_MAX);
+  let l4 = clamp(startL4, GEN_EXACT_LAM4_MIN, GEN_EXACT_LAM4_MAX);
+  const residual = (a: number, b: number): [number, number, number] => {
+    const f = genExactShapeStats([l2, a, b]);
+    const r0 = f.skew - targetSkew;
+    const r1 = f.exKurt - targetExKurt;
+    return [r0, r1, Math.hypot(r0, r1)];
+  };
+  let [, , best] = residual(l3, l4);
+
+  const eps = 1e-3;
+  for (let iter = 0; iter < 12 && best > 1e-4; iter++) {
+    const f = genExactShapeStats([l2, l3, l4]);
+    const r0 = f.skew - targetSkew;
+    const r1 = f.exKurt - targetExKurt;
+    // Forward-difference Jacobian J = ∂(skew,exKurt)/∂(λ₃,λ₄).
+    const f3 = genExactShapeStats([l2, l3 + eps, l4]);
+    const f4 = genExactShapeStats([l2, l3, l4 + eps]);
+    const j00 = (f3.skew - f.skew) / eps;
+    const j10 = (f3.exKurt - f.exKurt) / eps;
+    const j01 = (f4.skew - f.skew) / eps;
+    const j11 = (f4.exKurt - f.exKurt) / eps;
+    const det = j00 * j11 - j01 * j10;
+    if (!Number.isFinite(det) || Math.abs(det) < 1e-12) break;
+    // Newton step d = −J⁻¹ r.
+    const d3 = -(j11 * r0 - j01 * r1) / det;
+    const d4 = -(-j10 * r0 + j00 * r1) / det;
+    if (!Number.isFinite(d3) || !Number.isFinite(d4)) break;
+    // Backtracking: accept the largest fraction of the step that improves the residual.
+    let improved = false;
+    for (let bt = 0, step = 1; bt < 4; bt++, step *= 0.5) {
+      const n3 = clamp(l3 + step * d3, -GEN_EXACT_LAM3_MAX, GEN_EXACT_LAM3_MAX);
+      const n4 = clamp(l4 + step * d4, GEN_EXACT_LAM4_MIN, GEN_EXACT_LAM4_MAX);
+      const cand = genExactShapeStats([l2, n3, n4]);
+      const norm = Math.hypot(cand.skew - targetSkew, cand.exKurt - targetExKurt);
+      if (norm < best) {
+        l3 = n3;
+        l4 = n4;
+        best = norm;
+        improved = true;
+        break;
+      }
+    }
+    if (!improved) break; // at a (possibly boundary) minimum
+  }
+  return [l3, l4];
+}
+
+// Bayesian update for a Gen·exact belief — **v2: moment-projection (shape adapts)**
+// . Assumed-density filtering: form the exact posterior
+// `prior(θ)·N(θ; s, σ_ε²/w)`, take its first four moments, then project back onto
+// the family — hold λ₂ (the creator's unimodal/bimodal choice), re-fit (λ₃,λ₄) to
+// the posterior skew/kurtosis, and set (μ,σ) to match the posterior mean/variance.
+// So order flow *sculpts* the shape (skew/tails), not just the location/scale.
+// Reduces to the v1 location/scale step for a symmetric update (skew→0 keeps λ₃≈0)
+// and delegates to v1 for the simplified path / zero-weight (no shape information).
+export function bayesUpdateGenExactShape(
+  belief: GenExactBelief,
+  signal: number,
+  weight: number,
+  cfg: EngineConfig,
+): GenExactBelief {
+  // No information, or the heuristic simplified path → keep the authored shape.
+  if (weight <= 0 || cfg.useSimplifiedUpdate) {
+    return bayesUpdateGenExact(belief, signal, weight, cfg);
+  }
+
+  const sigmaMin2 = cfg.sigmaMin * cfg.sigmaMin;
+  const sigmaL2 = (cfg.sigmaEps * cfg.sigmaEps) / weight; // likelihood variance σ_ε²/w
+  const post = genExactPosteriorMoments(belief, signal, sigmaL2);
+
+  // Project skew/kurtosis onto (λ₃,λ₄); λ₂ stays fixed.
+  const [l2] = belief.lambdas;
+  const [, l3Start, l4Start] = belief.lambdas;
+  const [l3, l4] = fitGenExactShape(l2, l3Start, l4Start, post.skew, post.exKurt);
+  const lambdas: [number, number, number] = [l2, l3, l4];
+
+  // Map posterior mean/variance back to (μ,σ) at the fitted shape; λ changed, so the
+  // moment cache is recomputed for the new shape (I3 invalidation point).
+  const shape = genExactShapeStats(lambdas);
+  const targetVar = Math.max(post.variance, sigmaMin2);
+  const sigma = Math.sqrt(targetVar / shape.varU);
+  const mu = post.mean - sigma * shape.eu;
+  if (!Number.isFinite(mu) || !(sigma > 0)) {
+    // Numerical degeneracy → fall back to the robust fixed-shape step.
+    return bayesUpdateGenExact(belief, signal, weight, cfg);
+  }
+  return new GenExactBelief(mu, sigma, lambdas);
 }
 
 // Kind-agnostic belief update — dispatches by belief kind. The API trade engine
@@ -237,7 +390,10 @@ export function updateBelief(
     return bayesUpdateStudentT(belief as StudentTBelief, signal, weight, cfg);
   }
   if (belief.kind === 'gen_exact') {
-    return bayesUpdateGenExact(belief as GenExactBelief, signal, weight, cfg);
+    const b = belief as GenExactBelief;
+    return cfg.genExactShapeAdapt
+      ? bayesUpdateGenExactShape(b, signal, weight, cfg)
+      : bayesUpdateGenExact(b, signal, weight, cfg);
   }
   throw new Error(`updateBelief: unsupported belief kind ${belief.kind}`);
 }

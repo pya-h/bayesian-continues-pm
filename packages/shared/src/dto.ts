@@ -110,12 +110,22 @@ export const genExactLambdasSchema = z.tuple([
   finite.min(-0.35).max(0.35),
   finite.min(0).max(1.6),
 ]);
+// Cached standardised moments {emin, z, E[u], E[u²]} of a Gen·exact shape
+// a λ-only function persisted so reads skip the normalisation
+// quadrature. Optional: a snapshot without it is recomputed on load.
+export const genExactMomentsSchema = z.object({
+  emin: finite,
+  z: finite.positive(),
+  eu: finite,
+  eu2: finite,
+});
 // Serialized snapshot of a max-entropy exp(−poly) belief (Gen·exact, kind G2).
 export const genExactStateSchema = z.object({
   kind: z.literal('gen_exact'),
   mu: outcome,
   sigma: spread,
   lambdas: genExactLambdasSchema,
+  moments: genExactMomentsSchema.optional(),
 });
 export const beliefStateSchema = z.discriminatedUnion('kind', [
   gaussianStateSchema,
