@@ -871,6 +871,352 @@
     draw();
   }
 
+  // Widget 3b — Gen·exact update: v1 (fixed shape) vs v2 (moment-proj.)
+  // parity self-check verifies it matches packages/core (lockstep, not
+  // trust). Touches no other widget — only the local #viz-shape-update.
+  function vizShapeUpdate() {
+    const root = $('#viz-shape-update');
+    if (!root) return;
+    const cv = $('canvas', root),
+      controls = $('.controls', root),
+      out = $('.readout', root);
+
+    // ported numerics ----
+    const GL = 7,
+      GN = 2000,
+      L3MAX = 0.35,
+      L4MIN = 0,
+      L4MAX = 1.6;
+    const lam6 = (l3, l4) => 0.004 + 0.06 * Math.max(0, -l4) + 0.03 * Math.abs(l3);
+    const energy = (u, l2, l3, l4, l6) => {
+      const u2 = u * u;
+      return 0.5 * l2 * u2 + l3 * u2 * u + l4 * u2 * u2 + l6 * u2 * u2 * u2;
+    };
+    const clampN = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+    function geShape(lam) {
+      const l2 = lam[0],
+        l3 = lam[1],
+        l4 = lam[2],
+        l6 = lam6(l3, l4),
+        h = (2 * GL) / GN;
+      let emin = Infinity;
+      for (let i = 0; i <= GN; i++) {
+        const e = energy(-GL + i * h, l2, l3, l4, l6);
+        if (e < emin) emin = e;
+      }
+      let zR = 0,
+        s1 = 0,
+        s2 = 0,
+        s3 = 0,
+        s4 = 0;
+      for (let i = 0; i <= GN; i++) {
+        const u = -GL + i * h;
+        const w = Math.exp(-(energy(u, l2, l3, l4, l6) - emin));
+        const sw = i === 0 || i === GN ? 1 : i % 2 ? 4 : 2;
+        const wu = w * u;
+        zR += sw * w;
+        s1 += sw * wu;
+        s2 += sw * wu * u;
+        s3 += sw * wu * u * u;
+        s4 += sw * wu * u * u * u;
+      }
+      const e1 = s1 / zR,
+        e2 = s2 / zR,
+        e3 = s3 / zR,
+        e4 = s4 / zR;
+      const m2 = Math.max(1e-12, e2 - e1 * e1);
+      const m3 = e3 - 3 * e1 * e2 + 2 * e1 * e1 * e1;
+      const m4 = e4 - 4 * e1 * e3 + 6 * e1 * e1 * e2 - 3 * e1 * e1 * e1 * e1;
+      return { emin, Z: (zR * h) / 3, eu: e1, varU: m2, skew: m3 / m2 ** 1.5, exKurt: m4 / (m2 * m2) - 3 };
+    }
+    function GE(mu, sigma, lam) {
+      const sh = geShape(lam);
+      return {
+        kind: 'gen_exact',
+        mu,
+        sigma,
+        lambdas: lam.slice(),
+        mean: () => mu + sigma * sh.eu,
+        variance: () => sigma * sigma * sh.varU,
+        stddev() {
+          return Math.sqrt(this.variance());
+        },
+        pdf: (x) => {
+          const u = (x - mu) / sigma;
+          return Math.abs(u) > GL
+            ? 0
+            : Math.exp(-(energy(u, lam[0], lam[1], lam[2], lam6(lam[1], lam[2])) - sh.emin)) /
+                (sigma * sh.Z);
+        },
+      };
+    }
+    function extractSignalGE(spec, q, b, cfg) {
+      const mu = b.mean(),
+        sigma = b.stddev(),
+        absQ = Math.abs(q),
+        direction = q >= 0 ? 1 : -1;
+      const intensity = Math.min(1, absQ / cfg.qMax),
+        a = cfg.alpha;
+      let signal;
+      switch (spec.type) {
+        case 'LINEAR':
+          signal = mu + direction * cfg.beta * sigma * intensity;
+          break;
+        case 'CALL':
+          signal = spec.strike + direction * a * sigma * (1 + intensity);
+          break;
+        case 'PUT':
+          signal = spec.strike - direction * a * sigma * (1 + intensity);
+          break;
+        default:
+          signal = mu;
+      }
+      return { signal, weight: intensity * (1 - Math.exp(-absQ / cfg.qThreshold)) };
+    }
+    function posteriorMoments(prior, s, sigmaL2) {
+      const lo = prior.mu - GL * prior.sigma,
+        hi = prior.mu + GL * prior.sigma,
+        h = (hi - lo) / GN;
+      let z = 0,
+        s1 = 0,
+        s2 = 0,
+        s3 = 0,
+        s4 = 0;
+      for (let i = 0; i <= GN; i++) {
+        const th = lo + i * h,
+          d = th - s,
+          val = prior.pdf(th) * Math.exp(-(d * d) / (2 * sigmaL2));
+        const sw = i === 0 || i === GN ? 1 : i % 2 ? 4 : 2,
+          vt = val * th;
+        z += sw * val;
+        s1 += sw * vt;
+        s2 += sw * vt * th;
+        s3 += sw * vt * th * th;
+        s4 += sw * vt * th * th * th;
+      }
+      const m1 = s1 / z,
+        e2 = s2 / z,
+        e3 = s3 / z,
+        e4 = s4 / z,
+        v = Math.max(1e-12, e2 - m1 * m1);
+      const mu3 = e3 - 3 * m1 * e2 + 2 * m1 * m1 * m1;
+      const mu4 = e4 - 4 * m1 * e3 + 6 * m1 * m1 * e2 - 3 * m1 * m1 * m1 * m1;
+      return { mean: m1, variance: v, skew: mu3 / v ** 1.5, exKurt: mu4 / (v * v) - 3 };
+    }
+    function fitShape(l2, startL3, startL4, tSkew, tKurt) {
+      let l3 = clampN(startL3, -L3MAX, L3MAX),
+        l4 = clampN(startL4, L4MIN, L4MAX);
+      const resid = (a, b) => {
+        const f = geShape([l2, a, b]);
+        return Math.hypot(f.skew - tSkew, f.exKurt - tKurt);
+      };
+      let best = resid(l3, l4);
+      const eps = 1e-3;
+      for (let it = 0; it < 12 && best > 1e-4; it++) {
+        const f = geShape([l2, l3, l4]),
+          r0 = f.skew - tSkew,
+          r1 = f.exKurt - tKurt;
+        const f3 = geShape([l2, l3 + eps, l4]),
+          f4 = geShape([l2, l3, l4 + eps]);
+        const j00 = (f3.skew - f.skew) / eps,
+          j10 = (f3.exKurt - f.exKurt) / eps,
+          j01 = (f4.skew - f.skew) / eps,
+          j11 = (f4.exKurt - f.exKurt) / eps;
+        const det = j00 * j11 - j01 * j10;
+        if (!isFinite(det) || Math.abs(det) < 1e-12) break;
+        const d3 = -(j11 * r0 - j01 * r1) / det,
+          d4 = -(-j10 * r0 + j00 * r1) / det;
+        if (!isFinite(d3) || !isFinite(d4)) break;
+        let improved = false;
+        for (let bt = 0, step = 1; bt < 4; bt++, step *= 0.5) {
+          const n3 = clampN(l3 + step * d3, -L3MAX, L3MAX),
+            n4 = clampN(l4 + step * d4, L4MIN, L4MAX);
+          const c = geShape([l2, n3, n4]),
+            nm = Math.hypot(c.skew - tSkew, c.exKurt - tKurt);
+          if (nm < best) {
+            l3 = n3;
+            l4 = n4;
+            best = nm;
+            improved = true;
+            break;
+          }
+        }
+        if (!improved) break;
+      }
+      return [l3, l4];
+    }
+    function updV1(belief, signal, weight, cfg) {
+      const sigmaMin2 = cfg.sigmaMin * cfg.sigmaMin,
+        priorVar = belief.variance(),
+        lam = belief.lambdas;
+      const withVar = (mu, targetVar) =>
+        GE(mu, belief.sigma * Math.sqrt(Math.max(targetVar, sigmaMin2) / priorVar), lam);
+      if (weight <= 0) return withVar(belief.mu, Math.max(priorVar, sigmaMin2));
+      if (cfg.useSimplifiedUpdate)
+        return withVar(belief.mu + cfg.lr * (signal - belief.mu) * weight, priorVar * (1 - cfg.decay * weight));
+      const pP = 1 / priorVar,
+        pS = weight / (cfg.sigmaEps * cfg.sigmaEps),
+        tot = pP + pS;
+      return withVar((pP * belief.mu + pS * signal) / tot, 1 / tot);
+    }
+    function updV2(belief, signal, weight, cfg) {
+      if (weight <= 0 || cfg.useSimplifiedUpdate) return updV1(belief, signal, weight, cfg);
+      const sigmaMin2 = cfg.sigmaMin * cfg.sigmaMin,
+        sigmaL2 = (cfg.sigmaEps * cfg.sigmaEps) / weight;
+      const post = posteriorMoments(belief, signal, sigmaL2);
+      const l2 = belief.lambdas[0],
+        fit = fitShape(l2, belief.lambdas[1], belief.lambdas[2], post.skew, post.exKurt);
+      const lam = [l2, fit[0], fit[1]],
+        sh = geShape(lam),
+        targetVar = Math.max(post.variance, sigmaMin2);
+      const sigma = Math.sqrt(targetVar / sh.varU),
+        mu = post.mean - sigma * sh.eu;
+      if (!isFinite(mu) || !(sigma > 0)) return updV1(belief, signal, weight, cfg);
+      return GE(mu, sigma, lam);
+    }
+
+    // parity self-check vs packages/core (logged once, never throws) ----
+    (function parityCheck() {
+      try {
+        const cs = [
+          { lam: [1, 0, 0], mu: 100, sig: 12, spec: { type: 'CALL', strike: 100 }, q: 120 },
+          { lam: [-1, 0, 0], mu: 50, sig: 10, spec: { type: 'CALL', strike: 64 }, q: 200 },
+          { lam: [1, 0.2, 0.1], mu: 70, sig: 10, spec: { type: 'PUT', strike: 60 }, q: 150 },
+        ];
+        const ref = [
+          { v2mu: 102.54182229, v2sig: 11.07455274, v2l3: 0.0081405 },
+          { v2mu: 74.50316685, v2sig: 9.39424594, v2l3: -0.35 },
+          { v2mu: 63.8790049, v2sig: 8.72084932, v2l3: -0.13370148 },
+        ];
+        let md = 0;
+        cs.forEach((c, i) => {
+          const cfg = M.makeEngineConfig(c.mu, c.sig),
+            prior = GE(c.mu, c.sig, c.lam);
+          const s = extractSignalGE(c.spec, c.q, prior, cfg),
+            b = updV2(prior, s.signal, s.weight, cfg);
+          md = Math.max(
+            md,
+            Math.abs(b.mu - ref[i].v2mu),
+            Math.abs(b.sigma - ref[i].v2sig),
+            Math.abs(b.lambdas[1] - ref[i].v2l3),
+          );
+        });
+        console.log(
+          '[BMM math doc] Gen·exact v2 port parity vs packages/core: max Δ = ' +
+            md.toExponential(2) +
+            (md < 1e-5 ? '  ✓ in lockstep' : '  ✗ DRIFT'),
+        );
+      } catch (e) {
+        console.warn('[BMM math doc] Gen·exact parity check skipped:', e && e.message);
+      }
+    })();
+
+    // widget ----------------------------------------------------------
+    const P = Plot(cv);
+    const cfg = M.makeEngineConfig(100, 12);
+    let prior = GE(100, 12, [1, 0, 0]);
+    const sL2 = slider(controls, { label: 'λ₂ — peak ↔ bimodal (<0)', min: -3, max: 3, step: 0.25, value: 1 });
+    const sL3 = slider(controls, { label: 'λ₃ — authored skew', min: -0.35, max: 0.35, step: 0.01, value: 0 });
+    const sL4 = slider(controls, { label: 'λ₄ — flat-top / thin tails', min: 0, max: 1.6, step: 0.05, value: 0 });
+    const tSeg = seg(controls, {
+      label: 'Trade contract',
+      value: 'CALL',
+      options: [
+        { label: 'Linear', value: 'LINEAR' },
+        { label: 'Call', value: 'CALL' },
+        { label: 'Put', value: 'PUT' },
+      ],
+    });
+    const sideSeg = seg(controls, {
+      label: 'Side',
+      value: 'buy',
+      options: [
+        { label: 'Buy', value: 'buy' },
+        { label: 'Sell', value: 'sell' },
+      ],
+    });
+    const sQ = slider(controls, { label: 'size |q|', min: 1, max: 600, step: 1, value: 220 });
+    const sK = slider(controls, { label: 'strike K', min: 60, max: 140, step: 1, value: 118 });
+    const btns = document.createElement('div');
+    btns.style.cssText = 'display:flex;gap:.5rem;margin-top:.4rem';
+    btns.innerHTML =
+      '<button class="seg" id="shape-commit">Commit v2 & repeat ↻</button><button class="seg" id="shape-reset">Reset</button>';
+    controls.appendChild(btns);
+
+    function specOf() {
+      const t = tSeg.get();
+      return t === 'LINEAR' ? { type: 'LINEAR' } : { type: t, strike: sK.get() };
+    }
+    function syncLam(lam) {
+      sL2.el.value = lam[0];
+      sL3.el.value = lam[1];
+      sL4.el.value = lam[2];
+      sL2.refresh();
+      sL3.refresh();
+      sL4.refresh();
+    }
+    function compute() {
+      const q = (sideSeg.get() === 'buy' ? 1 : -1) * sQ.get();
+      const sig = extractSignalGE(specOf(), q, prior, cfg);
+      const post1 = updV1(prior, sig.signal, sig.weight, cfg);
+      const post2 = updV2(prior, sig.signal, sig.weight, cfg);
+      const pm =
+        sig.weight > 0
+          ? posteriorMoments(prior, sig.signal, (cfg.sigmaEps * cfg.sigmaEps) / sig.weight)
+          : null;
+      return { sig, post1, post2, pm };
+    }
+    function peak(b, lo, hi) {
+      let m = 0;
+      for (let i = 0; i <= 80; i++) m = Math.max(m, b.pdf(lo + ((hi - lo) * i) / 80));
+      return m;
+    }
+    function draw() {
+      const { sig, post1, post2, pm } = compute();
+      const span = (b) => [b.mu - 4.5 * b.sigma, b.mu + 4.5 * b.sigma];
+      const sp = [span(prior), span(post1), span(post2)];
+      const lo = Math.min(sig.signal, ...sp.map((s) => s[0]));
+      const hi = Math.max(sig.signal, ...sp.map((s) => s[1]));
+      const ymax = Math.max(peak(prior, lo, hi), peak(post1, lo, hi), peak(post2, lo, hi)) * 1.15;
+      P.clear().domain(lo, hi, 0, ymax);
+      P.grid([lo, (lo + hi) / 2, hi], [], { xfmt: (v) => fmt(v, 0) });
+      P.area((x) => prior.pdf(x), 'rgba(139,151,168,0.10)');
+      P.curve((x) => prior.pdf(x), P.COL.muted, 1.6);
+      P.curve((x) => post1.pdf(x), P.COL.sell, 2.2);
+      P.curve((x) => post2.pdf(x), P.COL.accent, 2.6);
+      P.vline(sig.signal, P.COL.warn, 'signal s', true);
+      const l3v2 = post2.lambdas[1],
+        l4v2 = post2.lambdas[2];
+      out.innerHTML =
+        cell('signal s', fmt(sig.signal, 2), 'accent') +
+        cell('weight w', fmt(sig.weight, 4)) +
+        cell("μ' v1 / v2", fmt(post1.mu, 2) + ' / ' + fmt(post2.mu, 2)) +
+        cell("σ' v1 / v2", fmt(post1.sigma, 2) + ' / ' + fmt(post2.sigma, 2)) +
+        cell('post skew / exKurt', pm ? fmt(pm.skew, 3) + ' / ' + fmt(pm.exKurt, 3) : '—', 'warn') +
+        cell('λ₃,λ₄ fitted (v2)', fmt(l3v2, 3) + ', ' + fmt(l4v2, 3));
+    }
+
+    [sL2, sL3, sL4].forEach((s) =>
+      s.on(() => {
+        prior = GE(prior.mu, prior.sigma, [sL2.get(), sL3.get(), sL4.get()]);
+        draw();
+      }),
+    );
+    [tSeg, sideSeg, sQ, sK].forEach((c) => c.on(draw));
+    $('#shape-commit', btns).onclick = () => {
+      prior = compute().post2;
+      syncLam(prior.lambdas);
+      draw();
+    };
+    $('#shape-reset', btns).onclick = () => {
+      prior = GE(100, 12, [1, 0, 0]);
+      syncLam([1, 0, 0]);
+      draw();
+    };
+    redraws.push(draw);
+    draw();
+  }
+
   function vizSpread() {
     const root = $('#viz-spread');
     if (!root) return;
@@ -1583,6 +1929,7 @@
     vizFlexBeliefs();
     vizPricing();
     vizBayes();
+    vizShapeUpdate();
     vizSpread();
     vizReserve();
     vizLp();

@@ -498,6 +498,77 @@ body.reveal-ready .hero.in {
   color: var(--buy);
 }
 
+/* ----- evolution (Then → Now) cards --------------------------------------- */
+/* A compact "what the logic was → what it is now → why we changed" card, used
+   wherever a piece of the engine was redesigned (belief representation, the
+   Gen·exact update, …). Old logic on the left (sell-red), new on the right
+   (buy-green), the rationale underneath. Pure layout — no JS. */
+.evo {
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  margin: 1.1rem 0;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.evo > .callout-title {
+  padding: 0.7rem 1.05rem 0;
+  color: var(--muted);
+}
+.evo-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+.evo-then,
+.evo-now {
+  padding: 0.8rem 1.05rem;
+  font-size: 0.93rem;
+}
+.evo-then {
+  border-left: 3px solid var(--sell);
+  background: color-mix(in srgb, var(--sell) 5%, var(--panel-2));
+}
+.evo-now {
+  border-left: 3px solid var(--buy);
+  background: color-mix(in srgb, var(--buy) 6%, var(--panel-2));
+}
+.evo-lab {
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  display: block;
+  margin-bottom: 0.35rem;
+}
+.evo-then .evo-lab {
+  color: var(--sell);
+}
+.evo-now .evo-lab {
+  color: var(--buy);
+}
+.evo-why {
+  padding: 0.7rem 1.05rem 0.85rem;
+  border-top: 1px solid var(--edge);
+  font-size: 0.92rem;
+}
+.evo-why .evo-lab {
+  color: var(--accent);
+}
+.evo p {
+  margin: 0.4rem 0 0;
+}
+.evo p:first-of-type {
+  margin-top: 0;
+}
+@media (max-width: 640px) {
+  .evo-grid {
+    grid-template-columns: 1fr;
+  }
+  .evo-then {
+    border-bottom: 1px solid var(--edge);
+  }
+}
+
 /* ----- code --------------------------------------------------------------- */
 code {
   font-family: var(--mono);

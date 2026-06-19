@@ -182,8 +182,11 @@ export function bayesUpdateStudentT(
 // Gaussian of the same variance, do the precision-weighted conjugate step in the
 // **variance domain**, then map the posterior variance back to a σ at fixed shape
 // (variance ∝ σ² for a fixed standardised density, so σ' = σ·√(Var'/Var)).
-// Shape-adapting (re-fitting λ₃,λ₄ to the post-update skew/kurtosis) is the
-// deferred v2 moment-projection step; v1 keeps the authored shape.
+// Shape-adapting (re-fitting λ₃,λ₄ to the post-update skew/kurtosis) is the v2
+// moment-projection step `bayesUpdateGenExactShape` — shipped and
+// the default (`genExactShapeAdapt`). This v1 path keeps the authored shape and is
+// used when that flag is off, or as the fallback for the simplified / zero-weight /
+// numerically-degenerate cases.
 export function bayesUpdateGenExact(
   belief: GenExactBelief,
   signal: number,
