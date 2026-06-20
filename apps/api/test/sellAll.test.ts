@@ -122,7 +122,9 @@ describe.if(hasEnv)('sell-all (integration)', () => {
     expect(result.count).toBe(2);
     expect(result.fills).toHaveLength(2);
     expect(result.totalProceeds).toBeGreaterThan(0);
-    expect(typeof result.totalRealizedPnl).toBe('number');
+    // Only alice traded, so her cost basis = the premiums that grew the pool above the
+    // initial 10000 reserve. Realized PnL = proceeds − cost basis (exactly).
+    expect(result.totalRealizedPnl).toBeCloseTo(result.totalProceeds - (cashBefore - 10000), 4);
     // Selling back to the MM pays out of the pool → cash drops.
     expect(result.cash).toBeLessThan(cashBefore);
     // The pool only grew from alice's two premiums, so her pre-sell balance was

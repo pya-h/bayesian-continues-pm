@@ -1,10 +1,14 @@
 import { describe, expect, test } from 'bun:test';
+import type { ModelTag } from '../src/compat.ts';
 import { MixtureBelief, type MixtureComponent } from '../src/mixture.ts';
 import {
   DEFAULT_MIXTURE_OPS,
+  GEN_BASIS_MAX_COMPONENTS,
+  GEN_BASIS_TAU_SPAWN,
   manageMixture,
   mergeComponents,
   mergeTwo,
+  mixtureOpsForModel,
   pruneComponents,
   splitComponent,
 } from '../src/mixture_ops.ts';
@@ -122,5 +126,27 @@ describe('splitComponent moment preservation (REVIEW-FINDINGS C25)', () => {
     const ex2 = w * (lo.sigma2 + lo.mu ** 2) + w * (hi.sigma2 + hi.mu ** 2);
     expect(approx(mean, 100, 1e-12)).toBe(true);
     expect(approx(ex2 - mean ** 2, 16, 1e-9)).toBe(true);
+  });
+});
+
+describe('mixtureOpsForModel — per-model component policy', () => {
+  test('gen_basis turns spawning on, relaxes the cap to 12, and sets τ_spawn', () => {
+    const ops = mixtureOpsForModel('gen_basis');
+    expect(ops.allowSpawn).toBe(true);
+    expect(ops.maxComponents).toBe(GEN_BASIS_MAX_COMPONENTS); // 12
+    expect(ops.tauSpawn).toBe(GEN_BASIS_TAU_SPAWN); // 3
+    // it only overrides those three; prune/merge thresholds keep the shipped defaults
+    expect(ops.piMin).toBe(DEFAULT_MIXTURE_OPS.piMin);
+    expect(ops.tauMerge).toBe(DEFAULT_MIXTURE_OPS.tauMerge);
+  });
+
+  test('every non-gen_basis model uses the shipped defaults (spawning OFF, cap 6)', () => {
+    const plain: ModelTag[] = ['gaussian', 'mixture', 'student_t', 'gen_exact'];
+    for (const m of plain) {
+      const ops = mixtureOpsForModel(m);
+      expect(ops).toEqual(DEFAULT_MIXTURE_OPS);
+      expect(ops.allowSpawn).toBe(false);
+      expect(ops.maxComponents).toBe(6);
+    }
   });
 });

@@ -171,3 +171,28 @@ describe('placement — solvency stays well-defined', () => {
     expect(reserve).toBeLessThanOrEqual(150);
   });
 });
+
+describe('placeBasisBump — edge cases', () => {
+  test('zero / non-finite placement is a no-op (shape unchanged, variance floored)', () => {
+    const b = single(); // one bump π=1 at μ=70, σ²=100
+    const zero = placeBasisBump(b, 70, 0, cfg, ops); // strength 0 ⇒ mag 0 ⇒ no information
+    expect(zero.components.length).toBe(1);
+    expect(sumPi(zero)).toBeCloseTo(1, 12);
+    expect(zero.components[0]?.mu).toBe(70);
+    expect(zero.components[0]?.sigma2).toBe(100); // ≥ σ_min²=1, so left unchanged
+    // a non-finite center is ignored even with real strength
+    const nan = placeBasisBump(b, Number.NaN, 0.5, cfg, ops);
+    expect(nan.components.length).toBe(1);
+    expect(nan.components[0]?.mu).toBe(70);
+  });
+
+  test('selling MORE than all the mass keeps the belief alive at the same location', () => {
+    const b = single();
+    // sell strength −2 on the bump (mag 2 > total π 1) would zero every component
+    const after = placeBasisBump(b, 70, -2, cfg, ops);
+    expect(after.components.length).toBeGreaterThanOrEqual(1); // belief survives
+    expect(sumPi(after)).toBeCloseTo(1, 9); // renormalised, never empty
+    expect(hasModeNear(after, 70)).toBe(true); // stays at μ≈70
+    expect(after.mean()).toBeCloseTo(70, 6);
+  });
+});

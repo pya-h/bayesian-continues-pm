@@ -39,6 +39,7 @@ export const BeliefKind = {
   GAUSSIAN: 'gaussian',
   MIXTURE: 'mixture',
   STUDENT_T: 'student_t',
+  GEN_EXACT: 'gen_exact',
 } as const;
 export type BeliefKind = (typeof BeliefKind)[keyof typeof BeliefKind];
 

@@ -249,6 +249,8 @@ describe('probInRegions matches the normal CDF', () => {
     const p = probInRegions(0, 1, [[-100, 100]]);
     expect(p).toBeLessThanOrEqual(1);
     expect(p).toBeGreaterThanOrEqual(0);
+    // ±100σ covers essentially all the mass ⇒ ≈1 (not just "somewhere in [0,1]")
+    expect(p).toBeCloseTo(1, 6);
   });
 });
 

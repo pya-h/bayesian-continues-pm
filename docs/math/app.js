@@ -937,7 +937,7 @@
         sigma,
         lambdas: lam.slice(),
         mean: () => mu + sigma * sh.eu,
-        variance: () => sigma * sigma * sh.varU,
+        variance: () => sigma * sigma * Math.max(1e-9, sh.varU), // belief-var floor, mirrors GenExactBelief
         stddev() {
           return Math.sqrt(this.variance());
         },

@@ -1763,11 +1763,12 @@ losses.sort();
           <tr><td>—</td><td><code>genExactShapeAdapt</code></td><td>true</td><td>Gen·exact: <code>true</code> → v2 moment-projection (order flow sculpts skew/tails), <code>false</code> → v1 fixed shape (§7)</td></tr>
         </tbody>
       </table></div>
-      <p class="small">The Gen·basis spawn/placement and mixture-management constants
+      <p class="small">The Gen·basis spawn / mixture-management constants
       (\(\tau_\text{spawn}\), \(w_\text{min}\), \(w_\text{seed}\), \(\pi_\text{min}\), merge tolerance, the
-      \(K\)-cap) live with their algorithms in <code>bayes.ts</code> / <code>mixture_ops.ts</code> /
-      <code>placement.ts</code> rather than in <code>EngineConfig</code>, since they are structural to the
-      general model rather than per-market knobs — see §7.</p>
+      \(K\)-cap) live in <code>mixture_ops.ts</code> (and are consumed by <code>placement.ts</code>), while the
+      Gen·exact shape-fit clamps (\(\lambda_3,\lambda_4\) ranges) live in <code>bayes.ts</code> — rather than in
+      <code>EngineConfig</code>, since they are structural to the general model rather than per-market knobs —
+      see §7.</p>
     </section>
 
     <!-- =============================================================== -->

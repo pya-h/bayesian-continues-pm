@@ -71,10 +71,13 @@ describe('positionStats', () => {
     expect(approx(s.breakevenTheta as number, 70000 + 500, 1e-6)).toBe(true);
   });
 
-  test('VaR/CVaR ordering: cvar95 ≤ var95 ≤ expectedPnl region', () => {
+  test('VaR/CVaR ordering: cvar95 ≤ var95 ≤ expectedPnl', () => {
     const spec = { type: 'CALL', strike: 65000 } as const;
     const s = positionStats({ spec, quantity: 10, costBasis: 10 * 2000 }, belief);
-    expect(s.cvar95 <= s.var95).toBe(true);
+    // the worst-5% mean ≤ the 5th-percentile loss ≤ the mean PnL — the full chain
+    // the test name promises (previously only the first link was asserted)
+    expect(s.cvar95).toBeLessThanOrEqual(s.var95);
+    expect(s.var95).toBeLessThanOrEqual(s.expectedPnl);
   });
 });
 

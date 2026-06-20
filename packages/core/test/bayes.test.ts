@@ -188,3 +188,24 @@ describe('extractSignal intensity clamp (REVIEW-FINDINGS C6)', () => {
     }
   });
 });
+
+describe('a negative (invalid) weight is treated as no information', () => {
+  // The `weight <= 0` guard handles 0 AND negatives identically across every belief
+  // kind — a bad/negative reliability must never spuriously shift μ or shrink σ.
+  const cfg = makeEngineConfig(65000, 5000, { sigmaEps: Math.SQRT2 * 1000, sigmaMin: 1 });
+
+  test('bayesUpdate: negative weight leaves μ and σ² exactly unchanged', () => {
+    const prior = new GaussianBelief(65000, 5000 ** 2);
+    const post = bayesUpdate(prior, 99999, -5, cfg);
+    expect(post.mu).toBe(prior.mu); // no drift toward the signal
+    expect(post.sigma2).toBe(prior.sigma2); // no shrink (σ_min=1 floor doesn't bind)
+  });
+
+  test('bayesUpdateStudentT: negative weight preserves location, ν and variance', () => {
+    const prior = StudentTBelief.fromVariance(6, 65000, 5000 ** 2);
+    const post = bayesUpdateStudentT(prior, 99999, -5, cfg);
+    expect(post.mu).toBe(prior.mu);
+    expect(post.nu).toBe(6);
+    expect(Math.abs(post.variance() - prior.variance())).toBeLessThan(prior.variance() * 1e-9);
+  });
+});

@@ -182,7 +182,9 @@ describe.if(hasEnv)('trade engine (integration)', () => {
     expect(fill.side).toBe('sell');
     expect(fill.filledQ).toBe(-10);
     expect(fill.position.quantity).toBe(20); // 30 − 10
-    expect(typeof fill.position.realizedPnl).toBe('number');
+    // a partial close realizes PnL on the 10 sold — assert it's a real finite number
+    // (not NaN/∞ from a broken entry/exec calc, which `typeof === "number"` would miss)
+    expect(Number.isFinite(fill.position.realizedPnl)).toBe(true);
   });
 
   test('cannot sell MORE than you hold → 400', async () => {
@@ -229,7 +231,8 @@ describe.if(hasEnv)('trade engine (integration)', () => {
     };
     expect(fill.position.quantity).toBeCloseTo(0, 6);
     expect(fill.position.avgEntryPrice).toBe(0); // reset on a full close
-    expect(typeof fill.position.realizedPnl).toBe('number');
+    // a full close realizes the round-trip PnL — assert it's real and finite
+    expect(Number.isFinite(fill.position.realizedPnl)).toBe(true);
   });
 
   test('selling credits the trader and reduces MM cash', async () => {

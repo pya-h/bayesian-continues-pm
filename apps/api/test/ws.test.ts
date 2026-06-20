@@ -173,19 +173,35 @@ describe.if(hasEnv)('ws auth (integration)', () => {
     expect((await admin.next((x) => x.topic === 'system')).type).toBe('subscribed');
   });
 
-  test("an attacker does NOT receive another user's private event", async () => {
+  test("an attacker does NOT receive another user's private event (sentinel-proven)", async () => {
     const alice = await connect(aliceToken);
     const bob = await connect(bobToken);
+
+    // alice watches her own private topic
     alice.send({ action: 'subscribe', topic: `user:${aliceId}` });
     await alice.next((x) => x.topic === `user:${aliceId}` && x.type === 'subscribed');
-    // bob is denied alice's topic
+
+    // bob watches a PUBLIC market topic (a live channel we can prove frames flow on)
+    // and is DENIED alice's private topic.
+    const pub = topics.market(`ws-sentinel-${aliceId}`);
+    bob.send({ action: 'subscribe', topic: pub });
+    await bob.next((x) => x.topic === pub && x.type === 'subscribed');
     bob.send({ action: 'subscribe', topic: `user:${aliceId}` });
     await bob.next((x) => x.topic === `user:${aliceId}` && x.type === 'error');
 
-    // server publishes a private event to alice
+    // Publish the private event to alice FIRST, then a public sentinel bob IS allowed to
+    // see. WebSocket frames are delivered in order on a connection, so a *leaked* private
+    // frame would reach bob BEFORE the sentinel. So "bob got the sentinel but not the
+    // private frame" proves the private event was filtered out — and that bob's channel is
+    // genuinely live (a bare timeout cannot tell "correctly filtered" from "channel dead").
     publish(topics.user(aliceId), { type: 'trade_executed', marketId: 'm', tradeId: 't' });
+    publish(pub, { type: 'ws_sentinel', nonce: 'sentinel-1' });
 
+    // positive control: alice DOES receive her own private event
     expect((await alice.next((x) => x.type === 'trade_executed')).marketId).toBe('m');
-    await bob.none((x) => x.type === 'trade_executed'); // bob must not receive it
+    // liveness + ordering: bob receives the sentinel published AFTER the private event
+    expect((await bob.next((x) => x.type === 'ws_sentinel')).nonce).toBe('sentinel-1');
+    // and the private event is NOT buffered on bob — it would have arrived first if leaked
+    await bob.none((x) => x.type === 'trade_executed', 0);
   });
 });

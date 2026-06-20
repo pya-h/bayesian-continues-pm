@@ -1,0 +1,5 @@
+# Bun config for @bmm/api. The test preload fails fast when the required DB env is
+# missing, so the integration suite can never silently run zero tests (see
+# test/env-guard.ts). Paths are relative to this file.
+[test]
+preload = ["./test/env-guard.ts"]

@@ -5,7 +5,9 @@ import {
   contractSpecSchema,
   createBeliefSchema,
   createMarketSchema,
+  formatMoney,
   marketCfgSchema,
+  mulMoney,
   registerSchema,
   round8,
   subMoney,
@@ -24,6 +26,42 @@ describe('money', () => {
     expect(addMoney(0.1, 0.2)).toBe(0.3);
     expect(subMoney(0.3, 0.1)).toBe(0.2);
     expect(sumMoney([0.1, 0.1, 0.1])).toBe(0.3);
+  });
+
+  test('round8 rejects non-finite input (guards balance corruption)', () => {
+    expect(() => round8(Number.NaN)).toThrow(/non-finite/);
+    expect(() => round8(Number.POSITIVE_INFINITY)).toThrow(/non-finite/);
+    expect(() => round8(Number.NEGATIVE_INFINITY)).toThrow(/non-finite/);
+  });
+
+  test('round8 half-even is symmetric for negatives', () => {
+    // −0.123456785 is a tie; nearest even last digit is …78
+    expect(round8(-0.123456785)).toBe(-0.12345678);
+    expect(round8(-0.123456795)).toBe(-0.1234568);
+    expect(round8(-1.000000004)).toBe(-1);
+    expect(round8(-2.5e-9)).toBe(0); // below precision → −0 normalises to 0
+  });
+
+  test('mulMoney rounds the product to 8dp (kills float drift)', () => {
+    expect(mulMoney(0.1, 0.2)).toBe(0.02); // 0.1·0.2 = 0.020000000000000004 → 0.02
+    expect(mulMoney(2, 0.5)).toBe(1);
+    expect(mulMoney(0.333333333, 3)).toBe(1); // 0.999999999 rounds up at 8dp
+    expect(mulMoney(-1.23456789, 2)).toBe(-2.46913578);
+  });
+
+  test('sumMoney: empty list is 0 and a single rounding pass avoids drift', () => {
+    expect(sumMoney([])).toBe(0);
+    expect(sumMoney([0.1, 0.2, 0.3])).toBe(0.6); // raw 0.6000000000000001 → 0.6
+    // many tiny adds: 10×0.1 stays exact through the single final round
+    expect(sumMoney(Array(10).fill(0.1))).toBe(1);
+  });
+
+  test('formatMoney rounds to 8dp first, then renders dp places; rejects non-finite', () => {
+    // decimal separator is locale-dependent → allow '.' or ',' but pin the digits
+    expect(formatMoney(1.2, 2)).toMatch(/^1[.,]20$/);
+    expect(formatMoney(0.123456789, 8)).toMatch(/^0[.,]12345679$/); // round8 then 8dp
+    expect(formatMoney(5)).toMatch(/^5[.,]00$/); // default dp=2
+    expect(() => formatMoney(Number.NaN)).toThrow(/non-finite/);
   });
 });
 

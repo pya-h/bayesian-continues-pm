@@ -113,3 +113,36 @@ describe('price monotonic in μ for bullish contracts', () => {
     ).toBe(true);
   });
 });
+
+describe('pricing — defensive guards (unhappy paths)', () => {
+  const belief = new GaussianBelief(100, 144);
+
+  test('price throws on an unknown contract type', () => {
+    expect(() => price({ type: 'NONSENSE' } as unknown as ContractSpec, belief)).toThrow(
+      /unknown contract type/,
+    );
+  });
+
+  test('dPriceDMu throws on an unknown contract type', () => {
+    expect(() => dPriceDMu({ type: 'NONSENSE' } as unknown as ContractSpec, belief)).toThrow(
+      /unknown contract type/,
+    );
+  });
+
+  test('dPriceDMu throws on an unsupported belief kind', () => {
+    const alien = {
+      kind: 'frobnicate',
+      mean: () => 100,
+      variance: () => 1,
+      stddev: () => 1,
+      pdf: () => 0,
+      cdf: () => 0,
+      quantile: () => 0,
+      sample: () => [],
+      serialize: () => ({}),
+    } as unknown as GaussianBelief;
+    expect(() => dPriceDMu({ type: 'CALL', strike: 100 }, alien)).toThrow(
+      /unsupported belief kind/,
+    );
+  });
+});

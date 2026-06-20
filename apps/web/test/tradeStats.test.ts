@@ -150,7 +150,7 @@ describe('tradeStats — belief-aware win chance (REVIEW-FINDINGS C2)', () => {
     // N(92, 18.5²): P(θ>100) ≈ 0.33; profit needs payoff 1 (θ>100) for a long
     // at 0.30 — the Gaussian smears mass into the dead zone between the modes
     // so it must differ from the exact 0.30 by a real margin.
-    expect(Math.abs(s.pProfit - 0.3) > 0.02).toBe(true);
+    expect(Math.abs(s.pProfit - 0.3)).toBeGreaterThan(0.02);
   });
 
   test('fat Student-t tails are not clipped at the 10σ scan window', () => {

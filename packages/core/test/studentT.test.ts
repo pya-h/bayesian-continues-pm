@@ -210,5 +210,8 @@ describe('Student-t closed-form pricing (REVIEW-FINDINGS C1/C10)', () => {
       const got = price(spec, tg);
       expect(approx(got, ref(c, w), Math.abs(ref(c, w)) * 1e-4 + 1e-12)).toBe(true);
     }
-  });
+    // Generous explicit timeout: the 2M-node reference integral above is deliberately
+    // heavy and can exceed bun's 5s default when the full parallel suite saturates the
+    // CPU (the assertion itself is fast + deterministic). Prevents a CI-load flake.
+  }, 30000);
 });

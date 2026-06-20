@@ -58,7 +58,7 @@ describe('estimateQuote', () => {
     const spec: ContractSpec = { type: 'BINARY_CALL', strike: 1000 };
     const q = estimateQuote({ spec, signedQ: -2, belief, cfg: ZERO_SPREAD, serverInventory: 5 });
     expect(q.execPrice).toBe(0);
-    expect(q.totalCost === 0).toBe(true); // ±0: a floored bid pays/receives nothing
+    expect(Math.abs(q.totalCost)).toBe(0); // exactly zero magnitude (handles the −0 case)
   });
 
   test('a zero spread reproduces the mid for both sides', () => {

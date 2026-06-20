@@ -124,4 +124,35 @@ describe('contractBeliefCompatible — G5.2 unbounded contracts (gated)', () => 
         .ok,
     ).toBe(true);
   });
+
+  test('exactly at the rate cap (|a|·span = 20) is allowed; just over is rejected', () => {
+    const ctx = (span: number) => ({
+      tail: 'gaussian' as const,
+      outcomeBounded: true,
+      outcomeSpan: span,
+    });
+    // a=0.2, span=100 ⇒ 20.0 — inclusive cap → OK
+    expect(
+      contractBeliefCompatible({ type: 'EXPONENTIAL', center: 0, rate: 0.2 }, ctx(100)).ok,
+    ).toBe(true);
+    // a=0.2001, span=100 ⇒ 20.01 — over → rejected
+    const over = contractBeliefCompatible(
+      { type: 'EXPONENTIAL', center: 0, rate: 0.2001 },
+      ctx(100),
+    );
+    expect(over.ok).toBe(false);
+    expect(over.reason).toMatch(/too steep/);
+    // the MAGNITUDE is capped — a steep negative rate is rejected too
+    expect(
+      contractBeliefCompatible({ type: 'EXPONENTIAL', center: 0, rate: -1 }, ctx(100)).ok,
+    ).toBe(false);
+  });
+
+  test('a bounded market with no outcomeSpan treats the span as 0 (cap trivially met)', () => {
+    const r = contractBeliefCompatible(
+      { type: 'EXPONENTIAL', center: 0, rate: 5 },
+      { tail: 'gaussian', outcomeBounded: true }, // outcomeSpan undefined ⇒ |a|·0 = 0 ≤ 20
+    );
+    expect(r.ok).toBe(true);
+  });
 });
