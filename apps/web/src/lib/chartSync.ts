@@ -13,12 +13,17 @@
 import { useCallback, useRef, useState, useSyncExternalStore } from 'react';
 import { type Domain, panOffset, zoomMul } from './viz.ts';
 
+// The shared pan/zoom transform. `xMul`/`xOff` scale & slide the x-window; `yMul` is
+// the shared VERTICAL scale (one factor for every curve, so the left/right axes stay
+// proportional) and `yOff` the shared vertical SHIFT in viewBox px (slides all curves
+// together without rescaling). Panels use only the x part; the belief chart owns y.
 export interface ChartView {
   xMul: number;
   xOff: number;
   yMul: number;
+  yOff: number;
 }
-const IDENTITY: ChartView = { xMul: 1, xOff: 0, yMul: 1 };
+const IDENTITY: ChartView = { xMul: 1, xOff: 0, yMul: 1, yOff: 0 };
 
 let view: ChartView = IDENTITY;
 let hoverTheta: number | null = null;
@@ -37,7 +42,13 @@ export function getChartView(): ChartView {
   return view;
 }
 export function setChartView(next: ChartView): void {
-  if (next.xMul === view.xMul && next.xOff === view.xOff && next.yMul === view.yMul) return;
+  if (
+    next.xMul === view.xMul &&
+    next.xOff === view.xOff &&
+    next.yMul === view.yMul &&
+    next.yOff === view.yOff
+  )
+    return;
   view = next;
   emit();
 }

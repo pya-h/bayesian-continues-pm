@@ -253,7 +253,8 @@ export function MarketPage() {
                   activeClass="bg-price font-semibold text-ink"
                 />
                 <span className="hidden text-xs text-muted lg:inline">
-                  drag plot to pan · drag axes to zoom · dbl-click resets
+                  drag plot to pan · L-axis scales · R-axis shifts · bottom zooms x · dbl-click
+                  resets
                 </span>
               </div>
             }

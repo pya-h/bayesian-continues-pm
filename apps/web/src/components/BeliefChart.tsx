@@ -9,14 +9,27 @@
 // Two y-axes share the θ x-axis: the LEFT axis reads the belief as a relative
 // likelihood (peak-normalised to 1.0 — its absolute density is unit-dependent and
 // not meaningful to a trader), the RIGHT axis reads the contract payoff in outcome
-// units. They are colour-keyed to their curves (accent = belief, green = payoff).
+// units. They are colour-keyed to their curves (accent = belief, green = payoff) and
+// share ONE vertical transform: a common zero (centre line), one scale (left-gutter
+// drag) and one shift (right-gutter drag), so the axes stay proportional and their
+// zeros always coincide. Where the two lines then sit on top of each other they draw
+// as complementary two-colour dashes so both stay visible. See
+// .md.
 // Hovering the plot shows a crosshair + a translucent readout of the exact
-// (θ, belief-likelihood, payoff) under the cursor, with a dot on each curve.
+// (θ, belief-likelihood, payoff, plus the $1-binary unit price) under the cursor
+// with a dot on each curve. The whole vertical view + hovered θ are shared with the
+// CDF / price panels via the chartSync store.
 
 import { payoff, price } from '@bmm/core';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { beliefFromView } from '../lib/beliefFromView.ts';
-import { setChartView, setHoverTheta, useChartView, useHoverTheta } from '../lib/chartSync.ts';
+import {
+  type ChartView,
+  setChartView,
+  setHoverTheta,
+  useChartView,
+  useHoverTheta,
+} from '../lib/chartSync.ts';
 import { fmt, fmtCompact, fmtPct } from '../lib/format.ts';
 import { setLiveSpec } from '../lib/liveSpec.ts';
 import { sweepKey, withParam } from '../lib/priceParam.ts';
@@ -171,6 +184,55 @@ function LegendItem({
   );
 }
 
+// Two-colour overlap: where the belief and payoff lines coincide (within TOL px) over a
+// sustained run (≥ MIN_RUN samples — a bare crossing is ignored), each line is drawn
+// dashed with complementary phase, so the shared stretch tiles accent/green and the
+// trader can see both curves are there. Elsewhere each line is a normal solid stroke.
+const OVERLAP_TOL = 2.5; // viewBox px: closer than this counts as "the same line"
+const OVERLAP_MIN_RUN = 3; // samples: shorter coincidences are crossings, not overlaps
+const OVERLAP_DASH = '5 5'; // 5 on / 5 off → period 10
+const OVERLAP_PHASE = 5; // half a period: offsets the green line into the accent's gaps
+
+function coalesceMask(mask: boolean[], minRun: number): boolean[] {
+  const out = mask.slice();
+  let i = 0;
+  while (i < out.length) {
+    if (!out[i]) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < out.length && out[j]) j++;
+    if (j - i < minRun) for (let k = i; k < j; k++) out[k] = false;
+    i = j;
+  }
+  return out;
+}
+
+// Split a polyline into contiguous runs tagged by their overlap flag, seeding each new
+// run with the previous point so the rendered segments join seamlessly.
+function splitRuns(points: Pt[], mask: boolean[]): { over: boolean; pts: Pt[] }[] {
+  const runs: { over: boolean; pts: Pt[] }[] = [];
+  const first = points[0];
+  if (!first) return runs;
+  let curOver = mask[0] ?? false;
+  let cur: Pt[] = [first];
+  for (let i = 1; i < points.length; i++) {
+    const o = mask[i] ?? false;
+    const p = points[i];
+    if (!p) continue;
+    if (o !== curOver) {
+      runs.push({ over: curOver, pts: cur });
+      cur = [points[i - 1] as Pt, p]; // boundary point joins the runs
+      curOver = o;
+    } else {
+      cur.push(p);
+    }
+  }
+  runs.push({ over: curOver, pts: cur });
+  return runs;
+}
+
 function BeliefChartImpl({
   mu,
   sigma,
@@ -293,11 +355,10 @@ function BeliefChartImpl({
     return out;
   }, [beliefModel, domain, samples]);
   const pdfMax = Math.max(...pdf.map((p) => p.y), 1e-12);
-  const syPdf = scale(0, pdfMax * 1.12 * view.yMul, PLOT.b, PLOT.t);
 
   // Optional cumulative-probability overlay P(≤θ): shares the x-domain (so it pans /
-  // zooms / re-units with everything else) and the vertical zoom (view.yMul), on its
-  // own fixed 0→1 probability scale. Sampled only when shown.
+  // zooms / re-units with everything else) and the shared vertical transform below, on
+  // its own 0→1 probability calibration. Sampled only when shown.
   const cdf = useMemo<Pt[]>(() => {
     if (!showCdf) return [];
     const [plo, phi] = domain;
@@ -308,28 +369,19 @@ function BeliefChartImpl({
     }
     return out;
   }, [showCdf, beliefModel, domain, samples]);
-  const syCdf = scale(0, 1.02 * view.yMul, PLOT.b, PLOT.t);
 
-  // Payoff scale (its own min/max across the visible domain, scaled by yMul about
-  // its midpoint so the zero baseline keeps its position as you scale).
+  // Payoff curve and its value range across the visible domain.
   const pay = useMemo(() => payoffCurve(spec, domain, samples), [spec, domain, samples]);
   const payMin = Math.min(...pay.map((p) => p.y));
   let payMax = Math.max(...pay.map((p) => p.y));
   if (payMax - payMin < 1e-9) payMax = payMin + 1; // flat payoff guard
-  const pad = (payMax - payMin) * 0.08;
-  const payMid = (payMin + payMax) / 2;
-  const payHalf = ((payMax - payMin) / 2 + pad) * view.yMul;
-  const payAxisLo = payMid - payHalf;
-  const payAxisHi = payMid + payHalf;
-  const syPay = scale(payAxisLo, payAxisHi, PLOT.b, PLOT.t);
 
   // Optional fair-price overlay: at each θ, the model price of THIS contract with its
   // strike/center moved to θ — the same sweep the price-vs-strike panel draws, priced
-  // against the real belief. On its own value scale
-  // (price units), not the belief or payoff axes. Memoised on the spec SHAPE (sweepKey)
-  // + belief + domain. During ANY drag (handle OR pan/zoom) the domain shifts every
-  // frame, so the sweep re-prices each frame; we coarsen it then — hard for a Student-t
-  // where each price is a 4000-node quadrature — and snap back to full at rest.
+  // against the real belief. Memoised on the spec
+  // SHAPE (sweepKey) + belief + domain. During ANY drag (handle OR pan/zoom) the domain
+  // shifts every frame, so the sweep re-prices each frame; we coarsen it then — hard for
+  // a Student-t where each price is a 4000-node quadrature — and snap back at rest.
   const expensive = beliefKind === 'student_t';
   const priceN = dragging ? (expensive ? 24 : 64) : samples;
   const priceShapeKey = sweepKey(spec);
@@ -349,7 +401,47 @@ function BeliefChartImpl({
   const priceMin = hasPrice ? Math.min(...priceCurve.map((p) => p.y)) : 0;
   let priceMax = hasPrice ? Math.max(...priceCurve.map((p) => p.y)) : 1;
   if (priceMax - priceMin < 1e-9) priceMax = priceMin + 1; // flat-price guard
-  const syPrice = scale(priceMin, priceMax + (priceMax - priceMin) * 0.12, PLOT.b, PLOT.t);
+
+  // ── unified vertical mapping ───────────────────────────────────────────────
+  // ONE shared zero, ONE scale (view.yMul) and ONE shift (view.yOff, viewBox px) drive
+  // EVERY curve, so the left (belief) and right (payoff) axes stay proportional and
+  // their zeros ALWAYS coincide. Zero sits dead-centre and slides with yOff; each curve
+  // is calibrated so that at the identity view its full magnitude reaches a half-height.
+  // A larger yMul widens every range together (zoom out — preserving the axes' span
+  // ratio); yOff translates all curves as one (shape preserved). The left/right units
+  // differ (likelihood vs payoff units), so equal VALUES needn't share a height — but
+  // their ZEROS do, and both react identically to any scale/shift. The scaling/shifting
+  // is what the dual-axis ratio-preservation means here.md.
+  const HALF_H = (PLOT.b - PLOT.t) / 2;
+  const yZero = (PLOT.t + PLOT.b) / 2 + view.yOff;
+  const yScale = view.yMul; // shared range multiplier (>1 = zoomed out)
+  const vAxis = (mag: number) => {
+    const unit = HALF_H / Math.max(mag, 1e-12);
+    return (v: number) => yZero - (v * unit) / yScale;
+  };
+  const axisValueAt = (mag: number, ypx: number) =>
+    ((yZero - ypx) * yScale * Math.max(mag, 1e-12)) / HALF_H;
+
+  // Belief (left, ≥0) peaks into the upper half; CDF's 1.0 likewise. Payoff & price are
+  // symmetric about zero by their largest absolute reach, so a sign change straddles it.
+  const beliefMag = pdfMax * 1.12;
+  const payMag = Math.max(Math.abs(payMin), Math.abs(payMax), 1e-9) * 1.08;
+  const priceMag = Math.max(Math.abs(priceMin), Math.abs(priceMax), 1e-9) * 1.08;
+  const syPdf = vAxis(beliefMag);
+  const syCdf = vAxis(1.02);
+  const syPay = vAxis(payMag);
+  const syPrice = vAxis(priceMag);
+
+  // Where do the belief and payoff lines coincide on screen? (For the two-colour render.)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: syPdf/syPay/payoff are pure in (yZero, yScale, mags, spec, beliefModel)
+  const overlap = useMemo(() => {
+    const bMask = pdf.map((p) => Math.abs(syPdf(p.y) - syPay(payoff(spec, p.x))) < OVERLAP_TOL);
+    const pMask = pay.map((p) => Math.abs(syPay(p.y) - syPdf(beliefModel.pdf(p.x))) < OVERLAP_TOL);
+    return {
+      bMask: coalesceMask(bMask, OVERLAP_MIN_RUN),
+      pMask: coalesceMask(pMask, OVERLAP_MIN_RUN),
+    };
+  }, [pdf, pay, yZero, yScale, beliefMag, payMag, spec, beliefModel]);
 
   const regions = winningRegions(spec, domain);
   const xTicks = niceTicks(lo, hi, 6);
@@ -358,8 +450,12 @@ function BeliefChartImpl({
   // pointer value, not a round tick).
   const xDec = tickDecimals(xTicks, lo, hi);
   const xDecHover = Math.min(6, xDec + 1);
+  // Right-axis ticks span the payoff values currently visible (bottom px → top px)
+  // so they re-label correctly as the shared scale/shift moves the curve.
+  const payAxisLo = axisValueAt(payMag, PLOT.b);
+  const payAxisHi = axisValueAt(payMag, PLOT.t);
   const payTicks = niceTicks(payAxisLo, payAxisHi, 5);
-  const payZeroInRange = 0 >= payAxisLo && 0 <= payAxisHi;
+  const payZeroInRange = payAxisLo <= 0 && 0 <= payAxisHi;
 
   // viewBox-space pointer position (so we can map both x→θ and keep the cursor y).
   const pointerToView = useCallback((clientX: number, clientY: number) => {
@@ -386,12 +482,13 @@ function BeliefChartImpl({
   // A pan/scale gesture captures the view + geometry at press time and is applied
   // as an absolute delta from there, so coalesced (rAF-batched) moves stay correct.
   const gesture = useRef<{
-    kind: 'panx' | 'scalex' | 'scaley';
+    kind: 'panx' | 'scalex' | 'scaley' | 'shifty';
     startX: number;
     startY: number;
-    base: { xMul: number; xOff: number; yMul: number };
+    base: ChartView;
     dataSpan: number;
     plotPxW: number;
+    vbPerPxY: number;
   } | null>(null);
   // A handle drag is absolute too: apply the pointer-x to the spec captured at
   // press time. `dragLatest` is what we commit to the parent on release.
@@ -400,7 +497,7 @@ function BeliefChartImpl({
   const raf = useRef<number | null>(null);
   const lastPt = useRef<{ x: number; y: number } | null>(null);
 
-  const beginGesture = (kind: 'panx' | 'scalex' | 'scaley', e: React.PointerEvent) => {
+  const beginGesture = (kind: 'panx' | 'scalex' | 'scaley' | 'shifty', e: React.PointerEvent) => {
     const svg = svgRef.current;
     if (!svg) return;
     e.preventDefault();
@@ -413,6 +510,7 @@ function BeliefChartImpl({
       base: { ...view },
       dataSpan: hi - lo,
       plotPxW: (rect.width * (PLOT.r - PLOT.l)) / W,
+      vbPerPxY: H / Math.max(1, rect.height),
     };
     clearHover();
     setDragging(true);
@@ -430,9 +528,15 @@ function BeliefChartImpl({
     } else if (g.kind === 'scalex') {
       // Drag right → tighten the x range (zoom in); drag left → widen it.
       setView({ ...g.base, xMul: zoomMul(g.base.xMul, -dx / 220) });
-    } else {
-      // Drag up → tighten the y range (curve grows); drag down → widen it.
+    } else if (g.kind === 'scaley') {
+      // LEFT gutter: drag up → tighten the (shared) y range, every curve grows together.
       setView({ ...g.base, yMul: zoomMul(g.base.yMul, dy / 200) });
+    } else {
+      // RIGHT gutter: drag vertically → shift every curve together (content follows the
+      // finger), preserving shape. Clamped so the plot can't be slid fully off-screen.
+      const limit = PLOT.b - PLOT.t;
+      const yOff = Math.max(-limit, Math.min(limit, g.base.yOff + dy * g.vbPerPxY));
+      setView({ ...g.base, yOff });
     }
   };
 
@@ -520,7 +624,7 @@ function BeliefChartImpl({
     endDrag();
     clearHover();
   };
-  const resetView = () => setView({ xMul: 1, xOff: 0, yMul: 1 });
+  const resetView = () => setView({ xMul: 1, xOff: 0, yMul: 1, yOff: 0 });
 
   // Drop any pending frame on unmount, and clear any live-preview drag spec.
   useEffect(
@@ -546,7 +650,7 @@ function BeliefChartImpl({
     const priceSpec = hasPrice ? withParam(spec, theta) : null;
     const priceV = priceSpec ? price(priceSpec, beliefModel) : null;
     const card = hoverVy != null; // self-hover → draw the readout card
-    const cardW = 150;
+    const cardW = 172; // wider: the P(≤/≥θ) rows also show the implied $1-binary unit price
     const cardH = (showPrice && priceV != null ? 114 : 96) as number;
     // Anchor vertically to the pointer when self-hovering, else to the belief curve.
     const anchorY = hoverVy != null ? hoverVy : syPdf(pdfV);
@@ -834,18 +938,23 @@ function BeliefChartImpl({
         />
       )}
 
-      {/* belief PDF: filled area + outline */}
+      {/* belief PDF: filled area + outline. The outline is split into runs so that any
+          stretch coinciding with the payoff line draws dashed (two-colour with payoff). */}
       <path
         d={`${toPath(pdf, sx, syPdf)} L${sx(hi).toFixed(2)} ${syPdf(0).toFixed(2)} L${sx(lo).toFixed(2)} ${syPdf(0).toFixed(2)} Z`}
         fill="url(#bc-belief-fill)"
       />
-      <path
-        d={toPath(pdf, sx, syPdf)}
-        fill="none"
-        stroke="var(--color-accent)"
-        strokeWidth={2}
-        filter={dragging ? undefined : 'url(#bc-glow)'}
-      />
+      {splitRuns(pdf, overlap.bMask).map((run) => (
+        <path
+          key={`belief-${run.pts[0]?.x}`}
+          d={toPath(run.pts, sx, syPdf)}
+          fill="none"
+          stroke="var(--color-accent)"
+          strokeWidth={2}
+          strokeDasharray={run.over ? OVERLAP_DASH : undefined}
+          filter={dragging ? undefined : 'url(#bc-glow)'}
+        />
+      ))}
 
       {/* cumulative-probability overlay P(≤θ): a dashed S-curve on the same axes
           (0→1, sharing the vertical zoom), so it tracks every pan / zoom / unit change */}
@@ -863,7 +972,7 @@ function BeliefChartImpl({
       )}
 
       {/* fair-price overlay: the price-vs-strike sweep on its own value scale — a
-          dashed cyan curve tracking every pan / zoom, matching the price panel exactly */}
+          dashed magenta curve tracking every pan / zoom, matching the price panel exactly */}
       {hasPrice && (
         <path
           className="animate-fade-in"
@@ -932,14 +1041,20 @@ function BeliefChartImpl({
             </g>
           ))}
 
-      {/* payoff overlay */}
-      <path
-        d={toPath(pay, sx, syPay)}
-        fill="none"
-        stroke="var(--color-buy)"
-        strokeWidth={2}
-        filter={dragging ? undefined : 'url(#bc-glow)'}
-      />
+      {/* payoff overlay — split into runs; stretches coinciding with the belief line draw
+          dashed with a half-period phase, so the shared line tiles green ↔ accent */}
+      {splitRuns(pay, overlap.pMask).map((run) => (
+        <path
+          key={`payoff-${run.pts[0]?.x}`}
+          d={toPath(run.pts, sx, syPay)}
+          fill="none"
+          stroke="var(--color-buy)"
+          strokeWidth={2}
+          strokeDasharray={run.over ? OVERLAP_DASH : undefined}
+          strokeDashoffset={run.over ? OVERLAP_PHASE : undefined}
+          filter={dragging ? undefined : 'url(#bc-glow)'}
+        />
+      ))}
 
       {/* resolution marker */}
       {thetaStar != null && thetaStar >= lo && thetaStar <= hi && (
@@ -963,9 +1078,10 @@ function BeliefChartImpl({
         </g>
       )}
 
-      {/* axis pan/scale hit-zones — transparent; the cursor hints the gesture.
-          Left/right gutters scale Y (vertical drag); the bottom axis scales X
-          (horizontal drag). They stop propagation so the plot-pan never fires. */}
+      {/* axis hit-zones — transparent; the cursor hints the gesture. The LEFT gutter
+          scales Y (both axes together); the RIGHT gutter SHIFTS Y (slides every curve
+          together); the bottom axis scales X. All stop propagation so the plot-pan never
+          fires. Zero stays aligned across both axes under either y-gesture. */}
       <rect
         x={0}
         y={PLOT.t}
@@ -981,8 +1097,8 @@ function BeliefChartImpl({
         width={W - PLOT.r}
         height={PLOT.b - PLOT.t}
         fill="transparent"
-        className="cursor-ns-resize"
-        onPointerDown={(e) => beginGesture('scaley', e)}
+        className="cursor-grab"
+        onPointerDown={(e) => beginGesture('shifty', e)}
       />
       <rect
         x={PLOT.l}
@@ -1218,7 +1334,8 @@ function BeliefChartImpl({
                     </>
                   )}
 
-                  {/* the market's assessed chance the outcome is ≤ / ≥ this θ (belief CDF) */}
+                  {/* Unit cost: a $1 binary at θ costs its probability. P(≤θ)/P(≥θ) are
+                      both the market's odds AND the price to buy $1 of "below"/"above θ". */}
                   <line
                     x1={cross.tx + 12}
                     x2={cross.tx + cross.cardW - 12}
@@ -1234,7 +1351,7 @@ function BeliefChartImpl({
                     fontSize={10.5}
                     className="fill-[var(--color-muted)]"
                   >
-                    P(≤ θ)
+                    ≤ θ · $1 if so
                   </text>
                   <text
                     x={cross.tx + cross.cardW - 12}
@@ -1243,7 +1360,7 @@ function BeliefChartImpl({
                     fontSize={11}
                     className="fill-[var(--color-warn)] font-semibold"
                   >
-                    {fmtPct(cross.cdfBelow)}
+                    {`${fmtPct(cross.cdfBelow)} · $${cross.cdfBelow.toFixed(2)}`}
                   </text>
                   <text
                     x={cross.tx + 12}
@@ -1251,7 +1368,7 @@ function BeliefChartImpl({
                     fontSize={10.5}
                     className="fill-[var(--color-muted)]"
                   >
-                    P(≥ θ)
+                    ≥ θ · $1 if so
                   </text>
                   <text
                     x={cross.tx + cross.cardW - 12}
@@ -1260,7 +1377,7 @@ function BeliefChartImpl({
                     fontSize={11}
                     className="fill-[var(--color-warn)] font-semibold"
                   >
-                    {fmtPct(cross.cdfAbove)}
+                    {`${fmtPct(cross.cdfAbove)} · $${cross.cdfAbove.toFixed(2)}`}
                   </text>
                 </g>
               );
