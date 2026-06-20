@@ -475,9 +475,12 @@
       <strong>outcome</strong> that will eventually be observed: “BTC price at month-end”, “the
       vote share”, “the temperature on Friday”. Until settlement, nobody knows <span class="sym">θ</span>.
       The market maker (the “MM”) holds a <strong>belief</strong> about it: a probability
-      distribution <span class="sym">p(θ)</span>. In v1 that belief is a Gaussian
+      distribution <span class="sym">p(θ)</span>. The belief we build all the intuition on is a Gaussian
       \( \mathcal N(\mu,\sigma^2) \) — a bell curve with a centre <span class="sym">μ</span>
-      (its best guess) and a width <span class="sym">σ</span> (how unsure it is).</p>
+      (its best guess) and a width <span class="sym">σ</span> (how unsure it is). A market can also run
+      one of four richer densities — fat-tailed, multi-camp, or a skewed / bimodal shape — chosen at
+      creation; <a href="#belief">§2</a> lays out the full <strong>family of five</strong>. We start with
+      the Gaussian because every other model reuses its machinery.</p>
 
       <p>A <strong>contract</strong> is a bet that pays some function of the outcome,
       \( f_C(\theta) \). Its <strong>fair price</strong> is simply the average payoff under the
@@ -519,7 +522,7 @@
         <thead><tr><th>Symbol</th><th>Meaning</th><th>Notes</th></tr></thead>
         <tbody>
           <tr><td class="sym">θ</td><td>The outcome — the unknown real number the market resolves to</td><td>“theta”; <code>θ*</code> is its final settled value</td></tr>
-          <tr><td class="sym">p(θ)</td><td>The MM’s belief: a probability density over θ</td><td>v1: Gaussian \( \mathcal N(\mu,\sigma^2) \)</td></tr>
+          <tr><td class="sym">p(θ)</td><td>The MM’s belief: a probability density over θ</td><td>one of five models (§2); Gaussian \( \mathcal N(\mu,\sigma^2) \) is the baseline</td></tr>
           <tr><td class="sym">μ, σ</td><td>Belief mean and standard deviation; \( \sigma^2 \) is the variance</td><td>centre &amp; width of the bell curve</td></tr>
           <tr><td class="sym">C, f_C(θ)</td><td>A contract and its settlement payoff function</td><td>e.g. CALL pays \( \max(0,\theta-K) \)</td></tr>
           <tr><td class="sym">q</td><td>Signed trade size: \( q&gt;0 \) buy, \( q&lt;0 \) sell</td><td>units of the contract</td></tr>
@@ -580,6 +583,58 @@
       <div class="dev"><span class="callout-title">Implementation</span>
       <code>GaussianBelief(mu, sigma2)</code> stores the variance and exposes <code>pdf/cdf/quantile/sample</code>.
       Sampling uses the inverse-CDF of a seeded PRNG so Monte-Carlo results are reproducible (§17).</div>
+
+      <h3>The belief is now a <em>family</em> — five shipped models</h3>
+      <p>The Gaussian is the baseline, not the whole story. The belief is an interface — anything that can
+      report <code>mean / variance / pdf / cdf / quantile / sample</code> can drive the engine — and a market
+      now <strong>picks one of five shipped models at creation</strong> via a <code>model</code> tag. Pricing,
+      reserve, spread, settlement and stats are written against the interface, so they are <em>identical</em>
+      across all five; only the density and its learning rule differ.</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Model tag</th><th>Density kind</th><th>Shape it adds</th><th>Learning rule</th><th>Priced by</th></tr></thead>
+        <tbody>
+          <tr><td><code>gaussian</code></td><td>gaussian</td><td>one symmetric bell (baseline)</td><td>conjugate Normal–Normal (exact)</td><td>closed form</td></tr>
+          <tr><td><code>student_t</code></td><td>student_t</td><td>fat tails (ν fixed at creation)</td><td>variance-domain Normal–Normal</td><td>quadrature</td></tr>
+          <tr><td><code>mixture</code></td><td>mixture</td><td>\(K\) explicit camps</td><td>responsibility (EM-style)</td><td>closed-form \(\sum_k\pi_k\Phi\)</td></tr>
+          <tr><td><strong><code>gen_basis</code> ⛓</strong></td><td>mixture</td><td>any number of camps, data-driven</td><td>responsibility + spawn / placement</td><td>closed-form \(\sum_k\pi_k\Phi\)</td></tr>
+          <tr><td><strong><code>gen_exact</code> ★</strong></td><td>gen_exact</td><td>skew · peak · flat · <strong>bimodal</strong></td><td>moment-projection (shape adapts)</td><td>quadrature</td></tr>
+        </tbody>
+      </table></div>
+      <p class="small">The <code>model</code> tag is the creator-facing choice; the <code>belief_kind</code> is
+      the underlying density class. They are <em>not</em> the same column: <strong>Gen·basis is a
+      <code>mixture</code> belief</strong> run with mode-spawning and the placement primitive switched on, so it
+      shares the mixture's closed-form pricing and responsibility update — it is a behaviour layer over the same
+      density, not a new density. The two general families (Gen·basis ⛓, Gen·exact ★) are detailed in
+      <a href="#bayes">§7</a> (their updates) and <a href="#flexible">§21</a> (the design study that produced them).</p>
+
+      <div class="evo">
+        <span class="callout-title">Then → Now — the belief representation</span>
+        <div class="evo-grid">
+          <div class="evo-then">
+            <span class="evo-lab">Then · single Gaussian</span>
+            <p>Every market <em>was</em> a lone bell \(\mathcal N(\mu,\sigma^2)\). Two numbers, one mode,
+            symmetric, exponentially-thin tails — and the only response to flow was to slide \(\mu\) and shrink
+            \(\sigma\).</p>
+          </div>
+          <div class="evo-now">
+            <span class="evo-lab">Now · pluggable model family</span>
+            <p>One of five densities, fixed at creation. The same belief can carry genuine disagreement (two
+            camps), fat tails (a t), or an authored skew/flat/bimodal shape (Gen·exact) — and Gen·basis grows or
+            collapses its mode count from the order flow itself.</p>
+          </div>
+        </div>
+        <div class="evo-why">
+          <span class="evo-lab">Why · and what changed in the market</span>
+          <p><strong>Statistics:</strong> a Gaussian has zero skew and fixed (zero excess) kurtosis, so it
+          <em>cannot</em> represent an asymmetric or two-camp consensus — it averages them into a single mode
+          nobody holds. <strong>Economics &amp; market behaviour:</strong> that phantom centre is mispriced.
+          A contract straddling the valley between two camps, or a far-tail long-shot, was quoted off a density
+          the crowd never believed; the richer families price those off the shape the crowd actually expressed,
+          so the quoted price tracks consensus instead of smearing it. The cost is pricing path — only the
+          Gaussian-tailed, closed-form families stay cheap/on-chain-feasible; the special-function families
+          (Student-t, Gen·exact) price by quadrature, which is why they are off-chain (<a href="#flexible">§21</a>).</p>
+        </div>
+      </div>
 
       <details class="dev">
         <summary><strong>V2 — multi-modal beliefs (Gaussian mixture &amp; Student-t)</strong></summary>
@@ -678,6 +733,30 @@
       <pre class="codecap-pre"><code><span class="cmt">// packages/core/src/contracts.ts</span>
 <span class="kw">case</span> <span class="str">'CALL'</span>: <span class="kw">return</span> Math.max(<span class="num">0</span>, theta - spec.strike);
 <span class="kw">case</span> <span class="str">'GAUSSIAN'</span>: <span class="kw">return</span> Math.exp(-((theta - c) ** <span class="num">2</span>) / (<span class="num">2</span> * w * w));</code></pre>
+
+      <h3>Extension contracts — wider trade curves (Phase G5)</h3>
+      <p>The orthogonality of belief and contract (the price is just \(\mathbb E_p[f]\)) means a new
+      payoff is "add an \(f\) (+ its kinks, + a closed form where one exists)" — the belief side is
+      untouched. Two tiers were added. <strong>G5.1 — bounded, \(f\in[0,1]\)</strong> (zero risk-model
+      change, drop in everywhere):</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Type</th><th>Payoff \(f(\theta)\)</th><th>Range</th><th>Bet shape</th></tr></thead>
+        <tbody>
+          <tr><td><code>SKEW_GAUSSIAN</code></td><td>\( \exp\!\big(-\tfrac{(\theta-c)^2}{2w_\pm^2}\big),\ w_-=w_L\ (\theta&lt;c),\ w_+=w_R \)</td><td>\((0,1]\)</td><td>asymmetric proximity to \(c\)</td></tr>
+          <tr><td><code>TENT</code></td><td>\( \max\!\big(0,\ 1-\tfrac{|\theta-c|}{w}\big) \)</td><td>\([0,1]\)</td><td>triangular band, peak at \(c\)</td></tr>
+          <tr><td><code>TRAPEZOID</code></td><td>\( 1 \) on \([a,b]\), linear ramps of run \(w\)</td><td>\([0,1]\)</td><td>a range with soft edges</td></tr>
+          <tr><td><code>SIGMOID</code></td><td>\( \big(1+e^{-(\theta-c)/w}\big)^{-1} \)</td><td>\((0,1)\)</td><td>"above \(c\), softly" (smoothed binary)</td></tr>
+        </tbody>
+      </table></div>
+      <p><strong>G5.2 — unbounded, conditionally compatible</strong> (allowed only where they integrate
+      and where liability can be bounded — see the compatibility table in §4):</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Type</th><th>Payoff \(f(\theta)\)</th><th>Range</th><th>Bet shape</th></tr></thead>
+        <tbody>
+          <tr><td><code>POLYNOMIAL</code></td><td>\( \sum_{k} a_k\,\theta^k \) (degree \(\le 4\))</td><td>unbounded</td><td>e.g. \((\theta-c)^2\): a "distance / variance" bet</td></tr>
+          <tr><td><code>EXPONENTIAL</code></td><td>\( e^{a(\theta-c)} \)</td><td>\((0,\infty)\)</td><td>convex, one-sided "tail" bet</td></tr>
+        </tbody>
+      </table></div>
     </section>
 
     <!-- =============================================================== -->
@@ -745,6 +824,49 @@
       \( d=-0.5,\ \varphi(d)=0.3521 \), is \( 10(0.3521)+(-5)(0.3085)=\mathbf{1.978} \). And a
       <code>SPREAD</code> over \([95,105]\) prices to \( \Phi(0.5)-\Phi(-0.5)=\mathbf{0.3829} \), i.e.
       a 38.29% chance of landing in the band.</div>
+
+      <h3>Closed forms for the extension contracts (Phase G5)</h3>
+      <p>Every extension contract still prices closed-form under a Gaussian (and, by linearity,
+      \(\text{Price}(f,\sum_k\pi_k\mathcal N_k)=\sum_k\pi_k\,\text{Price}(f,\mathcal N_k)\), under a
+      mixture — including <strong>Gen·basis</strong>):</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Type</th><th>Fair price under \(\mathcal N(\mu,\sigma^2)\)</th><th>Why it's exact</th></tr></thead>
+        <tbody>
+          <tr><td><code>SKEW_GAUSSIAN</code></td><td>\( \sum_{\pm}\sqrt{\tfrac{w_\pm^2}{w_\pm^2+\sigma^2}}\,e^{-\frac{(c-\mu)^2}{2(w_\pm^2+\sigma^2)}}\cdot\Phi(\mp z_\pm) \)</td><td>each half-bell = the GAUSSIAN form × the \(\Phi\) truncation factor of the product-Gaussian</td></tr>
+          <tr><td><code>TENT</code></td><td>\( \tfrac1w\big[R(c{-}w)-2R(c)+R(c{+}w)\big] \)</td><td>exact sum of CALL ramps \(R(K)=\mathbb E[\max(0,\theta{-}K)]\) — closed-form under <em>every</em> kind</td></tr>
+          <tr><td><code>TRAPEZOID</code></td><td>\( \tfrac1w\big[R(a{-}w)-R(a)-R(b)+R(b{+}w)\big] \)</td><td>likewise a CALL-ramp sum</td></tr>
+          <tr><td><code>SIGMOID</code></td><td>bounded quadrature (no Gaussian closed form)</td><td>smooth, bounded \(\Rightarrow\) cheap fixed Simpson window</td></tr>
+          <tr><td><code>POLYNOMIAL</code></td><td>\( \sum_k a_k\,m_k,\quad m_k=\mathbb E[\theta^k] \)</td><td>raw Gaussian moments \(m_k=\mu m_{k-1}+(k{-}1)\sigma^2 m_{k-2}\)</td></tr>
+          <tr><td><code>EXPONENTIAL</code></td><td>\( e^{a(\mu-c)+\frac12 a^2\sigma^2} \)</td><td>the Gaussian MGF \(\mathbb E[e^{a\theta}]=e^{a\mu+\frac12 a^2\sigma^2}\)</td></tr>
+        </tbody>
+      </table></div>
+      <p>The price sensitivity \( \partial\,\text{Price}/\partial\mu \) used by the adverse-selection
+      spread (§5) is <strong>kind-agnostic</strong> for all of these via the translation identity
+      \( \partial_\mu\mathbb E[f(\theta)]=\mathbb E[f'(\theta)] \): TENT/TRAPEZOID differentiate their
+      CALL decomposition, POLYNOMIAL drops to its derivative polynomial \(\sum_k k\,a_k\theta^{k-1}\),
+      and EXPONENTIAL gives simply \( a\cdot\text{Price} \).</p>
+
+      <h3>Which contracts are compatible — integrability &amp; boundedness</h3>
+      <p>A contract is usable only if its price \( \mathbb E_p[f] \) is <strong>finite</strong> (a race
+      between how fast \(f\) grows and how fast the belief's tail \(p\) decays) <em>and</em> its
+      liability is <strong>boundable</strong> for the reserve (§6). The two conditions:</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Belief tail</th><th>\(p(\theta)\) decays like</th><th>Safe \(f(\theta)\) growth</th></tr></thead>
+        <tbody>
+          <tr><td>Gaussian / Gen·basis / Gen·exact</td><td>\( e^{-c\theta^2} \) (or thinner)</td><td><strong>anything sub-\(e^{\theta^2}\)</strong> — every polynomial <em>and</em> exponential integrates</td></tr>
+          <tr><td>Student-t \((\nu)\)</td><td>\( \theta^{-(\nu+1)} \) (polynomial)</td><td>only \( \mathbb E[|\theta|^n]&lt;\infty\iff n&lt;\nu \): degree-\(n\) POLYNOMIAL needs \(n&lt;\nu\); EXPONENTIAL <strong>never</strong> (price diverges)</td></tr>
+        </tbody>
+      </table></div>
+      <p>So <code>EXPONENTIAL</code> is rejected on a Student-t market (its \( \mathbb E[e^{a\theta}] \)
+      is infinite), and a <code>POLYNOMIAL</code> of degree \(n\) needs \(n&lt;\nu\) there. Independently,
+      both unbounded contracts are allowed <strong>only on bounded-outcome markets</strong>
+      (\(\theta^\star\in[\theta_{\min},\theta_{\max}]\)) so the worst-case payout — and the reserve — is
+      finite; the EXPONENTIAL rate is additionally capped to \(|a|(\theta_{\max}-\theta_{\min})\le 20\).
+      This is a precise, kind-dependent rule enforced at quote and trade
+      (<code>contractBeliefCompatible</code>), not a nicety. A separate well-formedness check
+      (<code>validateContract</code>) also rejects a <em>constant</em> POLYNOMIAL (degree \(\ge 1\) required —
+      a flat payoff is not a bet) and a zero-rate EXPONENTIAL (\(a\ne 0\)).</p>
+
       <p>The plot draws the payoff \( f(\theta) \) and the belief \( p(\theta) \) (green, scaled to
       fit). The fair price is the area of their product — change the belief or the contract and watch
       it move:</p>
@@ -835,7 +957,11 @@
       <p>When someone trades, they reveal information. The engine decodes a trade
       \( (C, q) \) into a <strong>signal</strong> \( s \) — the trader’s implied estimate of θ — and a
       <strong>weight</strong> \( w \ge 0 \) — how much to trust it. Define direction
-      \( \text{dir}=\operatorname{sign}(q) \) and intensity \( \iota=|q|/Q_\text{max} \).</p>
+      \( \text{dir}=\operatorname{sign}(q) \) and a <strong>clamped</strong> signal intensity
+      \( \iota=\min\!\big(1,\ |q|/Q_\text{max}\big)\in[0,1] \). (The spread’s adverse-selection term in §8
+      uses the <em>un</em>-clamped \( |q|/Q_\text{max} \) instead — solvency-gated fills can exceed
+      \( Q_\text{max} \), and there a larger order should keep widening the quote, whereas the <em>belief</em>
+      must not be moved by more than one full-precision signal.)</p>
       <div class="eqbox named"><span>$$
         s=\begin{cases}
         \mu+\text{dir}\cdot\beta\,\sigma\,\iota & \text{LINEAR}\\[4pt]
@@ -850,9 +976,10 @@
       <p>The weight rises with size but treats tiny trades as noise — below the threshold
       \( q_\text{th} \) it’s near zero:</p>
       <div class="eqbox">$$ w=\iota\,\Big(1-e^{-|q|/q_\text{th}}\Big)=\frac{|q|}{Q_\text{max}}\Big(1-e^{-|q|/q_\text{th}}\Big) $$</div>
-      <p class="small">The weight is not clamped: for an in-range size \( |q|\le Q_\text{max} \) it stays
-      below 1, but since \( \iota=|q|/Q_\text{max} \) is unbounded, an oversized order yields \( w&gt;1 \).
-      In practice fills are bounded by the reserve gate (§10), so \( w\in[0,1) \) on the live path.</p>
+      <p class="small">Because \( \iota \) is clamped to \([0,1]\) and the soft gate \( 1-e^{-|q|/q_\text{th}}\in[0,1) \),
+      the weight is always \( w\in[0,1) \) — an oversized fill (one the reserve gate of §10 let through above
+      \( Q_\text{max} \)) saturates at full intensity rather than over-trusting the trade. The signal magnitude
+      \( (1+\iota) \) saturates at \( 2 \) for the same reason.</p>
       <div class="ex"><span class="callout-title">Worked example</span>
       Prior \( \mathcal N(100,12^2) \), a <strong>buy of 120</strong> units of a <code>CALL</code> at
       \(K=100\) (defaults \( \alpha=1,\ \beta=1,\ Q_\text{max}=500,\ q_\text{th}=10 \)). Intensity
@@ -863,6 +990,28 @@
       Larger orders are more likely to be informed and carry more conviction, so both the signal
       magnitude \( (1+\iota) \) and the weight grow with \(|q|\). The \( 1-e^{-|q|/q_\text{th}} \)
       factor is a soft gate: a 1-unit “tyre-kick” barely nudges the belief; a 200-unit order moves it.</div>
+
+      <details class="dev">
+        <summary><strong>Signal rules for the extension contracts (Phase G5)</strong></summary>
+        <p>The four bounded shapes and two unbounded contracts reuse the same three primitives —
+        <em>point-bet</em>, <em>directional-from-strike</em>, or <em>location-neutral</em> — so no new signal
+        machinery was needed (<code>signal.ts</code>):</p>
+        <ul>
+          <li><strong>SKEW_GAUSSIAN, TENT</strong> → a point-bet on the centre \(c\), exactly like
+          <code>GAUSSIAN</code> (buy pulls the belief toward \(c\), sell pushes away along
+          \(\operatorname{sign}(\mu-c)\)).</li>
+          <li><strong>TRAPEZOID</strong> → a range-bet on the midpoint \(\tfrac{a+b}{2}\), like
+          <code>SPREAD</code>.</li>
+          <li><strong>SIGMOID</strong> → bullish, treated as a <code>CALL</code> with strike \(c\):
+          \( s=c+\text{dir}\cdot\alpha\,\sigma\,(1+\iota) \).</li>
+          <li><strong>EXPONENTIAL</strong> → directional by the rate’s sign: \(a&gt;0\) is bullish, \(a&lt;0\)
+          bearish, so \( s=\mu+\text{dir}\cdot\operatorname{sign}(a)\,\alpha\,\sigma\,(1+\iota) \).</li>
+          <li><strong>POLYNOMIAL</strong> → a general \( \sum_k a_k\theta^k \) is a <em>shape</em> bet (e.g.
+          \((\theta-c)^2\) rewards <em>both</em> tails), not a directional location bet, so it carries no
+          well-defined μ-signal: the location is left neutral (\( s=\mu \)) and the trade still prices and
+          reserves normally — it just doesn’t move the mean.</li>
+        </ul>
+      </details>
     </section>
 
     <!-- =============================================================== -->
@@ -963,6 +1112,31 @@
         <em>merge</em> near-duplicates \(|\mu_i-\mu_j|&lt;\tau(\sigma_i+\sigma_j)\) by moment-matching (which
         preserves the pair’s combined weight, mean and variance exactly), and <em>cap</em> the count \(K\).
         The whole step is computed in log-space so well-separated modes don’t underflow.</p>
+        <p><strong>Gen·basis — adaptive mode-spawning.</strong> The default general model
+        (<a href="#flexible">§21</a>) runs this exact update with one addition: <em>before</em> the
+        membership step, a confident signal that lands farther than \(\tau_\text{spawn}\,\sigma_k\) from
+        <em>every</em> existing mode (and carries weight \(w\ge w_\text{min}\)) seeds a fresh narrow
+        component \(\{\pi=w_\text{seed},\,\mu=s,\,\sigma^2=\sigma_\varepsilon^2\}\). The responsibility step
+        then grows a mode there instead of dragging an existing one across the gap; component management
+        merges it straight back if it turns out redundant, or keeps it once it earns responsibility — so the
+        parameter count is <em>data-driven</em> (it rises on disagreement, falls on consensus) yet stays under
+        the \(K\)-cap. Spawning is off for the plain <code>mixture</code> kind, so that path is byte-identical
+        to the above; it is on only when the market’s <code>model</code> tag is <code>gen_basis</code>.</p>
+
+        <p><strong>Gen·basis — placement ("paint the curve").</strong> On a Gen·basis market the
+        <strong>bell (GAUSSIAN) contract</strong> is a <em>placement</em> primitive (the trade engine routes it
+        to a <strong>weight-only</strong> update, <code>placeBasisBump</code>, instead of the responsibility step
+        above). A bell <em>buy</em> at center \(c\) with intensity \(w\) <em>adds</em> mass there — it spawns a
+        fresh bump \(\{\pi\propto w,\ \mu=c,\ \sigma^2=\sigma_\varepsilon^2\}\) if \(c\) is farther than
+        \(\tau_\text{spawn}\,\sigma_k\) from every mode, else it accumulates \(w\) onto the nearest bump and pulls
+        its mean toward \(c\); a bell <em>sell</em> near a bump <em>removes</em> mass from it (managed-out once it
+        falls below \(\pi_\text{min}\)). Weights are renormalised to \(\sum_k\pi_k=1\) and managed (prune / merge /
+        cap) as usual. The key difference from the responsibility update is that placement is <em>additive</em>:
+        it never multiplicatively reallocates the other bumps' weights or drifts their means, so repeated bells at
+        <em>distinct</em> prices accumulate into <em>distinct, persistent</em> camps — a user literally paints the
+        belief through trades. (The responsibility update is consensus-forming and would collapse weight onto the
+        most-recent camp; see <code>parametric-belief-families.md</code> §4.) Pricing, reserve and persistence are
+        unchanged — the result is an ordinary mixture.</p>
       </details>
 
       <details class="dev">
@@ -987,6 +1161,124 @@
         centre and width move. The <code>useSimplifiedUpdate</code> variant applies the same
         \(\mu'=\mu+\text{lr}\,(s-\mu)\,w\) and \(V'=V\,(1-\text{decay}\cdot w)\) in the variance domain.</p>
       </details>
+
+      <details class="dev">
+        <summary><strong>V2 — the Gen·exact belief and its update</strong></summary>
+        <p><strong>Gen·exact ★</strong> is the max-entropy <em>exp(−poly)</em> belief: with \(u=(\theta-\mu)/\sigma\),</p>
+        <div class="eqbox named">
+          <span>$$ p(\theta)=\frac{1}{\sigma\,Z}\,e^{-E(u)},\qquad
+          E(u)=\tfrac12\lambda_2 u^2+\lambda_3 u^3+\lambda_4 u^4+\lambda_6 u^6 $$</span>
+          <span class="eqlabel">gen_exact.ts</span>
+        </div>
+        <p>Each coefficient is one shape knob — \(\lambda_2\) Gaussian, \(+\lambda_3\) skew,
+        \(+\lambda_4&gt;0\) flat-top / thinner tails, \(\lambda_2&lt;0\) a double-well (bimodal).
+        The confining sixth-order term is auto-set,
+        \(\lambda_6=0.004+0.06\max(0,-\lambda_4)+0.03|\lambda_3|\), so the density is <em>always</em>
+        integrable and skew can never drag the mean to the tail — any in-range \((\lambda_2,\lambda_3,\lambda_4)\)
+        is a valid belief. There is no closed-form normaliser, so \(Z\), the mean, and the variance are
+        cached by <strong>fixed composite-Simpson</strong> over \(u\in[-7,7]\) with a min-energy shift
+        (subtract \(E_{\min}\) before exponentiating) for stability; the CDF/quantile/sampler share a
+        cumulative grid over the same window. Pricing has no closed form either, so it routes through the
+        §4 quadrature (jump payoffs use the cached CDF, exactly as Student-t does, to avoid the
+        discontinuity-in-a-Simpson-cell error). This is the <strong>Gen·exact ★</strong> option in the
+        <a href="#flexible">§21</a> sandbox, ported faithfully.</p>
+        <p><strong>v1 update — fixed shape.</strong> The exponent \(\lambda\) (the shape) is held constant;
+        only the location \(\mu\) and scale \(\sigma\) move, by the very same variance-domain step as the
+        Student-t. With prior variance \(V\) (here \(V=\sigma^2\,\mathrm{Var}[u]\), the cached variance):</p>
+        <div class="eqbox named">
+          <span>$$ \tau_0=\frac1V,\ \ \tau_s=\frac{w}{\sigma_\varepsilon^2},\qquad
+          \mu'=\frac{\tau_0\,\mu+\tau_s\,s}{\tau_0+\tau_s},\qquad
+          V'=\max\!\Big(\tfrac{1}{\tau_0+\tau_s},\,\sigma_\text{min}^2\Big),\qquad
+          \sigma'=\sigma\sqrt{V'/V} $$</span>
+          <span class="eqlabel">bayes.ts</span>
+        </div>
+        <p>Variance \(\propto\sigma^2\) at fixed shape, so rescaling \(\sigma\) by \(\sqrt{V'/V}\) makes the
+        belief variance land exactly on \(V'\). The skew/peak the creator authored is preserved; only the
+        centre and width learn.</p>
+        <p><strong>v2 update — moment-projection (shape adapts).</strong> The default for Gen·exact
+        (<code>genExactShapeAdapt</code>). This is <em>assumed-density filtering</em>: form the exact
+        Bayesian posterior — prior times the Gaussian likelihood of the trade signal —</p>
+        <div class="eqbox named">
+          <span>$$ \tilde p(\theta)\ \propto\ p(\theta)\;\exp\!\Big(-\tfrac{(\theta-s)^2}{2\,\sigma_\varepsilon^2/w}\Big), $$</span>
+          <span class="eqlabel">bayes.ts</span>
+        </div>
+        <p>take its first four moments \((m,\,V,\,\gamma_1,\,\gamma_2)\) by quadrature, then <strong>project
+        back onto the family</strong>: hold \(\lambda_2\) (the creator's unimodal/bimodal choice), re-fit
+        \((\lambda_3,\lambda_4)\) so the standardised shape's skewness/excess-kurtosis match
+        \((\gamma_1,\gamma_2)\) — a damped Gauss-Newton solve clamped to the sandbox-safe ranges — and set
+        \(\sigma=\sqrt{V/\mathrm{Var}[u]}\), \(\mu=m-\sigma\,\mathbb{E}[u]\) to match the posterior
+        mean/variance. So order flow <em>sculpts</em> the curve (skew, tails), not just slides it. A symmetric
+        update leaves \(\lambda_3\approx0\) (it reduces to the v1 step), and the simplified / zero-weight /
+        degenerate paths fall back to v1. MC-verified against an importance-sampled posterior.</p>
+        <p><strong>Caching (I3).</strong> The standardised moments \(\{E_{\min},Z,\mathbb{E}[u],\mathbb{E}[u^2]\}\)
+        depend only on \(\lambda\) (not \(\mu,\sigma\)), so a fixed-shape v1 update reuses them and they are
+        persisted in <code>belief_state</code> — a hot read reconstructs the belief without re-running the
+        normalisation quadrature. The cumulative grid (CDF/quantile/sampler) is built lazily, only when a jump
+        payoff or the reserve Monte-Carlo actually needs it.</p>
+
+        <div class="evo">
+          <span class="callout-title">Then → Now — how a trade updates a Gen·exact belief</span>
+          <div class="evo-grid">
+            <div class="evo-then">
+              <span class="evo-lab">Then · v1, fixed shape</span>
+              <p>A trade moved only \(\mu\) and \(\sigma\); the exponent \(\lambda\) — the authored skew /
+              peak / bimodality — was frozen. The belief slid and breathed but never <em>changed shape</em>:
+              the same variance-domain step as the Student-t, with \(\sigma\) rescaled by \(\sqrt{V'/V}\).</p>
+            </div>
+            <div class="evo-now">
+              <span class="evo-lab">Now · v2, moment-projection (default)</span>
+              <p>Assumed-density filtering: form the exact posterior, read its four moments, then re-fit
+              \((\lambda_3,\lambda_4)\) to the posterior skew/kurtosis (holding \(\lambda_2\), the
+              unimodal/bimodal choice). Order flow now <em>sculpts</em> the curve, not just slides it.</p>
+            </div>
+          </div>
+          <div class="evo-why">
+            <span class="evo-lab">Why · and what changed in the market</span>
+            <p><strong>Statistics:</strong> v1 is a projection onto a 2-parameter \((\mu,\sigma)\) slice of the
+            family — it discards the higher-moment information a trade carries. v2 projects onto the full
+            \((\mu,\sigma,\lambda_3,\lambda_4)\) family (the standard moment-matched ADF step), so a stream
+            that is genuinely <em>asymmetric</em> bends the density’s skew toward it. <strong>Economics &amp;
+            market behaviour:</strong> under v1 a creator’s authored shape was a permanent prior the crowd
+            could never correct; a run of one-sided flow left the tails mispriced because only the centre could
+            move. Under v2 the crowd can re-shape the tails and skew it’s actually trading — the far-strike and
+            asymmetric contracts re-price as conviction builds. It reduces <em>exactly</em> to v1 on a symmetric
+            update (\(\lambda_3\!\to\!0\)), and the simplified / zero-weight / numerically-degenerate paths still
+            fall back to v1, so nothing regresses; the cost is the per-update posterior quadrature (v1 was
+            arithmetic only). Toggle it off with <code>genExactShapeAdapt=false</code> to recover the frozen-shape
+            behaviour.</p>
+          </div>
+        </div>
+      </details>
+
+      <h3>Sandbox — watch a trade reshape a Gen·exact belief (v1 vs v2)</h3>
+      <p>Author a shape with the \(\lambda\) knobs (push \(\lambda_2\) negative for a bimodal prior), pick a
+      trade, and the widget runs <em>both</em> updates from the same prior: <span style="color:var(--sell)">v1
+      (fixed shape)</span> only slides and rescales the curve, while <span style="color:var(--accent)">v2
+      (moment-projection)</span> re-fits \((\lambda_3,\lambda_4)\) to the posterior skew/kurtosis. <em>Commit
+      &amp; repeat</em> feeds the v2 posterior back so you can watch order flow sculpt the shape over a stream.
+      Every number is the faithfully-ported engine update — a parity self-check against
+      <code>packages/core</code> logs to the browser console on load.</p>
+
+      <div class="viz" id="viz-shape-update">
+        <div class="viz-head"><div class="viz-title">Gen·exact update — fixed shape (v1) vs moment-projection (v2)<span class="tag">live</span></div><div class="viz-hint">author a shape · trade · compare the two posteriors</div></div>
+        <div class="viz-grid">
+          <div>
+            <canvas></canvas>
+            <div class="legend"><span><i style="background:var(--muted)"></i>prior</span><span><i style="background:var(--sell)"></i>v1 fixed shape</span><span><i style="background:var(--accent)"></i>v2 shape adapts</span><span><i style="background:var(--warn)"></i>signal s</span></div>
+          </div>
+          <div><div class="controls"></div><div class="readout"></div></div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:.6rem">
+        <strong>What to look for.</strong> With a <em>symmetric</em> prior (\(\lambda_3=\lambda_4=0\)) and an
+        on-centre trade, v1 and v2 land on top of each other — v2 reduces to v1 when the posterior carries no
+        skew. Push the trade <em>off-centre</em> (a far strike, a big size) and the exact posterior becomes
+        asymmetric: v2 bends \(\lambda_3\) so its curve leans the way the flow points, while v1 can only shift a
+        rigid bell. Best on a <strong>bimodal</strong> prior (\(\lambda_2<0\)): a one-sided buy reweights the two
+        camps, so the true posterior is strongly skewed — watch v2’s \(\lambda_3\) saturate toward the camp the
+        order favours while v1 just drifts the whole twin-peak. The readout shows the posterior skew/kurtosis v2
+        is matching and the \((\lambda_3,\lambda_4)\) it fitted.
+      </div>
     </section>
 
     <!-- =============================================================== -->
@@ -1161,9 +1453,13 @@ losses.sort();
     <section id="settlement">
       <h2><span class="section-num">11</span>Settlement<a class="anchor" href="#settlement">#</a></h2>
       <p>When an admin resolves the market with the true outcome \( \theta^\star \), each position
-      pays its payoff. Normal lifecycle: <code>OPEN → RESOLVED(θ*) → SETTLED → CLOSED</code>. An admin
-      may instead <strong>cancel</strong> a market (<code>OPEN → CANCELLED</code>), which unwinds every
-      open position at cost rather than at payoff (below).</p>
+      pays its payoff. Full lifecycle (<code>MarketStatus</code>):
+      <code>CREATED → OPEN → RESOLVED(θ*) → SETTLED → CLOSED</code> — a market is born <code>CREATED</code>
+      (configured but not yet trading) and only accepts trades once <code>OPEN</code>. An admin may
+      <strong>suspend</strong> a live market (<code>OPEN ⇄ SUSPENDED</code>), which halts trading without
+      resolving it — the rapid-price-move circuit breaker of §14 recommends exactly this — or
+      <strong>cancel</strong> it (<code>→ CANCELLED</code>), which unwinds every open position at cost rather
+      than at payoff (below).</p>
       <div class="eqbox">$$ \text{Payout}(C, q)=q\cdot f_C(\theta^\star),\qquad \text{Realized P\&amp;L}=\text{Payout}-\text{costBasis} $$</div>
       <p>Trader payouts are paid from the pool, but — by design — they do <strong>not</strong> mutate
       <code>markets.cash</code> directly; the residual is computed logically so the cash-flow ledger
@@ -1220,15 +1516,17 @@ losses.sort();
       <div class="eqbox">$$ \text{E[payout]}=qP,\quad \operatorname{Var}[qf]=q^2\,(m_2-P^2),\quad \text{Std}=|q|\sqrt{m_2-P^2} $$</div>
       <p>The second moment has closed forms too: for indicators \( f\in\{0,1\} \) so
       \( m_2=P \); for LINEAR \( m_2=\mu^2+\sigma^2 \); for GAUSSIAN it’s a proximity price with width
-      \( w/\sqrt2 \). (CALL/PUT have no simple closed \( m_2 \), so they fall back to the Simpson
-      integrator of §4.) Tail risk and win-probability come from the same Monte-Carlo draws:</p>
+      \( w/\sqrt2 \). The kinked CALL/PUT payoffs have a closed \( m_2 \) only under a <strong>Student-t</strong>
+      belief (an exact truncated-moment form, <code>studentTKinkSecondMoment</code>); under the Gaussian and the
+      other kinds they fall back to the Simpson integrator of §4. Tail risk and win-probability come from the
+      same Monte-Carlo draws:</p>
       <div class="tablewrap"><table>
         <thead><tr><th>Metric</th><th>Definition</th></tr></thead>
         <tbody>
           <tr><td>P(profit)</td><td>fraction of sampled outcomes with \( q f(\theta)-\text{costBasis}&gt;0 \)</td></tr>
           <tr><td>VaR₉₅</td><td>5th-percentile P&amp;L (the loss exceeded 5% of the time)</td></tr>
           <tr><td>CVaR₉₅</td><td>mean P&amp;L within that worst 5% tail</td></tr>
-          <tr><td>Breakeven θ</td><td>solve \( f(\theta)=\text{costBasis}/q \) (e.g. CALL: \( \theta=K+\text{costBasis}/q \))</td></tr>
+          <tr><td>Breakeven θ</td><td>solve \( f(\theta)=\text{costBasis}/q \) — only for the monotone payoffs <code>LINEAR / CALL / PUT</code> (e.g. CALL: \( \theta=K+\text{costBasis}/q \)); <code>null</code> for bounded/indicator payoffs, where “breakeven” isn’t a single clean threshold</td></tr>
           <tr><td>Calibration (inCi80)</td><td>did \( \theta^\star \) land inside the final 80% CI? Should hold ≈80% of the time</td></tr>
         </tbody>
       </table></div>
@@ -1462,8 +1760,15 @@ losses.sort();
           <tr><td class="sym">α_R</td><td><code>reserveAlpha</code></td><td>0.99</td><td>reserve VaR confidence</td></tr>
           <tr><td>—</td><td><code>lr</code>, <code>decay</code></td><td>0.01, 0.05</td><td>simplified-update rate / σ-decay (flagged off)</td></tr>
           <tr><td>—</td><td><code>useSimplifiedUpdate</code></td><td>false</td><td>switch to the learning-rate update</td></tr>
+          <tr><td>—</td><td><code>genExactShapeAdapt</code></td><td>true</td><td>Gen·exact: <code>true</code> → v2 moment-projection (order flow sculpts skew/tails), <code>false</code> → v1 fixed shape (§7)</td></tr>
         </tbody>
       </table></div>
+      <p class="small">The Gen·basis spawn / mixture-management constants
+      (\(\tau_\text{spawn}\), \(w_\text{min}\), \(w_\text{seed}\), \(\pi_\text{min}\), merge tolerance, the
+      \(K\)-cap) live in <code>mixture_ops.ts</code> (and are consumed by <code>placement.ts</code>), while the
+      Gen·exact shape-fit clamps (\(\lambda_3,\lambda_4\) ranges) live in <code>bayes.ts</code> — rather than in
+      <code>EngineConfig</code>, since they are structural to the general model rather than per-market knobs —
+      see §7.</p>
     </section>
 
     <!-- =============================================================== -->
@@ -1687,7 +1992,7 @@ losses.sort();
         <div class="impact-controls controls"></div>
         <div class="legend" style="margin:0 0 0.8rem">
           <span><i style="background:var(--accent)"></i>BMM (ours)</span>
-          <span><i style="background:var(--muted)"></i>BMM today <span class="small">(soft-cap baseline)</span></span>
+          <span id="mech-legend-baseline" style="display:none"><i style="background:var(--muted)"></i>BMM today <span class="small">(soft-cap baseline)</span></span>
           <span><i style="background:var(--warn)"></i>LMSR</span>
           <span><i style="background:var(--buy)"></i>CPMM</span>
           <span><i style="background:var(--sell)"></i>Order book</span>
@@ -1753,12 +2058,17 @@ losses.sort();
     <!-- =============================================================== -->
     <section id="flexible">
       <h2><span class="section-num">21</span>Flexible parametric beliefs — a design study<a class="anchor" href="#flexible">#</a></h2>
-      <div class="note"><span class="callout-title">Status: exploration, not shipped</span>
+      <div class="note"><span class="callout-title">Status: the design study that shipped two models</span>
       Some markets let traders <em>paint</em> almost any curve by clicking to place predictions — a
       <strong>non-parametric, per-bucket</strong> design (LMSR / pari-mutuel over bins). This section asks
       the opposite question: how much shape flexibility can we get <strong>while staying parametric</strong>
       — continuous \(\theta\), contract-composition, Bayesian-from-signal updates, closed-form-or-quadrature
-      pricing — without going bin-based? Full write-up in <code>docs/multi&nbsp;model/</code>.</div>
+      pricing — without going bin-based? <strong>It is kept as the reasoning that produced two now-shipped
+      models</strong>: the recommended fixed-basis sweet-spot became <strong>Gen·basis ⛓</strong> (a
+      <code>mixture</code> belief with mode-spawning + the placement primitive) and the max-entropy form became
+      <strong>Gen·exact ★</strong> — both selectable at creation today (see <a href="#belief">§2</a>, updates in
+      <a href="#bayes">§7</a>). The other rows (skew-normal, generalized-normal, Beta) remain un-built
+      alternatives, kept for the trade-off they illustrate. Full write-up in <code>docs/multi&nbsp;model/</code>.</div>
 
       <p>The key reframe: in a parametric world <strong>flexibility = the number of shape degrees of freedom
       (DOF)</strong>, and there is a continuous spectrum between a Gaussian and a histogram:</p>
@@ -1845,12 +2155,43 @@ losses.sort();
       </details>
 
       <div class="note"><span class="callout-title">The half nobody mentions — the interaction</span>
-      A flexible family is inert unless trades can <em>excite</em> its DOF. Today a trade collapses to one scalar
-      signal (§6), which can only slide or reweight — it cannot grow a bump where a user is betting. To let users
-      sculpt the curve you also need richer input: enable mixture component <strong>split/spawn</strong>, lean on
-      the <strong>bell contract</strong> (it already bets “a bump at \(c\)”), or add a thin <strong>placement
-      primitive</strong> that nudges nearby basis weights. The representation and the interaction are two halves
-      of the same lever.</div>
+      A flexible family is inert unless trades can <em>excite</em> its DOF. A plain trade collapses to one scalar
+      signal (§6), which can only slide or reweight — it cannot grow a bump where a user is betting. This is the
+      half that had to be built alongside the representation, and <strong>it now is</strong>: Gen·basis enables
+      mixture component <strong>spawn</strong> (a confident off-mode signal seeds a fresh camp) <em>and</em> a
+      <strong>placement primitive</strong> — the <strong>bell contract</strong> routes to <code>placeBasisBump</code>,
+      additively painting mass at \(c\) (§7); Gen·exact’s <strong>moment-projection</strong> update lets flow bend
+      its skew and tails. The representation and the interaction are two halves of the same lever — and both halves
+      shipped together.</div>
+
+      <div class="evo">
+        <span class="callout-title">Then → Now — exciting the shape with trades</span>
+        <div class="evo-grid">
+          <div class="evo-then">
+            <span class="evo-lab">Then · one scalar, slide-or-reweight</span>
+            <p>A trade decoded to a single \((s,w)\). It could shift \(\mu\), tighten \(\sigma\), or
+            reallocate existing mixture weight — but it could never <em>add</em> a mode or <em>bend</em> a
+            shape. The density’s degrees of freedom beyond location/scale were inert: authored once, frozen.</p>
+          </div>
+          <div class="evo-now">
+            <span class="evo-lab">Now · flow grows &amp; sculpts the curve</span>
+            <p>Three channels excite the extra DOF: <strong>spawn</strong> (off-mode conviction seeds a new
+            Gen·basis camp), <strong>placement</strong> (a bell trade additively paints a persistent bump),
+            and <strong>moment-projection</strong> (Gen·exact re-fits skew/kurtosis from the posterior).</p>
+          </div>
+        </div>
+        <div class="evo-why">
+          <span class="evo-lab">Why · and what changed in the market</span>
+          <p><strong>Economics:</strong> a representation the order flow can’t reach is just a fancier prior —
+          the crowd’s disagreement would still be averaged into a single quoted shape. <strong>Market
+          behaviour:</strong> placement is deliberately <em>additive</em>, not consensus-forming, so two camps
+          trading at distinct prices accumulate into two <em>persistent</em> peaks instead of collapsing onto
+          the most-recent one (the responsibility update would have merged them) — the order book literally
+          paints the belief. The cost is that richer input needs richer guards: spawn is rate-limited by
+          \(w_\text{min}\) and the \(K\)-cap, and component-management prunes/merges redundant bumps so the
+          parameter count stays data-driven rather than runaway.</p>
+        </div>
+      </div>
     </section>
 
     <div class="footer">
