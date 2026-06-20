@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { Phi, payoff } from '@bmm/core';
 import type { ContractSpec } from '../src/lib/types.ts';
 import {
+  type Pt,
   VIEW_MUL_MAX,
   VIEW_MUL_MIN,
   clampViewMul,
@@ -20,6 +21,7 @@ import {
   pnlCurve,
   probInRegions,
   scale,
+  smoothPath,
   studentTPdf,
   studentTPdfCurve,
   tickDecimals,
@@ -456,5 +458,58 @@ describe('pickHandle', () => {
   test('coincident handles resolve to the last (top-drawn) one — the min-width bell', () => {
     // center & width handles both at x=100: a press grabs width (index 1).
     expect(pickHandle([100, 100], 100, 16)).toBe(1);
+  });
+});
+
+describe('smoothPath (shape-preserving monotone cubic)', () => {
+  const id = (v: number) => v;
+  const pathYs = (d: string): number[] => {
+    const nums = (d.match(/-?\d+\.?\d*/g) ?? []).map(Number);
+    return nums.filter((_, i) => i % 2 === 1); // x y x y … → keep the y's
+  };
+
+  test('never overshoots the data envelope (no dip below 0 or bulge past the peak)', () => {
+    const pts: Pt[] = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0.4 },
+      { x: 2, y: 1 },
+      { x: 3, y: 0.4 },
+      { x: 4, y: 0 },
+    ];
+    const lo = Math.min(...pts.map((p) => p.y));
+    const hi = Math.max(...pts.map((p) => p.y));
+    for (const y of pathYs(smoothPath(pts, id, id))) {
+      expect(y).toBeGreaterThanOrEqual(lo - 1e-6);
+      expect(y).toBeLessThanOrEqual(hi + 1e-6);
+    }
+  });
+
+  test('passes through every data anchor', () => {
+    const d = smoothPath(
+      [
+        { x: 0, y: 0 },
+        { x: 1, y: 2 },
+        { x: 2, y: 1 },
+      ],
+      id,
+      id,
+    );
+    expect(d.startsWith('M0.00 0.00')).toBe(true);
+    expect(d).toContain('1.00 2.00');
+    expect(d.trimEnd().endsWith('2.00 1.00')).toBe(true);
+  });
+
+  test('falls back to a straight polyline below 3 points', () => {
+    expect(
+      smoothPath(
+        [
+          { x: 0, y: 0 },
+          { x: 1, y: 1 },
+        ],
+        id,
+        id,
+      ),
+    ).toBe('M0.00 0.00 L1.00 1.00');
+    expect(smoothPath([], id, id)).toBe('');
   });
 });

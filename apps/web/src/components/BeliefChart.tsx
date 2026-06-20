@@ -37,6 +37,7 @@ import type { BeliefComponent, ContractSpec } from '../lib/types.ts';
 import {
   type Domain,
   type Pt,
+  clampViewMul,
   mixturePdf,
   niceDomain,
   niceTicks,
@@ -44,6 +45,7 @@ import {
   payoffCurve,
   pickHandle,
   scale,
+  smoothPath,
   tickDecimals,
   toPath,
   viewDomain,
@@ -69,8 +71,6 @@ const W = 720;
 const H = 340;
 const M = { top: 30, right: 56, bottom: 34, left: 52 };
 const PLOT = { l: M.left, r: W - M.right, t: M.top, b: H - M.bottom };
-
-const LIKE_TICKS = [0, 0.25, 0.5, 0.75, 1] as const;
 
 // Press-to-handle grab radius (viewBox px): a press this close to a handle grabs
 // it instead of starting a plot pan — keeps overlapping/narrow handles reachable.
@@ -270,6 +270,7 @@ function BeliefChartImpl({
   thetaStar?: number | null;
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const hostRef = useRef<HTMLDivElement | null>(null);
   const dragId = useRef<string | null>(null);
   // The hovered outcome θ is SHARED (chartSync store) so a hover here marks the same
   // θ on the CDF / price panels and vice-versa. `hoverVy` is local — the pointer's
@@ -279,6 +280,10 @@ function BeliefChartImpl({
   const [hoverVy, setHoverVy] = useState<number | null>(null);
   // Left-axis scale: relative likelihood (peak = 1, default) vs absolute density.
   const [axisMode, setAxisMode] = useState<AxisMode>('relative');
+  // Right-click context menu (fit / reset / manual ranges) + the help popover, both
+  // HTML overlays positioned over the SVG. `menu` carries its host-relative position.
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [help, setHelp] = useState(false);
 
   // User view transform layered on the auto-derived domain. xMul/yMul widen (>1)
   // or tighten (<1) the visible value RANGE of each axis; xOff slides the x-window
@@ -403,37 +408,39 @@ function BeliefChartImpl({
   if (priceMax - priceMin < 1e-9) priceMax = priceMin + 1; // flat-price guard
 
   // ── unified vertical mapping ───────────────────────────────────────────────
-  // ONE shared zero, ONE scale (view.yMul) and ONE shift (view.yOff, viewBox px) drive
-  // EVERY curve, so the left (belief) and right (payoff) axes stay proportional and
-  // their zeros ALWAYS coincide. Zero sits dead-centre and slides with yOff; each curve
-  // is calibrated so that at the identity view its full magnitude reaches a half-height.
-  // A larger yMul widens every range together (zoom out — preserving the axes' span
-  // ratio); yOff translates all curves as one (shape preserved). The left/right units
-  // differ (likelihood vs payoff units), so equal VALUES needn't share a height — but
-  // their ZEROS do, and both react identically to any scale/shift. The scaling/shifting
-  // is what the dual-axis ratio-preservation means here.md.
-  const HALF_H = (PLOT.b - PLOT.t) / 2;
-  const yZero = (PLOT.t + PLOT.b) / 2 + view.yOff;
-  const yScale = view.yMul; // shared range multiplier (>1 = zoomed out)
+  // ONE shared zero + ONE scale (view.yMul) + ONE shift (view.yOff, viewBox px) drive
+  // EVERY curve, so the left (belief) and right (payoff) axes stay proportional and their
+  // ZEROS always coincide. By DEFAULT zero sits on the bottom axis (0-based, positive
+  // values only); the right gutter shifts it (sliding negative payoff into view below
+  // zero) and the left gutter scales every curve together. Each curve is normalised by
+  // its own full-scale magnitude, so at the identity view it fills the plot from the zero
+  // line up. Double-click "fit" picks a scale/shift framing every curve (negatives too).
+  // Units differ (likelihood vs payoff), so equal VALUES needn't share a height — but
+  // their zeros do, and both react identically to any scale/shift. See
+  // .md.
+  const PLOT_H = PLOT.b - PLOT.t;
+  const yZero = PLOT.b + view.yOff; // zero line — default: the bottom axis
+  const gain = PLOT_H / view.yMul; // px that one full magnitude spans (yMul>1 = zoom out)
   const vAxis = (mag: number) => {
-    const unit = HALF_H / Math.max(mag, 1e-12);
-    return (v: number) => yZero - (v * unit) / yScale;
+    const m = Math.max(mag, 1e-12);
+    return (v: number) => yZero - (v / m) * gain;
   };
-  const axisValueAt = (mag: number, ypx: number) =>
-    ((yZero - ypx) * yScale * Math.max(mag, 1e-12)) / HALF_H;
+  const axisValueAt = (mag: number, ypx: number) => ((yZero - ypx) / gain) * Math.max(mag, 1e-12);
 
-  // Belief (left, ≥0) peaks into the upper half; CDF's 1.0 likewise. Payoff & price are
-  // symmetric about zero by their largest absolute reach, so a sign change straddles it.
-  const beliefMag = pdfMax * 1.12;
-  const payMag = Math.max(Math.abs(payMin), Math.abs(payMax), 1e-9) * 1.08;
-  const priceMag = Math.max(Math.abs(priceMin), Math.abs(priceMax), 1e-9) * 1.08;
+  // Each curve's full-scale magnitude (a little headroom so the extreme isn't flush to an
+  // edge). Belief & CDF are ≥0; payoff & price normalise by their largest absolute reach
+  // so a sign change straddles zero (its negative side appears once zero is shifted up).
+  const beliefMag = pdfMax * 1.06;
+  const cdfMag = 1.04;
+  const payMag = Math.max(Math.abs(payMin), Math.abs(payMax), 1e-9) * 1.06;
+  const priceMag = Math.max(Math.abs(priceMin), Math.abs(priceMax), 1e-9) * 1.06;
   const syPdf = vAxis(beliefMag);
-  const syCdf = vAxis(1.02);
+  const syCdf = vAxis(cdfMag);
   const syPay = vAxis(payMag);
   const syPrice = vAxis(priceMag);
 
   // Where do the belief and payoff lines coincide on screen? (For the two-colour render.)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: syPdf/syPay/payoff are pure in (yZero, yScale, mags, spec, beliefModel)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: syPdf/syPay/payoff are pure in (yZero, gain, mags, spec, beliefModel)
   const overlap = useMemo(() => {
     const bMask = pdf.map((p) => Math.abs(syPdf(p.y) - syPay(payoff(spec, p.x))) < OVERLAP_TOL);
     const pMask = pay.map((p) => Math.abs(syPay(p.y) - syPdf(beliefModel.pdf(p.x))) < OVERLAP_TOL);
@@ -441,7 +448,7 @@ function BeliefChartImpl({
       bMask: coalesceMask(bMask, OVERLAP_MIN_RUN),
       pMask: coalesceMask(pMask, OVERLAP_MIN_RUN),
     };
-  }, [pdf, pay, yZero, yScale, beliefMag, payMag, spec, beliefModel]);
+  }, [pdf, pay, yZero, gain, beliefMag, payMag, spec, beliefModel]);
 
   const regions = winningRegions(spec, domain);
   const xTicks = niceTicks(lo, hi, 6);
@@ -456,6 +463,21 @@ function BeliefChartImpl({
   const payAxisHi = axisValueAt(payMag, PLOT.t);
   const payTicks = niceTicks(payAxisLo, payAxisHi, 5);
   const payZeroInRange = payAxisLo <= 0 && 0 <= payAxisHi;
+
+  // Left-axis (belief) ticks are likewise computed over the VISIBLE range so the whole
+  // axis is numbered at every scale/shift (not just a fixed 0…1) — in relative mode the
+  // labels are peak-likelihood fractions, in density mode the true density values.
+  const beliefTicks = (() => {
+    const densTop = axisValueAt(beliefMag, PLOT.t);
+    const densBot = axisValueAt(beliefMag, PLOT.b);
+    if (axisMode === 'density') {
+      return niceTicks(densBot, densTop, 5).map((d) => ({ y: syPdf(d), label: fmtDensity(d) }));
+    }
+    return niceTicks(densBot / pdfMax, densTop / pdfMax, 5).map((t) => ({
+      y: syPdf(t * pdfMax),
+      label: t.toFixed(2),
+    }));
+  })();
 
   // viewBox-space pointer position (so we can map both x→θ and keep the cursor y).
   const pointerToView = useCallback((clientX: number, clientY: number) => {
@@ -624,7 +646,58 @@ function BeliefChartImpl({
     endDrag();
     clearHover();
   };
+  // Reset to the default 0-based view (zero on the bottom axis, identity scale/shift).
   const resetView = () => setView({ xMul: 1, xOff: 0, yMul: 1, yOff: 0 });
+
+  // Fit Y: pick a shared scale + shift that frames every visible curve — including any
+  // negative payoff/price the 0-based default hides below the axis. Each curve's reach
+  // is taken in its own normalised units (value / magnitude), the union of those is
+  // mapped into the plot with a small margin, and we back out (yMul, yOff). X is left as
+  // the user set it. Bound to double-click and the context menu.
+  const fitY = () => {
+    const margin = 0.06;
+    const reach: { hi: number; lo: number }[] = [
+      { hi: pdfMax / beliefMag, lo: 0 },
+      { hi: payMax / payMag, lo: payMin / payMag },
+    ];
+    if (showCdf) reach.push({ hi: 1 / cdfMag, lo: 0 });
+    if (hasPrice) reach.push({ hi: priceMax / priceMag, lo: priceMin / priceMag });
+    let U = Number.NEGATIVE_INFINITY;
+    let L = Number.POSITIVE_INFINITY;
+    for (const r of reach) {
+      U = Math.max(U, r.hi);
+      L = Math.min(L, r.lo, 0); // always keep the zero line in view
+    }
+    const span = U - L;
+    if (!(span > 0)) return resetView();
+    const nextMul = clampViewMul(span / (1 - 2 * margin));
+    const g = PLOT_H / nextMul;
+    const yZeroFit = PLOT.t + PLOT_H * margin + g * U;
+    setView({ ...view, yMul: nextMul, yOff: yZeroFit - PLOT.b });
+  };
+
+  // Apply manual axis ranges from the context menu: an x-window [x0,x1] in θ and a
+  // y-window [y0,y1] in PAYOFF (right-axis) units — the belief/CDF/price axes follow
+  // proportionally off the shared transform. Solved back into (xMul,xOff,yMul,yOff).
+  const applyRanges = (x0: number, x1: number, y0: number, y1: number) => {
+    const [bx0, bx1] = base;
+    const bspan = bx1 - bx0;
+    const xMul = bspan > 0 ? clampViewMul(Math.abs(x1 - x0) / bspan) : 1;
+    const xOff = (x0 + x1) / 2 - (bx0 + bx1) / 2;
+    const yMul = clampViewMul(Math.max(Math.abs(y1 - y0), 1e-9) / payMag);
+    const g = PLOT_H / yMul;
+    const yOff = (Math.min(y0, y1) / payMag) * g;
+    setView({ xMul, xOff, yMul, yOff });
+    setMenu(null);
+  };
+
+  const openMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const host = hostRef.current;
+    if (!host) return;
+    const r = host.getBoundingClientRect();
+    setMenu({ x: e.clientX - r.left, y: e.clientY - r.top });
+  };
 
   // Drop any pending frame on unmount, and clear any live-preview drag spec.
   useEffect(
@@ -680,722 +753,928 @@ function BeliefChartImpl({
   })();
 
   return (
-    <svg
-      ref={svgRef}
-      viewBox={`0 0 ${W} ${H}`}
-      className={`w-full touch-none select-none ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-      role="img"
-      aria-label="Belief density and contract payoff"
-      onPointerDown={onBackgroundDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerLeave={onLeave}
-      onDoubleClick={resetView}
-    >
-      <title>Belief PDF and payoff overlay</title>
+    <div ref={hostRef} className="relative" onContextMenu={openMenu}>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
+        className={`w-full touch-none select-none ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+        role="img"
+        aria-label="Belief density and contract payoff"
+        onPointerDown={onBackgroundDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onLeave}
+        onDoubleClick={fitY}
+      >
+        <title>Belief PDF and payoff overlay</title>
 
-      <defs>
-        {/* vertical glow gradient for the belief area fill */}
-        <linearGradient id="bc-belief-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--color-accent)" stopOpacity={0.34} />
-          <stop offset="55%" stopColor="var(--color-accent)" stopOpacity={0.12} />
-          <stop offset="100%" stopColor="var(--color-accent)" stopOpacity={0.02} />
-        </linearGradient>
-        {/* soft neon glow for the curve strokes */}
-        <filter id="bc-glow" x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur stdDeviation={2.4} result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-      </defs>
+        <defs>
+          {/* vertical glow gradient for the belief area fill */}
+          <linearGradient id="bc-belief-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-accent)" stopOpacity={0.34} />
+            <stop offset="55%" stopColor="var(--color-accent)" stopOpacity={0.12} />
+            <stop offset="100%" stopColor="var(--color-accent)" stopOpacity={0.02} />
+          </linearGradient>
+          {/* soft neon glow for the curve strokes */}
+          <filter id="bc-glow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation={2.4} result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
 
-      {/* framed plot area */}
-      <rect
-        x={PLOT.l}
-        y={PLOT.t}
-        width={PLOT.r - PLOT.l}
-        height={PLOT.b - PLOT.t}
-        rx={5}
-        fill="var(--color-panel-2)"
-        opacity={0.35}
-      />
-
-      {/* legend */}
-      <LegendItem
-        x={PLOT.l}
-        color="var(--color-accent)"
-        label={axisMode === 'density' ? 'Belief (density)' : 'Belief (likelihood)'}
-      />
-      <LegendItem x={PLOT.l + 168} color="var(--color-buy)" label="Payoff" />
-      <LegendItem x={PLOT.l + 268} color="var(--color-buy)" label="In-the-money" block />
-      {showCdf && <LegendItem x={PLOT.l + 392} color="var(--color-warn)" label="P(≤θ)" dash />}
-      {hasPrice && (
-        <LegendItem
-          x={PLOT.l + (showCdf ? 452 : 392)}
-          color="var(--color-price)"
-          label="Price"
-          dash
+        {/* framed plot area */}
+        <rect
+          x={PLOT.l}
+          y={PLOT.t}
+          width={PLOT.r - PLOT.l}
+          height={PLOT.b - PLOT.t}
+          rx={5}
+          fill="var(--color-panel-2)"
+          opacity={0.35}
         />
-      )}
 
-      {/* left-axis scale toggle: relative likelihood (peak = 1) vs absolute density */}
-      <g transform={`translate(${PLOT.r - 116}, 7)`}>
-        <title>Left axis: relative likelihood (peak = 1) or absolute probability density</title>
-        <text x={-6} y={11} textAnchor="end" fontSize={9} className="fill-[var(--color-muted)]">
-          y-axis
-        </text>
-        {(
-          [
-            ['relative', 'rel'],
-            ['density', 'density'],
-          ] as const
-        ).map(([m, lbl], i) => {
-          const active = axisMode === m;
-          const w = i === 0 ? 34 : 82;
-          const x = i === 0 ? 0 : 34;
-          return (
-            <g
-              key={m}
-              className="cursor-pointer"
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                setAxisMode(m);
-              }}
+        {/* legend */}
+        <LegendItem
+          x={PLOT.l}
+          color="var(--color-accent)"
+          label={axisMode === 'density' ? 'Belief (density)' : 'Belief (likelihood)'}
+        />
+        <LegendItem x={PLOT.l + 168} color="var(--color-buy)" label="Payoff" />
+        <LegendItem x={PLOT.l + 268} color="var(--color-buy)" label="In-the-money" block />
+        {showCdf && <LegendItem x={PLOT.l + 392} color="var(--color-warn)" label="P(≤θ)" dash />}
+        {hasPrice && (
+          <LegendItem
+            x={PLOT.l + (showCdf ? 452 : 392)}
+            color="var(--color-price)"
+            label="Price"
+            dash
+          />
+        )}
+
+        {/* left-axis scale toggle (icons, in the top margin so curves never sit on it):
+          outline hump = relative likelihood (shape, peak = 1); filled hump = absolute
+          density (area = probability mass). Hover each for a tooltip. */}
+        <g transform={`translate(${PLOT.r - 52}, 1)`}>
+          {(
+            [
+              ['relative', 'Relative likelihood — peak normalised to 1'],
+              ['density', 'Absolute probability density (∫ p dθ = 1)'],
+            ] as const
+          ).map(([m, tip], i) => {
+            const active = axisMode === m;
+            const bx = i * 20;
+            const ink = active ? 'var(--color-ink)' : 'var(--color-muted)';
+            return (
+              <g
+                key={m}
+                className="cursor-pointer"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  setAxisMode(m);
+                }}
+              >
+                <title>{tip}</title>
+                <rect
+                  x={bx}
+                  y={0}
+                  width={18}
+                  height={16}
+                  rx={4}
+                  fill={active ? 'var(--color-accent)' : 'var(--color-panel-2)'}
+                  opacity={active ? 0.9 : 0.5}
+                  stroke="var(--color-edge)"
+                  strokeWidth={1}
+                />
+                {m === 'relative' ? (
+                  <path
+                    d={`M${bx + 4} 12 Q${bx + 9} 3 ${bx + 14} 12`}
+                    fill="none"
+                    stroke={ink}
+                    strokeWidth={1.5}
+                    strokeLinecap="round"
+                  />
+                ) : (
+                  <path
+                    d={`M${bx + 4} 12 Q${bx + 9} 3 ${bx + 14} 12 Z`}
+                    fill={ink}
+                    opacity={0.85}
+                  />
+                )}
+              </g>
+            );
+          })}
+        </g>
+
+        {/* horizontal gridlines at the (dynamic) left-axis ticks, clipped to the plot */}
+        {beliefTicks.map((t) =>
+          t.y >= PLOT.t - 0.5 && t.y <= PLOT.b + 0.5 ? (
+            <line
+              key={`hgrid-${t.label}`}
+              x1={PLOT.l}
+              x2={PLOT.r}
+              y1={t.y}
+              y2={t.y}
+              stroke="var(--color-edge)"
+              strokeWidth={1}
+              opacity={Math.abs(t.y - yZero) < 0.5 ? 0.7 : 0.22}
+            />
+          ) : null,
+        )}
+
+        {/* winning-region shading */}
+        {regions.map(([a, b]) => (
+          <rect
+            key={`win-${a}-${b}`}
+            x={sx(a)}
+            y={PLOT.t}
+            width={Math.max(0, sx(b) - sx(a))}
+            height={PLOT.b - PLOT.t}
+            fill="var(--color-buy)"
+            opacity={0.1}
+          />
+        ))}
+
+        {/* ±1σ band */}
+        <rect
+          x={sx(Math.max(lo, mu - sigma))}
+          y={PLOT.t}
+          width={Math.max(0, sx(Math.min(hi, mu + sigma)) - sx(Math.max(lo, mu - sigma)))}
+          height={PLOT.b - PLOT.t}
+          fill="var(--color-accent)"
+          opacity={0.07}
+        />
+
+        {/* x-axis ticks */}
+        {xTicks.map((t) => (
+          <g key={`tick-${t}`}>
+            <line
+              x1={sx(t)}
+              x2={sx(t)}
+              y1={PLOT.t}
+              y2={PLOT.b}
+              stroke="var(--color-edge)"
+              strokeWidth={1}
+              opacity={0.35}
+            />
+            <line
+              x1={sx(t)}
+              x2={sx(t)}
+              y1={PLOT.b}
+              y2={PLOT.b + 4}
+              stroke="var(--color-muted)"
+              strokeWidth={1}
+            />
+            <text
+              x={sx(t)}
+              y={PLOT.b + 16}
+              textAnchor="middle"
+              className="fill-[var(--color-muted)]"
+              fontSize={11}
             >
-              <rect
-                x={x}
-                y={0}
-                width={w}
-                height={15}
-                rx={3}
-                fill={active ? 'var(--color-accent)' : 'var(--color-panel-2)'}
-                opacity={active ? 0.9 : 0.55}
-                stroke="var(--color-edge)"
+              {fmt(t, xDec)}
+            </text>
+          </g>
+        ))}
+
+        {/* left y-axis: belief likelihood / density — dynamically numbered over the view */}
+        <line
+          x1={PLOT.l}
+          x2={PLOT.l}
+          y1={PLOT.t}
+          y2={PLOT.b}
+          stroke="var(--color-accent)"
+          strokeWidth={1}
+          opacity={0.45}
+        />
+        {beliefTicks.map((t) =>
+          t.y >= PLOT.t - 0.5 && t.y <= PLOT.b + 0.5 ? (
+            <g key={`lyt-${t.label}`}>
+              <line
+                x1={PLOT.l - 4}
+                x2={PLOT.l}
+                y1={t.y}
+                y2={t.y}
+                stroke="var(--color-accent)"
                 strokeWidth={1}
+                opacity={0.6}
               />
               <text
-                x={x + w / 2}
-                y={11}
-                textAnchor="middle"
-                fontSize={9}
-                className={`font-semibold ${active ? 'fill-[var(--color-ink)]' : 'fill-[var(--color-muted)]'}`}
+                x={PLOT.l - 7}
+                y={t.y + 3.5}
+                textAnchor="end"
+                className="fill-[var(--color-muted)]"
+                fontSize={10}
               >
-                {lbl}
+                {t.label}
+              </text>
+            </g>
+          ) : null,
+        )}
+
+        {/* right y-axis: contract payoff (outcome units) */}
+        <line
+          x1={PLOT.r}
+          x2={PLOT.r}
+          y1={PLOT.t}
+          y2={PLOT.b}
+          stroke="var(--color-buy)"
+          strokeWidth={1}
+          opacity={0.45}
+        />
+        {payTicks.map((t) => (
+          <g key={`ryt-${t}`}>
+            <line
+              x1={PLOT.r}
+              x2={PLOT.r + 4}
+              y1={syPay(t)}
+              y2={syPay(t)}
+              stroke="var(--color-buy)"
+              strokeWidth={1}
+              opacity={0.6}
+            />
+            <text
+              x={PLOT.r + 7}
+              y={syPay(t) + 3.5}
+              textAnchor="start"
+              className="fill-[var(--color-muted)]"
+              fontSize={10}
+            >
+              {fmtCompact(t)}
+            </text>
+          </g>
+        ))}
+
+        {/* payoff zero baseline (where the contract pays nothing) */}
+        {payZeroInRange && (
+          <line
+            x1={PLOT.l}
+            x2={PLOT.r}
+            y1={syPay(0)}
+            y2={syPay(0)}
+            stroke="var(--color-buy)"
+            strokeWidth={1}
+            strokeDasharray="2 4"
+            opacity={0.4}
+          />
+        )}
+
+        {/* belief PDF: smooth filled area + outline. The outline is split into runs so any
+          stretch coinciding with the payoff line draws dashed (two-colour with payoff). */}
+        <path
+          d={`${smoothPath(pdf, sx, syPdf)} L${sx(hi).toFixed(2)} ${syPdf(0).toFixed(2)} L${sx(lo).toFixed(2)} ${syPdf(0).toFixed(2)} Z`}
+          fill="url(#bc-belief-fill)"
+        />
+        {splitRuns(pdf, overlap.bMask).map((run) => (
+          <path
+            key={`belief-${run.pts[0]?.x}`}
+            d={smoothPath(run.pts, sx, syPdf)}
+            fill="none"
+            stroke="var(--color-accent)"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray={run.over ? OVERLAP_DASH : undefined}
+            filter={dragging ? undefined : 'url(#bc-glow)'}
+          />
+        ))}
+
+        {/* cumulative-probability overlay P(≤θ): a dashed S-curve on the same axes
+          (0→1, sharing the vertical zoom), so it tracks every pan / zoom / unit change */}
+        {showCdf && (
+          <path
+            className="animate-fade-in"
+            d={smoothPath(cdf, sx, syCdf)}
+            fill="none"
+            stroke="var(--color-warn)"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeDasharray="5 3"
+            opacity={0.9}
+            filter={dragging ? undefined : 'url(#bc-glow)'}
+          />
+        )}
+
+        {/* fair-price overlay: the price-vs-strike sweep on its own value scale — a
+          dashed magenta curve tracking every pan / zoom, matching the price panel exactly */}
+        {hasPrice && (
+          <path
+            className="animate-fade-in"
+            d={smoothPath(priceCurve, sx, syPrice)}
+            fill="none"
+            stroke="var(--color-price)"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeDasharray="5 3"
+            opacity={0.9}
+            filter={dragging ? undefined : 'url(#bc-glow)'}
+          />
+        )}
+
+        {/* mean line — hidden when panned/zoomed out of the visible domain (same
+          guard as the θ* marker), so it never draws into the axis gutters */}
+        {mu >= lo && mu <= hi && (
+          <>
+            <line
+              x1={sx(mu)}
+              x2={sx(mu)}
+              y1={PLOT.t}
+              y2={PLOT.b}
+              stroke="var(--color-accent)"
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
+            />
+            <text
+              x={sx(mu) + 4}
+              y={PLOT.t + 11}
+              className="fill-[var(--color-accent)]"
+              fontSize={11}
+            >
+              μ {fmt(mu, xDec)}
+            </text>
+          </>
+        )}
+
+        {/* mixture component modes — a tick at each μ_k labelled with its weight %, so
+          the camps and how the order flow re-weights them are visible at a glance */}
+        {isMixture &&
+          components
+            ?.filter((c) => c.mu >= lo && c.mu <= hi) // same visibility guard as μ/θ*
+            .map((c, k) => (
+              <g key={`comp-${k}-${c.mu}`} pointerEvents="none">
+                <line
+                  x1={sx(c.mu)}
+                  x2={sx(c.mu)}
+                  y1={PLOT.t + 14}
+                  y2={PLOT.b}
+                  stroke="var(--color-accent)"
+                  strokeWidth={1}
+                  strokeDasharray="2 4"
+                  opacity={0.4 + 0.5 * c.pi}
+                />
+                <circle
+                  cx={sx(c.mu)}
+                  cy={syPdf(mixturePdf(c.mu, components))}
+                  r={2.5}
+                  fill="var(--color-accent)"
+                  opacity={0.7}
+                />
+                <text
+                  x={sx(c.mu)}
+                  y={PLOT.b - 4}
+                  textAnchor="middle"
+                  fontSize={9}
+                  className="fill-[var(--color-muted)]"
+                >
+                  {Math.round(c.pi * 100)}%
+                </text>
+              </g>
+            ))}
+
+        {/* payoff overlay — split into runs; stretches coinciding with the belief line draw
+          dashed with a half-period phase, so the shared line tiles green ↔ accent */}
+        {splitRuns(pay, overlap.pMask).map((run) => (
+          <path
+            key={`payoff-${run.pts[0]?.x}`}
+            d={toPath(run.pts, sx, syPay)}
+            fill="none"
+            stroke="var(--color-buy)"
+            strokeWidth={2}
+            strokeDasharray={run.over ? OVERLAP_DASH : undefined}
+            strokeDashoffset={run.over ? OVERLAP_PHASE : undefined}
+            filter={dragging ? undefined : 'url(#bc-glow)'}
+          />
+        ))}
+
+        {/* resolution marker */}
+        {thetaStar != null && thetaStar >= lo && thetaStar <= hi && (
+          <g>
+            <line
+              x1={sx(thetaStar)}
+              x2={sx(thetaStar)}
+              y1={PLOT.t}
+              y2={PLOT.b}
+              stroke="var(--color-warn)"
+              strokeWidth={2}
+            />
+            <text
+              x={sx(thetaStar) + 4}
+              y={PLOT.b - 6}
+              className="fill-[var(--color-warn)]"
+              fontSize={11}
+            >
+              θ* {fmt(thetaStar, xDec)}
+            </text>
+          </g>
+        )}
+
+        {/* axis hit-zones — transparent; the cursor hints the gesture. The LEFT gutter
+          scales Y (both axes together); the RIGHT gutter SHIFTS Y (slides every curve
+          together); the bottom axis scales X. All stop propagation so the plot-pan never
+          fires. Zero stays aligned across both axes under either y-gesture. */}
+        <rect
+          x={0}
+          y={PLOT.t}
+          width={PLOT.l}
+          height={PLOT.b - PLOT.t}
+          fill="transparent"
+          className="cursor-ns-resize"
+          onPointerDown={(e) => beginGesture('scaley', e)}
+        />
+        <rect
+          x={PLOT.r}
+          y={PLOT.t}
+          width={W - PLOT.r}
+          height={PLOT.b - PLOT.t}
+          fill="transparent"
+          className="cursor-grab"
+          onPointerDown={(e) => beginGesture('shifty', e)}
+        />
+        <rect
+          x={PLOT.l}
+          y={PLOT.b}
+          width={PLOT.r - PLOT.l}
+          height={H - PLOT.b}
+          fill="transparent"
+          className="cursor-ew-resize"
+          onPointerDown={(e) => beginGesture('scalex', e)}
+        />
+
+        {/* draggable handles */}
+        {handles.map((h) => {
+          const x = sx(Math.min(hi, Math.max(lo, h.value)));
+          return (
+            <g key={h.id} className="cursor-ew-resize" onPointerDown={onPointerDown(h.id)}>
+              <line
+                x1={x}
+                x2={x}
+                y1={PLOT.t}
+                y2={PLOT.b}
+                stroke="var(--color-buy)"
+                strokeWidth={1.5}
+              />
+              {/* fat invisible hit-target for easy grabbing */}
+              <rect x={x - 9} y={PLOT.t} width={18} height={PLOT.b - PLOT.t} fill="transparent" />
+              <circle
+                cx={x}
+                cy={PLOT.t + 6}
+                r={6}
+                fill="var(--color-buy)"
+                stroke="var(--color-ink)"
+                strokeWidth={1.5}
+              />
+              <text
+                x={x}
+                y={PLOT.t + 9.5}
+                textAnchor="middle"
+                fontSize={8}
+                className="fill-white font-bold"
+              >
+                {h.label}
               </text>
             </g>
           );
         })}
-      </g>
 
-      {/* horizontal likelihood gridlines (left-axis reference) */}
-      {LIKE_TICKS.map((r) => (
-        <line
-          key={`hgrid-${r}`}
-          x1={PLOT.l}
-          x2={PLOT.r}
-          y1={syPdf(r * pdfMax)}
-          y2={syPdf(r * pdfMax)}
-          stroke="var(--color-edge)"
-          strokeWidth={1}
-          opacity={r === 0 ? 0.7 : 0.22}
-        />
-      ))}
-
-      {/* winning-region shading */}
-      {regions.map(([a, b]) => (
-        <rect
-          key={`win-${a}-${b}`}
-          x={sx(a)}
-          y={PLOT.t}
-          width={Math.max(0, sx(b) - sx(a))}
-          height={PLOT.b - PLOT.t}
-          fill="var(--color-buy)"
-          opacity={0.1}
-        />
-      ))}
-
-      {/* ±1σ band */}
-      <rect
-        x={sx(Math.max(lo, mu - sigma))}
-        y={PLOT.t}
-        width={Math.max(0, sx(Math.min(hi, mu + sigma)) - sx(Math.max(lo, mu - sigma)))}
-        height={PLOT.b - PLOT.t}
-        fill="var(--color-accent)"
-        opacity={0.07}
-      />
-
-      {/* x-axis ticks */}
-      {xTicks.map((t) => (
-        <g key={`tick-${t}`}>
-          <line
-            x1={sx(t)}
-            x2={sx(t)}
-            y1={PLOT.t}
-            y2={PLOT.b}
-            stroke="var(--color-edge)"
-            strokeWidth={1}
-            opacity={0.35}
-          />
-          <line
-            x1={sx(t)}
-            x2={sx(t)}
-            y1={PLOT.b}
-            y2={PLOT.b + 4}
-            stroke="var(--color-muted)"
-            strokeWidth={1}
-          />
-          <text
-            x={sx(t)}
-            y={PLOT.b + 16}
-            textAnchor="middle"
-            className="fill-[var(--color-muted)]"
-            fontSize={11}
-          >
-            {fmt(t, xDec)}
-          </text>
-        </g>
-      ))}
-
-      {/* left y-axis: belief relative likelihood (peak = 1.0) */}
-      <line
-        x1={PLOT.l}
-        x2={PLOT.l}
-        y1={PLOT.t}
-        y2={PLOT.b}
-        stroke="var(--color-accent)"
-        strokeWidth={1}
-        opacity={0.45}
-      />
-      {LIKE_TICKS.map((r) => (
-        <g key={`lyt-${r}`}>
-          <line
-            x1={PLOT.l - 4}
-            x2={PLOT.l}
-            y1={syPdf(r * pdfMax)}
-            y2={syPdf(r * pdfMax)}
-            stroke="var(--color-accent)"
-            strokeWidth={1}
-            opacity={0.6}
-          />
-          <text
-            x={PLOT.l - 7}
-            y={syPdf(r * pdfMax) + 3.5}
-            textAnchor="end"
-            className="fill-[var(--color-muted)]"
-            fontSize={10}
-          >
-            {axisMode === 'density' ? fmtDensity(r * pdfMax) : r.toFixed(2)}
-          </text>
-        </g>
-      ))}
-
-      {/* right y-axis: contract payoff (outcome units) */}
-      <line
-        x1={PLOT.r}
-        x2={PLOT.r}
-        y1={PLOT.t}
-        y2={PLOT.b}
-        stroke="var(--color-buy)"
-        strokeWidth={1}
-        opacity={0.45}
-      />
-      {payTicks.map((t) => (
-        <g key={`ryt-${t}`}>
-          <line
-            x1={PLOT.r}
-            x2={PLOT.r + 4}
-            y1={syPay(t)}
-            y2={syPay(t)}
-            stroke="var(--color-buy)"
-            strokeWidth={1}
-            opacity={0.6}
-          />
-          <text
-            x={PLOT.r + 7}
-            y={syPay(t) + 3.5}
-            textAnchor="start"
-            className="fill-[var(--color-muted)]"
-            fontSize={10}
-          >
-            {fmtCompact(t)}
-          </text>
-        </g>
-      ))}
-
-      {/* payoff zero baseline (where the contract pays nothing) */}
-      {payZeroInRange && (
-        <line
-          x1={PLOT.l}
-          x2={PLOT.r}
-          y1={syPay(0)}
-          y2={syPay(0)}
-          stroke="var(--color-buy)"
-          strokeWidth={1}
-          strokeDasharray="2 4"
-          opacity={0.4}
-        />
-      )}
-
-      {/* belief PDF: filled area + outline. The outline is split into runs so that any
-          stretch coinciding with the payoff line draws dashed (two-colour with payoff). */}
-      <path
-        d={`${toPath(pdf, sx, syPdf)} L${sx(hi).toFixed(2)} ${syPdf(0).toFixed(2)} L${sx(lo).toFixed(2)} ${syPdf(0).toFixed(2)} Z`}
-        fill="url(#bc-belief-fill)"
-      />
-      {splitRuns(pdf, overlap.bMask).map((run) => (
-        <path
-          key={`belief-${run.pts[0]?.x}`}
-          d={toPath(run.pts, sx, syPdf)}
-          fill="none"
-          stroke="var(--color-accent)"
-          strokeWidth={2}
-          strokeDasharray={run.over ? OVERLAP_DASH : undefined}
-          filter={dragging ? undefined : 'url(#bc-glow)'}
-        />
-      ))}
-
-      {/* cumulative-probability overlay P(≤θ): a dashed S-curve on the same axes
-          (0→1, sharing the vertical zoom), so it tracks every pan / zoom / unit change */}
-      {showCdf && (
-        <path
-          className="animate-fade-in"
-          d={toPath(cdf, sx, syCdf)}
-          fill="none"
-          stroke="var(--color-warn)"
-          strokeWidth={2}
-          strokeDasharray="5 3"
-          opacity={0.9}
-          filter={dragging ? undefined : 'url(#bc-glow)'}
-        />
-      )}
-
-      {/* fair-price overlay: the price-vs-strike sweep on its own value scale — a
-          dashed magenta curve tracking every pan / zoom, matching the price panel exactly */}
-      {hasPrice && (
-        <path
-          className="animate-fade-in"
-          d={toPath(priceCurve, sx, syPrice)}
-          fill="none"
-          stroke="var(--color-price)"
-          strokeWidth={2}
-          strokeDasharray="5 3"
-          opacity={0.9}
-          filter={dragging ? undefined : 'url(#bc-glow)'}
-        />
-      )}
-
-      {/* mean line — hidden when panned/zoomed out of the visible domain (same
-          guard as the θ* marker), so it never draws into the axis gutters */}
-      {mu >= lo && mu <= hi && (
-        <>
-          <line
-            x1={sx(mu)}
-            x2={sx(mu)}
-            y1={PLOT.t}
-            y2={PLOT.b}
-            stroke="var(--color-accent)"
-            strokeWidth={1.5}
-            strokeDasharray="4 3"
-          />
-          <text x={sx(mu) + 4} y={PLOT.t + 11} className="fill-[var(--color-accent)]" fontSize={11}>
-            μ {fmt(mu, xDec)}
-          </text>
-        </>
-      )}
-
-      {/* mixture component modes — a tick at each μ_k labelled with its weight %, so
-          the camps and how the order flow re-weights them are visible at a glance */}
-      {isMixture &&
-        components
-          ?.filter((c) => c.mu >= lo && c.mu <= hi) // same visibility guard as μ/θ*
-          .map((c, k) => (
-            <g key={`comp-${k}-${c.mu}`} pointerEvents="none">
-              <line
-                x1={sx(c.mu)}
-                x2={sx(c.mu)}
-                y1={PLOT.t + 14}
-                y2={PLOT.b}
-                stroke="var(--color-accent)"
-                strokeWidth={1}
-                strokeDasharray="2 4"
-                opacity={0.4 + 0.5 * c.pi}
-              />
-              <circle
-                cx={sx(c.mu)}
-                cy={syPdf(mixturePdf(c.mu, components))}
-                r={2.5}
-                fill="var(--color-accent)"
-                opacity={0.7}
-              />
-              <text
-                x={sx(c.mu)}
-                y={PLOT.b - 4}
-                textAnchor="middle"
-                fontSize={9}
-                className="fill-[var(--color-muted)]"
-              >
-                {Math.round(c.pi * 100)}%
-              </text>
-            </g>
-          ))}
-
-      {/* payoff overlay — split into runs; stretches coinciding with the belief line draw
-          dashed with a half-period phase, so the shared line tiles green ↔ accent */}
-      {splitRuns(pay, overlap.pMask).map((run) => (
-        <path
-          key={`payoff-${run.pts[0]?.x}`}
-          d={toPath(run.pts, sx, syPay)}
-          fill="none"
-          stroke="var(--color-buy)"
-          strokeWidth={2}
-          strokeDasharray={run.over ? OVERLAP_DASH : undefined}
-          strokeDashoffset={run.over ? OVERLAP_PHASE : undefined}
-          filter={dragging ? undefined : 'url(#bc-glow)'}
-        />
-      ))}
-
-      {/* resolution marker */}
-      {thetaStar != null && thetaStar >= lo && thetaStar <= hi && (
-        <g>
-          <line
-            x1={sx(thetaStar)}
-            x2={sx(thetaStar)}
-            y1={PLOT.t}
-            y2={PLOT.b}
-            stroke="var(--color-warn)"
-            strokeWidth={2}
-          />
-          <text
-            x={sx(thetaStar) + 4}
-            y={PLOT.b - 6}
-            className="fill-[var(--color-warn)]"
-            fontSize={11}
-          >
-            θ* {fmt(thetaStar, xDec)}
-          </text>
-        </g>
-      )}
-
-      {/* axis hit-zones — transparent; the cursor hints the gesture. The LEFT gutter
-          scales Y (both axes together); the RIGHT gutter SHIFTS Y (slides every curve
-          together); the bottom axis scales X. All stop propagation so the plot-pan never
-          fires. Zero stays aligned across both axes under either y-gesture. */}
-      <rect
-        x={0}
-        y={PLOT.t}
-        width={PLOT.l}
-        height={PLOT.b - PLOT.t}
-        fill="transparent"
-        className="cursor-ns-resize"
-        onPointerDown={(e) => beginGesture('scaley', e)}
-      />
-      <rect
-        x={PLOT.r}
-        y={PLOT.t}
-        width={W - PLOT.r}
-        height={PLOT.b - PLOT.t}
-        fill="transparent"
-        className="cursor-grab"
-        onPointerDown={(e) => beginGesture('shifty', e)}
-      />
-      <rect
-        x={PLOT.l}
-        y={PLOT.b}
-        width={PLOT.r - PLOT.l}
-        height={H - PLOT.b}
-        fill="transparent"
-        className="cursor-ew-resize"
-        onPointerDown={(e) => beginGesture('scalex', e)}
-      />
-
-      {/* draggable handles */}
-      {handles.map((h) => {
-        const x = sx(Math.min(hi, Math.max(lo, h.value)));
-        return (
-          <g key={h.id} className="cursor-ew-resize" onPointerDown={onPointerDown(h.id)}>
+        {/* hover crosshair + readout (non-interactive, drawn on top) */}
+        {cross && (
+          <g pointerEvents="none">
             <line
-              x1={x}
-              x2={x}
+              x1={PLOT.l}
+              x2={PLOT.r}
+              y1={cross.by}
+              y2={cross.by}
+              stroke="var(--color-fg)"
+              strokeWidth={1}
+              strokeDasharray="3 4"
+              opacity={0.35}
+            />
+            <line
+              x1={cross.tpx}
+              x2={cross.tpx}
               y1={PLOT.t}
               y2={PLOT.b}
-              stroke="var(--color-buy)"
+              stroke="var(--color-fg)"
+              strokeWidth={1}
+              strokeDasharray="3 4"
+              opacity={0.35}
+            />
+            {/* θ chip on the x-axis */}
+            <g>
+              <rect
+                x={cross.tpx - 26}
+                y={PLOT.b + 3}
+                width={52}
+                height={15}
+                rx={3}
+                fill="var(--color-fg)"
+                opacity={0.85}
+              />
+              <text
+                x={cross.tpx}
+                y={PLOT.b + 13.5}
+                textAnchor="middle"
+                fontSize={10}
+                className="fill-[var(--color-ink)] font-semibold"
+              >
+                {fmt(cross.theta, xDecHover)}
+              </text>
+            </g>
+            {/* curve dots */}
+            <circle
+              cx={cross.tpx}
+              cy={cross.by}
+              r={3.5}
+              fill="var(--color-accent)"
+              stroke="var(--color-ink)"
               strokeWidth={1.5}
             />
-            {/* fat invisible hit-target for easy grabbing */}
-            <rect x={x - 9} y={PLOT.t} width={18} height={PLOT.b - PLOT.t} fill="transparent" />
             <circle
-              cx={x}
-              cy={PLOT.t + 6}
-              r={6}
+              cx={cross.tpx}
+              cy={cross.py}
+              r={3.5}
               fill="var(--color-buy)"
               stroke="var(--color-ink)"
               strokeWidth={1.5}
             />
-            <text
-              x={x}
-              y={PLOT.t + 9.5}
-              textAnchor="middle"
-              fontSize={8}
-              className="fill-white font-bold"
-            >
-              {h.label}
-            </text>
-          </g>
-        );
-      })}
+            {showCdf && (
+              <circle
+                cx={cross.tpx}
+                cy={syCdf(cross.cdfBelow)}
+                r={3.5}
+                fill="var(--color-warn)"
+                stroke="var(--color-ink)"
+                strokeWidth={1.5}
+              />
+            )}
+            {hasPrice && cross.priceV != null && (
+              <circle
+                cx={cross.tpx}
+                cy={cross.pyPrice}
+                r={3.5}
+                fill="var(--color-price)"
+                stroke="var(--color-ink)"
+                strokeWidth={1.5}
+              />
+            )}
+            {/* translucent readout card — only when the pointer is over THIS chart */}
+            {cross.card &&
+              (() => {
+                const priceRow = showPrice && cross.priceV != null ? 18 : 0;
+                return (
+                  <g>
+                    <rect
+                      x={cross.tx}
+                      y={cross.ty}
+                      width={cross.cardW}
+                      height={cross.cardH}
+                      rx={6}
+                      fill="var(--color-panel)"
+                      stroke="var(--color-edge)"
+                      strokeWidth={1}
+                      opacity={0.92}
+                    />
+                    <text
+                      x={cross.tx + 12}
+                      y={cross.ty + 18}
+                      fontSize={10.5}
+                      className="fill-[var(--color-muted)]"
+                    >
+                      θ
+                    </text>
+                    <text
+                      x={cross.tx + cross.cardW - 12}
+                      y={cross.ty + 18}
+                      textAnchor="end"
+                      fontSize={11}
+                      className="fill-[var(--color-fg)] font-semibold"
+                    >
+                      {fmt(cross.theta, xDecHover)}
+                    </text>
 
-      {/* hover crosshair + readout (non-interactive, drawn on top) */}
-      {cross && (
-        <g pointerEvents="none">
-          <line
-            x1={PLOT.l}
-            x2={PLOT.r}
-            y1={cross.by}
-            y2={cross.by}
-            stroke="var(--color-fg)"
-            strokeWidth={1}
-            strokeDasharray="3 4"
-            opacity={0.35}
-          />
-          <line
-            x1={cross.tpx}
-            x2={cross.tpx}
-            y1={PLOT.t}
-            y2={PLOT.b}
-            stroke="var(--color-fg)"
-            strokeWidth={1}
-            strokeDasharray="3 4"
-            opacity={0.35}
-          />
-          {/* θ chip on the x-axis */}
-          <g>
-            <rect
-              x={cross.tpx - 26}
-              y={PLOT.b + 3}
-              width={52}
-              height={15}
-              rx={3}
-              fill="var(--color-fg)"
-              opacity={0.85}
-            />
-            <text
-              x={cross.tpx}
-              y={PLOT.b + 13.5}
-              textAnchor="middle"
-              fontSize={10}
-              className="fill-[var(--color-ink)] font-semibold"
-            >
-              {fmt(cross.theta, xDecHover)}
-            </text>
-          </g>
-          {/* curve dots */}
-          <circle
-            cx={cross.tpx}
-            cy={cross.by}
-            r={3.5}
-            fill="var(--color-accent)"
-            stroke="var(--color-ink)"
-            strokeWidth={1.5}
-          />
-          <circle
-            cx={cross.tpx}
-            cy={cross.py}
-            r={3.5}
-            fill="var(--color-buy)"
-            stroke="var(--color-ink)"
-            strokeWidth={1.5}
-          />
-          {showCdf && (
-            <circle
-              cx={cross.tpx}
-              cy={syCdf(cross.cdfBelow)}
-              r={3.5}
-              fill="var(--color-warn)"
-              stroke="var(--color-ink)"
-              strokeWidth={1.5}
-            />
-          )}
-          {hasPrice && cross.priceV != null && (
-            <circle
-              cx={cross.tpx}
-              cy={cross.pyPrice}
-              r={3.5}
-              fill="var(--color-price)"
-              stroke="var(--color-ink)"
-              strokeWidth={1.5}
-            />
-          )}
-          {/* translucent readout card — only when the pointer is over THIS chart */}
-          {cross.card &&
-            (() => {
-              const priceRow = showPrice && cross.priceV != null ? 18 : 0;
-              return (
-                <g>
-                  <rect
-                    x={cross.tx}
-                    y={cross.ty}
-                    width={cross.cardW}
-                    height={cross.cardH}
-                    rx={6}
-                    fill="var(--color-panel)"
-                    stroke="var(--color-edge)"
-                    strokeWidth={1}
-                    opacity={0.92}
-                  />
-                  <text
-                    x={cross.tx + 12}
-                    y={cross.ty + 18}
-                    fontSize={10.5}
-                    className="fill-[var(--color-muted)]"
-                  >
-                    θ
-                  </text>
-                  <text
-                    x={cross.tx + cross.cardW - 12}
-                    y={cross.ty + 18}
-                    textAnchor="end"
-                    fontSize={11}
-                    className="fill-[var(--color-fg)] font-semibold"
-                  >
-                    {fmt(cross.theta, xDecHover)}
-                  </text>
+                    <circle
+                      cx={cross.tx + 15}
+                      cy={cross.ty + 33}
+                      r={3.5}
+                      fill="var(--color-accent)"
+                    />
+                    <text
+                      x={cross.tx + 24}
+                      y={cross.ty + 36.5}
+                      fontSize={10.5}
+                      className="fill-[var(--color-muted)]"
+                    >
+                      Belief
+                    </text>
+                    <text
+                      x={cross.tx + cross.cardW - 12}
+                      y={cross.ty + 36.5}
+                      textAnchor="end"
+                      fontSize={11}
+                      className="fill-[var(--color-accent)] font-semibold"
+                    >
+                      {axisMode === 'density' ? fmtDensity(cross.density) : cross.like.toFixed(2)}
+                    </text>
 
-                  <circle
-                    cx={cross.tx + 15}
-                    cy={cross.ty + 33}
-                    r={3.5}
-                    fill="var(--color-accent)"
-                  />
-                  <text
-                    x={cross.tx + 24}
-                    y={cross.ty + 36.5}
-                    fontSize={10.5}
-                    className="fill-[var(--color-muted)]"
-                  >
-                    Belief
-                  </text>
-                  <text
-                    x={cross.tx + cross.cardW - 12}
-                    y={cross.ty + 36.5}
-                    textAnchor="end"
-                    fontSize={11}
-                    className="fill-[var(--color-accent)] font-semibold"
-                  >
-                    {axisMode === 'density' ? fmtDensity(cross.density) : cross.like.toFixed(2)}
-                  </text>
+                    <circle cx={cross.tx + 15} cy={cross.ty + 51} r={3.5} fill="var(--color-buy)" />
+                    <text
+                      x={cross.tx + 24}
+                      y={cross.ty + 54.5}
+                      fontSize={10.5}
+                      className="fill-[var(--color-muted)]"
+                    >
+                      Payoff
+                    </text>
+                    <text
+                      x={cross.tx + cross.cardW - 12}
+                      y={cross.ty + 54.5}
+                      textAnchor="end"
+                      fontSize={11}
+                      className="fill-[var(--color-buy)] font-semibold"
+                    >
+                      {fmtCompact(cross.payV)}
+                    </text>
 
-                  <circle cx={cross.tx + 15} cy={cross.ty + 51} r={3.5} fill="var(--color-buy)" />
-                  <text
-                    x={cross.tx + 24}
-                    y={cross.ty + 54.5}
-                    fontSize={10.5}
-                    className="fill-[var(--color-muted)]"
-                  >
-                    Payoff
-                  </text>
-                  <text
-                    x={cross.tx + cross.cardW - 12}
-                    y={cross.ty + 54.5}
-                    textAnchor="end"
-                    fontSize={11}
-                    className="fill-[var(--color-buy)] font-semibold"
-                  >
-                    {fmtCompact(cross.payV)}
-                  </text>
+                    {/* fair price of the contract re-struck at θ (matches the price overlay/panel) */}
+                    {priceRow > 0 && cross.priceV != null && (
+                      <>
+                        <circle
+                          cx={cross.tx + 15}
+                          cy={cross.ty + 69}
+                          r={3.5}
+                          fill="var(--color-price)"
+                        />
+                        <text
+                          x={cross.tx + 24}
+                          y={cross.ty + 72.5}
+                          fontSize={10.5}
+                          className="fill-[var(--color-muted)]"
+                        >
+                          Price
+                        </text>
+                        <text
+                          x={cross.tx + cross.cardW - 12}
+                          y={cross.ty + 72.5}
+                          textAnchor="end"
+                          fontSize={11}
+                          className="fill-[var(--color-price)] font-semibold"
+                        >
+                          {fmtCompact(cross.priceV)}
+                        </text>
+                      </>
+                    )}
 
-                  {/* fair price of the contract re-struck at θ (matches the price overlay/panel) */}
-                  {priceRow > 0 && cross.priceV != null && (
-                    <>
-                      <circle
-                        cx={cross.tx + 15}
-                        cy={cross.ty + 69}
-                        r={3.5}
-                        fill="var(--color-price)"
-                      />
-                      <text
-                        x={cross.tx + 24}
-                        y={cross.ty + 72.5}
-                        fontSize={10.5}
-                        className="fill-[var(--color-muted)]"
-                      >
-                        Price
-                      </text>
-                      <text
-                        x={cross.tx + cross.cardW - 12}
-                        y={cross.ty + 72.5}
-                        textAnchor="end"
-                        fontSize={11}
-                        className="fill-[var(--color-price)] font-semibold"
-                      >
-                        {fmtCompact(cross.priceV)}
-                      </text>
-                    </>
-                  )}
-
-                  {/* Unit cost: a $1 binary at θ costs its probability. P(≤θ)/P(≥θ) are
+                    {/* Unit cost: a $1 binary at θ costs its probability. P(≤θ)/P(≥θ) are
                       both the market's odds AND the price to buy $1 of "below"/"above θ". */}
-                  <line
-                    x1={cross.tx + 12}
-                    x2={cross.tx + cross.cardW - 12}
-                    y1={cross.ty + 63 + priceRow}
-                    y2={cross.ty + 63 + priceRow}
-                    stroke="var(--color-edge)"
-                    strokeWidth={1}
-                    opacity={0.6}
-                  />
-                  <text
-                    x={cross.tx + 12}
-                    y={cross.ty + 77 + priceRow}
-                    fontSize={10.5}
-                    className="fill-[var(--color-muted)]"
-                  >
-                    ≤ θ · $1 if so
-                  </text>
-                  <text
-                    x={cross.tx + cross.cardW - 12}
-                    y={cross.ty + 77 + priceRow}
-                    textAnchor="end"
-                    fontSize={11}
-                    className="fill-[var(--color-warn)] font-semibold"
-                  >
-                    {`${fmtPct(cross.cdfBelow)} · $${cross.cdfBelow.toFixed(2)}`}
-                  </text>
-                  <text
-                    x={cross.tx + 12}
-                    y={cross.ty + 90 + priceRow}
-                    fontSize={10.5}
-                    className="fill-[var(--color-muted)]"
-                  >
-                    ≥ θ · $1 if so
-                  </text>
-                  <text
-                    x={cross.tx + cross.cardW - 12}
-                    y={cross.ty + 90 + priceRow}
-                    textAnchor="end"
-                    fontSize={11}
-                    className="fill-[var(--color-warn)] font-semibold"
-                  >
-                    {`${fmtPct(cross.cdfAbove)} · $${cross.cdfAbove.toFixed(2)}`}
-                  </text>
-                </g>
-              );
-            })()}
-        </g>
-      )}
+                    <line
+                      x1={cross.tx + 12}
+                      x2={cross.tx + cross.cardW - 12}
+                      y1={cross.ty + 63 + priceRow}
+                      y2={cross.ty + 63 + priceRow}
+                      stroke="var(--color-edge)"
+                      strokeWidth={1}
+                      opacity={0.6}
+                    />
+                    <text
+                      x={cross.tx + 12}
+                      y={cross.ty + 77 + priceRow}
+                      fontSize={10.5}
+                      className="fill-[var(--color-muted)]"
+                    >
+                      ≤ θ · $1 if so
+                    </text>
+                    <text
+                      x={cross.tx + cross.cardW - 12}
+                      y={cross.ty + 77 + priceRow}
+                      textAnchor="end"
+                      fontSize={11}
+                      className="fill-[var(--color-warn)] font-semibold"
+                    >
+                      {`${fmtPct(cross.cdfBelow)} · $${cross.cdfBelow.toFixed(2)}`}
+                    </text>
+                    <text
+                      x={cross.tx + 12}
+                      y={cross.ty + 90 + priceRow}
+                      fontSize={10.5}
+                      className="fill-[var(--color-muted)]"
+                    >
+                      ≥ θ · $1 if so
+                    </text>
+                    <text
+                      x={cross.tx + cross.cardW - 12}
+                      y={cross.ty + 90 + priceRow}
+                      textAnchor="end"
+                      fontSize={11}
+                      className="fill-[var(--color-warn)] font-semibold"
+                    >
+                      {`${fmtPct(cross.cdfAbove)} · $${cross.cdfAbove.toFixed(2)}`}
+                    </text>
+                  </g>
+                );
+              })()}
+          </g>
+        )}
 
-      {/* axis captions */}
-      <text
-        x={PLOT.r}
-        y={H - 2}
-        textAnchor="end"
-        className="fill-[var(--color-muted)]"
-        fontSize={10}
+        {/* axis captions */}
+        <text
+          x={PLOT.r}
+          y={H - 2}
+          textAnchor="end"
+          className="fill-[var(--color-muted)]"
+          fontSize={10}
+        >
+          outcome θ ({outcomeUnit})
+        </text>
+      </svg>
+
+      {/* top-right help — replaces the inline gesture hint */}
+      <button
+        type="button"
+        onClick={() => {
+          setHelp((v) => !v);
+          setMenu(null);
+        }}
+        aria-label="Chart controls help"
+        className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full border border-edge bg-panel-2/80 text-[11px] font-semibold text-muted backdrop-blur transition-colors hover:border-accent/60 hover:text-fg"
       >
-        outcome θ ({outcomeUnit})
-      </text>
-    </svg>
+        ?
+      </button>
+      {help && <HelpPopover onClose={() => setHelp(false)} />}
+
+      {menu && (
+        <ChartMenu
+          x={menu.x}
+          y={menu.y}
+          ranges={{ x0: lo, x1: hi, y0: payAxisLo, y1: payAxisHi }}
+          outcomeUnit={outcomeUnit}
+          onFit={() => {
+            fitY();
+            setMenu(null);
+          }}
+          onReset={() => {
+            resetView();
+            setMenu(null);
+          }}
+          onApply={applyRanges}
+          onClose={() => setMenu(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function HelpPopover({ onClose }: { onClose: () => void }) {
+  const rows: [string, string][] = [
+    ['Drag plot', 'pan the outcome (θ) axis'],
+    ['Bottom axis', 'drag to zoom θ in / out'],
+    ['Left axis', 'drag to scale Y (both axes together)'],
+    ['Right axis', 'drag to shift Y (slide all curves; reveals negatives)'],
+    ['Double-click', 'fit every curve into view'],
+    ['Right-click', 'menu — fit, reset, manual ranges'],
+  ];
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Close help"
+        className="fixed inset-0 z-10 cursor-default"
+        onClick={onClose}
+      />
+      <div className="surface absolute right-2 top-9 z-20 w-64 rounded-lg border border-edge bg-panel/95 p-3 text-xs shadow-soft backdrop-blur animate-pop">
+        <div className="mb-1.5 font-semibold text-fg">Chart controls</div>
+        <dl className="flex flex-col gap-1">
+          {rows.map(([k, v]) => (
+            <div key={k} className="flex justify-between gap-3">
+              <dt className="shrink-0 font-medium text-accent">{k}</dt>
+              <dd className="text-right text-muted">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </>
+  );
+}
+
+function ChartMenu({
+  x,
+  y,
+  ranges,
+  outcomeUnit,
+  onFit,
+  onReset,
+  onApply,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  ranges: { x0: number; x1: number; y0: number; y1: number };
+  outcomeUnit: string;
+  onFit: () => void;
+  onReset: () => void;
+  onApply: (x0: number, x1: number, y0: number, y1: number) => void;
+  onClose: () => void;
+}) {
+  const [manual, setManual] = useState(false);
+  const f = (n: number) => (Number.isFinite(n) ? Number(n.toFixed(4)).toString() : '0');
+  const [x0, setX0] = useState(f(ranges.x0));
+  const [x1, setX1] = useState(f(ranges.x1));
+  const [y0, setY0] = useState(f(ranges.y0));
+  const [y1, setY1] = useState(f(ranges.y1));
+
+  const apply = () => onApply(Number(x0), Number(x1), Number(y0), Number(y1));
+
+  // Keep the menu on-screen (it's positioned host-relative; clamp the right/bottom edge).
+  const left = Math.max(4, Math.min(x, 560));
+  const top = Math.max(4, y);
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Close menu"
+        className="fixed inset-0 z-10 cursor-default"
+        onClick={onClose}
+      />
+      <div
+        className="surface absolute z-20 w-56 rounded-lg border border-edge bg-panel/95 p-1.5 text-xs shadow-soft backdrop-blur animate-pop"
+        style={{ left, top }}
+      >
+        {!manual ? (
+          <div className="flex flex-col">
+            <MenuItem
+              label="Fit all curves"
+              hint="frame everything, incl. negatives"
+              onClick={onFit}
+            />
+            <MenuItem label="Reset (0-based)" hint="zero on the bottom axis" onClick={onReset} />
+            <MenuItem label="Manual ranges…" onClick={() => setManual(true)} />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2 p-1.5">
+            <RangeRow label={`θ (${outcomeUnit})`} a={x0} b={x1} setA={setX0} setB={setX1} />
+            <RangeRow label="payoff Y" a={y0} b={y1} setA={setY0} setB={setY1} />
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={apply}
+                className="flex-1 rounded-md bg-grad-accent px-2 py-1 font-semibold text-on-accent"
+              >
+                Apply
+              </button>
+              <button
+                type="button"
+                onClick={() => setManual(false)}
+                className="rounded-md border border-edge px-2 py-1 text-muted hover:text-fg"
+              >
+                Back
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function MenuItem({ label, hint, onClick }: { label: string; hint?: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex flex-col items-start rounded-md px-2 py-1.5 text-left transition-colors hover:bg-panel-2"
+    >
+      <span className="font-medium text-fg">{label}</span>
+      {hint && <span className="text-[10px] text-muted">{hint}</span>}
+    </button>
+  );
+}
+
+function RangeRow({
+  label,
+  a,
+  b,
+  setA,
+  setB,
+}: {
+  label: string;
+  a: string;
+  b: string;
+  setA: (s: string) => void;
+  setB: (s: string) => void;
+}) {
+  const cls =
+    'tnum w-full rounded border border-edge bg-panel-2 px-1.5 py-1 text-xs text-fg outline-none focus:border-accent';
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[10px] uppercase tracking-wide text-muted">{label}</span>
+      <div className="flex items-center gap-1">
+        <input type="number" value={a} onChange={(e) => setA(e.target.value)} className={cls} />
+        <span className="text-muted">→</span>
+        <input type="number" value={b} onChange={(e) => setB(e.target.value)} className={cls} />
+      </div>
+    </label>
   );
 }
 

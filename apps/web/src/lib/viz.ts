@@ -344,6 +344,69 @@ export function toPath(pts: Pt[], sx: (x: number) => number, sy: (y: number) => 
     .join(' ');
 }
 
+// Smooth SVG path through points using a SHAPE-PRESERVING monotone cubic (Fritsch–
+// Carlson tangents), emitted as cubic béziers. Unlike a plain Catmull-Rom it never
+// overshoots between samples — so a belief bump or a CDF's S never bulges below 0 or
+// past 1 — which makes it safe for the smooth curves (belief / CDF / price). Points
+// must be x-increasing (they are: every smoothed curve is sampled left→right). Falls
+// back to a straight segment for <3 points. Operates on the pixel-mapped points.
+export function smoothPath(
+  pts: Pt[],
+  sx: (x: number) => number,
+  sy: (y: number) => number,
+): string {
+  const n = pts.length;
+  if (n === 0) return '';
+  const X = pts.map((p) => sx(p.x));
+  const Y = pts.map((p) => sy(p.y));
+  if (n < 3) return toPath(pts, sx, sy);
+
+  // Secant slopes between consecutive points.
+  const dx: number[] = [];
+  const slope: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const h = (X[i + 1] as number) - (X[i] as number);
+    dx.push(h);
+    slope.push(h !== 0 ? ((Y[i + 1] as number) - (Y[i] as number)) / h : 0);
+  }
+  // Tangents: average of adjacent secants, then the Fritsch–Carlson monotonicity clamp.
+  const m: number[] = new Array(n);
+  m[0] = slope[0] as number;
+  m[n - 1] = slope[n - 2] as number;
+  for (let i = 1; i < n - 1; i++) {
+    const s0 = slope[i - 1] as number;
+    const s1 = slope[i] as number;
+    m[i] = s0 * s1 <= 0 ? 0 : (s0 + s1) / 2;
+  }
+  for (let i = 0; i < n - 1; i++) {
+    const s = slope[i] as number;
+    if (s === 0) {
+      m[i] = 0;
+      m[i + 1] = 0;
+      continue;
+    }
+    const a = (m[i] as number) / s;
+    const b = (m[i + 1] as number) / s;
+    const h = a * a + b * b;
+    if (h > 9) {
+      const t = 3 / Math.sqrt(h);
+      m[i] = t * a * s;
+      m[i + 1] = t * b * s;
+    }
+  }
+
+  let d = `M${(X[0] as number).toFixed(2)} ${(Y[0] as number).toFixed(2)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const h = dx[i] as number;
+    const x1 = (X[i] as number) + h / 3;
+    const y1 = (Y[i] as number) + ((m[i] as number) * h) / 3;
+    const x2 = (X[i + 1] as number) - h / 3;
+    const y2 = (Y[i + 1] as number) - ((m[i + 1] as number) * h) / 3;
+    d += ` C${x1.toFixed(2)} ${y1.toFixed(2)} ${x2.toFixed(2)} ${y2.toFixed(2)} ${(X[i + 1] as number).toFixed(2)} ${(Y[i + 1] as number).toFixed(2)}`;
+  }
+  return d;
+}
+
 // Settlement P&L of a position as a function of the outcome θ
 // pnl(θ) = quantity · payoff(spec, θ) − costBasis.
 // This is exactly what the holder realises if the market resolves at θ, so the

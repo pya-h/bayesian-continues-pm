@@ -131,18 +131,27 @@ The chart shows two quantities on one outcome (θ) x-axis:
 These have **different units**, so equal *values* on the two axes are not meant to sit at
 the same height. What *is* enforced (so the picture reads honestly) is:
 
-- **A single shared zero.** Both axes put `0` on the same horizontal line — drawn dead
-  centre — so neither curve looks "lifted" relative to the other.
+- **A single shared zero.** Both axes put `0` on the same horizontal line. **By default
+  that line is the bottom axis** — the view is 0-based and shows only the positive part
+  of each curve (a Linear payoff's negative tail is simply off the bottom until you ask
+  for it).
 - **One shared vertical scale.** Dragging the **left** gutter scales *both* axes' value
   ranges by the same factor, so their span ratio is preserved — every curve grows or
   shrinks together about the shared zero.
 - **One shared vertical shift.** Dragging the **right** gutter slides *every* curve up or
-  down together by the same pixels, without rescaling (shape preserved).
-- The bottom gutter still zooms the x-axis; dragging inside the plot pans x; double-click
-  resets.
+  down together by the same pixels, without rescaling (shape preserved). Sliding the zero
+  line up is how you bring a curve's **negative** region into view.
+- Both y-axes are **numbered across their whole height** (ticks track the visible range),
+  so there are never blank, unlabelled stretches as you scale.
+- The bottom gutter zooms the x-axis; dragging inside the plot pans x.
+- **Double-click = fit:** the chart picks a shared scale + shift that frames every visible
+  curve at once, negative regions included.
+- **Right-click = menu:** fit, reset to the 0-based default, or type exact θ / payoff
+  ranges. A **?** in the top corner lists every gesture.
 
 The CDF and fair-price overlays obey the same shared scale/shift, so the whole plot moves
-as one.
+as one. The inherently-smooth curves (belief, CDF, price) are drawn with a shape-preserving
+monotone spline (no overshoot past 0 or 1); the payoff keeps its exact straight kinks.
 
 ### Where two curves coincide: two-colour segments
 
