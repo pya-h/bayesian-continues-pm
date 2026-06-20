@@ -44,8 +44,29 @@ const TYPES: { type: ContractSpec['type']; label: string; hint: string }[] = [
   },
 ];
 
+// Spinner / default-seed granularity for outcome-axis params (strike, center
+// bounds, widths), scaled to the belief width σ. Returns a power of ten roughly
+// two decades below σ — σ≈12 → 0.1, σ≈3 → 0.01, σ≈120 → 1 — so tight markets get
+// fine steps and a fractional strike (K=3.5) is never silently snapped to a whole
+// number, while wide markets stay tidy. The server accepts arbitrary finite
+// floats; this only shapes the UI's defaults and spinner increments.
+export function outcomeStep(sigma: number): number {
+  const s = Math.max(Math.abs(sigma), 1e-9);
+  return 10 ** (Math.floor(Math.log10(s)) - 2);
+}
+
+// Snap to the σ-scaled grid, cleaning float noise to the step's decimal places.
+function snap(x: number, step: number): number {
+  const snapped = Math.round(x / step) * step;
+  const decimals = Math.max(0, -Math.floor(Math.log10(step)));
+  return Number(snapped.toFixed(decimals));
+}
+
 export function defaultSpec(type: ContractSpec['type'], mu: number, sigma: number): ContractSpec {
-  const round = (x: number) => Math.round(x);
+  const step = outcomeStep(sigma);
+  const round = (x: number) => snap(x, step);
+  // widths must stay strictly positive even when σ snaps near zero.
+  const width = (x: number) => Math.max(step, snap(x, step));
   switch (type) {
     case 'LINEAR':
       return { type };
@@ -58,23 +79,25 @@ export function defaultSpec(type: ContractSpec['type'], mu: number, sigma: numbe
     case 'SPREAD':
       return { type, lower: round(mu - sigma), upper: round(mu + sigma) };
     case 'GAUSSIAN':
-      return { type, center: round(mu), width: round(sigma) || 1 };
+      return { type, center: round(mu), width: width(sigma) };
     case 'SKEW_GAUSSIAN':
       return {
         type,
         center: round(mu),
-        widthLeft: round(sigma) || 1,
-        widthRight: round(1.6 * sigma) || 1,
+        widthLeft: width(sigma),
+        widthRight: width(1.6 * sigma),
       };
     case 'TENT':
-      return { type, center: round(mu), width: round(2 * sigma) || 1 };
+      return { type, center: round(mu), width: width(2 * sigma) };
     case 'TRAPEZOID':
-      return { type, lower: round(mu - sigma), upper: round(mu + sigma), width: round(sigma) || 1 };
+      return { type, lower: round(mu - sigma), upper: round(mu + sigma), width: width(sigma) };
     case 'SIGMOID':
-      return { type, center: round(mu), width: Math.max(1, round(0.5 * sigma)) };
-    case 'POLYNOMIAL':
+      return { type, center: round(mu), width: width(0.5 * sigma) };
+    case 'POLYNOMIAL': {
       // a centered parabola (θ−μ)² = μ² − 2μθ + θ² — a "distance from μ" bet.
-      return { type, coeffs: [round(mu) ** 2, -2 * round(mu), 1] };
+      const c = round(mu);
+      return { type, coeffs: [c ** 2, -2 * c, 1] };
+    }
     case 'EXPONENTIAL':
       // a gentle rate so |a|·σ stays modest; user can sharpen it.
       return { type, center: round(mu), rate: Number((1 / Math.max(1, sigma)).toFixed(4)) };
@@ -204,7 +227,7 @@ export function ContractComposer({
   outcomeMax?: number | null;
   nu?: number;
 }) {
-  const step = Math.max(1, 10 ** Math.floor(Math.log10(Math.max(1, sigma))) / 10);
+  const step = outcomeStep(sigma);
   // The selected spec is checked as-edited (rate/degree matter); the per-type
   // buttons preview their default spec since their params aren't set yet.
   const selectedReason = disabledReason(spec, model, outcomeMin, outcomeMax, nu);

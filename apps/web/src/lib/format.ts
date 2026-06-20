@@ -45,6 +45,15 @@ export function fmtPct(frac: number | null | undefined, decimals = 1): string {
   return `${(frac * 100).toFixed(decimals)}%`;
 }
 
+// Outcome-axis parameter (strike, center, bound, width): show its real precision
+// up to 4 decimals, trimming trailing zeros — so K=3.5 reads "3.5" and K=4 reads
+// "4". Strikes/centers can be fractional (the spinner step scales to σ), so the
+// old fixed-0-decimal label silently hid the fractional part.
+function fmtAxis(n: number | null | undefined): string {
+  if (n === null || n === undefined || !Number.isFinite(n)) return '—';
+  return n.toLocaleString('en-US', { maximumFractionDigits: 4 });
+}
+
 // Render coeffs [a₀..aₙ] as a compact "a₀ + a₁θ + a₂θ² …" string (skips zero terms).
 function polyLabel(coeffs: number[]): string {
   const terms = coeffs
@@ -70,35 +79,29 @@ export function specLabel(spec: {
     case 'LINEAR':
       return 'Linear (θ)';
     case 'CALL':
-      return `Call · K=${fmt(spec.strike ?? 0, 0)}`;
+      return `Call · K=${fmtAxis(spec.strike ?? 0)}`;
     case 'PUT':
-      return `Put · K=${fmt(spec.strike ?? 0, 0)}`;
+      return `Put · K=${fmtAxis(spec.strike ?? 0)}`;
     case 'BINARY_CALL':
-      return `Binary ≥ ${fmt(spec.strike ?? 0, 0)}`;
+      return `Binary ≥ ${fmtAxis(spec.strike ?? 0)}`;
     case 'BINARY_PUT':
-      return `Binary ≤ ${fmt(spec.strike ?? 0, 0)}`;
+      return `Binary ≤ ${fmtAxis(spec.strike ?? 0)}`;
     case 'SPREAD':
-      return `Spread [${fmt(spec.lower ?? 0, 0)}, ${fmt(spec.upper ?? 0, 0)}]`;
+      return `Spread [${fmtAxis(spec.lower ?? 0)}, ${fmtAxis(spec.upper ?? 0)}]`;
     case 'GAUSSIAN':
-      return `Bell · c=${fmt(spec.center ?? 0, 0)} w=${fmt(spec.width ?? 0, 0)}`;
+      return `Bell · c=${fmtAxis(spec.center ?? 0)} w=${fmtAxis(spec.width ?? 0)}`;
     case 'SKEW_GAUSSIAN':
-      return `Skew bell · c=${fmt(spec.center ?? 0, 0)} wL=${fmt(spec.widthLeft ?? 0, 0)} wR=${fmt(
-        spec.widthRight ?? 0,
-        0,
-      )}`;
+      return `Skew bell · c=${fmtAxis(spec.center ?? 0)} wL=${fmtAxis(spec.widthLeft ?? 0)} wR=${fmtAxis(spec.widthRight ?? 0)}`;
     case 'TENT':
-      return `Tent · c=${fmt(spec.center ?? 0, 0)} w=${fmt(spec.width ?? 0, 0)}`;
+      return `Tent · c=${fmtAxis(spec.center ?? 0)} w=${fmtAxis(spec.width ?? 0)}`;
     case 'TRAPEZOID':
-      return `Trapezoid [${fmt(spec.lower ?? 0, 0)}, ${fmt(spec.upper ?? 0, 0)}] w=${fmt(
-        spec.width ?? 0,
-        0,
-      )}`;
+      return `Trapezoid [${fmtAxis(spec.lower ?? 0)}, ${fmtAxis(spec.upper ?? 0)}] w=${fmtAxis(spec.width ?? 0)}`;
     case 'SIGMOID':
-      return `Sigmoid · c=${fmt(spec.center ?? 0, 0)} w=${fmt(spec.width ?? 0, 0)}`;
+      return `Sigmoid · c=${fmtAxis(spec.center ?? 0)} w=${fmtAxis(spec.width ?? 0)}`;
     case 'POLYNOMIAL':
       return `Polynomial · ${polyLabel(spec.coeffs ?? [])}`;
     case 'EXPONENTIAL':
-      return `Exponential · e^(${fmt(spec.rate ?? 0, 3)}·(θ−${fmt(spec.center ?? 0, 0)}))`;
+      return `Exponential · e^(${fmt(spec.rate ?? 0, 3)}·(θ−${fmtAxis(spec.center ?? 0)}))`;
     default:
       return spec.type;
   }
