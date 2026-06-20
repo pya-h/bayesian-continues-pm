@@ -20,6 +20,8 @@
   --color-sell: #d8504d;
   --color-accent: #5b8cff;
   --color-warn: #e0a948;
+  /* fair-price curve — a cyan distinct from accent (blue), payoff (green) & CDF (amber) */
+  --color-price: #34c3d4;
   --color-on-accent: #ffffff;
 
   /* derived, theme- and accent-aware tints */
@@ -93,6 +95,7 @@
   --color-buy: #15935f;
   --color-sell: #d0413d;
   --color-warn: #b9831f;
+  --color-price: #1496a6;
 }
 
 /* ── accent presets (soft tints derive automatically) ────────────────────── */

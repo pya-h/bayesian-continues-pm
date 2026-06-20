@@ -13,11 +13,13 @@
 // Hovering the plot shows a crosshair + a translucent readout of the exact
 // (θ, belief-likelihood, payoff) under the cursor, with a dot on each curve.
 
-import { payoff } from '@bmm/core';
+import { payoff, price } from '@bmm/core';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { beliefFromView } from '../lib/beliefFromView.ts';
+import { setChartView, setHoverTheta, useChartView, useHoverTheta } from '../lib/chartSync.ts';
 import { fmt, fmtCompact, fmtPct } from '../lib/format.ts';
 import { setLiveSpec } from '../lib/liveSpec.ts';
+import { sweepKey, withParam } from '../lib/priceParam.ts';
 import type { BeliefComponent, ContractSpec } from '../lib/types.ts';
 import {
   type Domain,
@@ -68,7 +70,7 @@ interface Handle {
 }
 
 // The draggable parameters for a spec, in data (θ) units.
-function handlesFor(spec: ContractSpec): Handle[] {
+export function handlesFor(spec: ContractSpec): Handle[] {
   switch (spec.type) {
     case 'CALL':
     case 'PUT':
@@ -139,18 +141,28 @@ function LegendItem({
   color,
   label,
   block,
+  dash,
 }: {
   x: number;
   color: string;
   label: string;
   block?: boolean;
+  dash?: boolean;
 }) {
   return (
     <g>
       {block ? (
         <rect x={x} y={9} width={14} height={9} rx={2} fill={color} opacity={0.18} />
       ) : (
-        <line x1={x} x2={x + 14} y1={13.5} y2={13.5} stroke={color} strokeWidth={2.5} />
+        <line
+          x1={x}
+          x2={x + 14}
+          y1={13.5}
+          y2={13.5}
+          stroke={color}
+          strokeWidth={2.5}
+          strokeDasharray={dash ? '4 2.5' : undefined}
+        />
       )}
       <text x={x + 19} y={17} fontSize={11} className="fill-[var(--color-muted)]">
         {label}
@@ -167,6 +179,7 @@ function BeliefChartImpl({
   nu,
   genExact,
   showCdf = false,
+  showPrice = false,
   spec: specProp,
   onSpecChange,
   outcomeUnit,
@@ -185,6 +198,8 @@ function BeliefChartImpl({
   genExact?: { loc: number; scale: number; lambdas: [number, number, number] };
   // Overlay the cumulative-probability curve P(≤θ) on the same axes (0→1, peak-normalised height).
   showCdf?: boolean;
+  // Overlay the fair-price-vs-strike curve on its own scale (what the contract costs if its strike/center sat at θ).
+  showPrice?: boolean;
   spec: ContractSpec;
   onSpecChange: (s: ContractSpec) => void;
   outcomeUnit: string;
@@ -194,14 +209,21 @@ function BeliefChartImpl({
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragId = useRef<string | null>(null);
-  const [hover, setHover] = useState<{ theta: number; vy: number } | null>(null);
+  // The hovered outcome θ is SHARED (chartSync store) so a hover here marks the same
+  // θ on the CDF / price panels and vice-versa. `hoverVy` is local — the pointer's
+  // y, used only to place THIS chart's readout card; it's null when the hover
+  // originated on another (panel) chart, in which case we draw the marker but no card.
+  const hoverTheta = useHoverTheta();
+  const [hoverVy, setHoverVy] = useState<number | null>(null);
   // Left-axis scale: relative likelihood (peak = 1, default) vs absolute density.
   const [axisMode, setAxisMode] = useState<AxisMode>('relative');
 
   // User view transform layered on the auto-derived domain. xMul/yMul widen (>1)
   // or tighten (<1) the visible value RANGE of each axis; xOff slides the x-window
-  // without changing its span. Defaults are the identity view; double-click resets.
-  const [view, setView] = useState({ xMul: 1, xOff: 0, yMul: 1 });
+  // without changing its span. SHARED via chartSync so the panels pan/zoom in
+  // lock-step. Defaults are the identity view; double-click resets.
+  const view = useChartView();
+  const setView = setChartView;
   // Subscribe to display prefs: the formatters (fmt/fmtCompact) read module-level
   // precision/compact globals that memo can't see — context bypasses the memo
   // so a prefs change re-renders the chart's tick labels immediately.
@@ -301,6 +323,34 @@ function BeliefChartImpl({
   const payAxisHi = payMid + payHalf;
   const syPay = scale(payAxisLo, payAxisHi, PLOT.b, PLOT.t);
 
+  // Optional fair-price overlay: at each θ, the model price of THIS contract with its
+  // strike/center moved to θ — the same sweep the price-vs-strike panel draws, priced
+  // against the real belief. On its own value scale
+  // (price units), not the belief or payoff axes. Memoised on the spec SHAPE (sweepKey)
+  // + belief + domain. During ANY drag (handle OR pan/zoom) the domain shifts every
+  // frame, so the sweep re-prices each frame; we coarsen it then — hard for a Student-t
+  // where each price is a 4000-node quadrature — and snap back to full at rest.
+  const expensive = beliefKind === 'student_t';
+  const priceN = dragging ? (expensive ? 24 : 64) : samples;
+  const priceShapeKey = sweepKey(spec);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: priceShapeKey/spec.type encode the spec shape
+  const priceCurve = useMemo<Pt[]>(() => {
+    if (!showPrice) return [];
+    const [plo, phi] = domain;
+    const out: Pt[] = [];
+    for (let i = 0; i <= priceN; i++) {
+      const x = plo + ((phi - plo) * i) / priceN;
+      const s = withParam(spec, x);
+      if (s) out.push({ x, y: price(s, beliefModel) });
+    }
+    return out;
+  }, [showPrice, priceShapeKey, spec.type, beliefModel, domain, priceN]);
+  const hasPrice = showPrice && priceCurve.length > 0; // LINEAR has no strike param
+  const priceMin = hasPrice ? Math.min(...priceCurve.map((p) => p.y)) : 0;
+  let priceMax = hasPrice ? Math.max(...priceCurve.map((p) => p.y)) : 1;
+  if (priceMax - priceMin < 1e-9) priceMax = priceMin + 1; // flat-price guard
+  const syPrice = scale(priceMin, priceMax + (priceMax - priceMin) * 0.12, PLOT.b, PLOT.t);
+
   const regions = winningRegions(spec, domain);
   const xTicks = niceTicks(lo, hi, 6);
   // θ-axis label precision tracks the zoom: integers when wide, decimals when the
@@ -364,7 +414,7 @@ function BeliefChartImpl({
       dataSpan: hi - lo,
       plotPxW: (rect.width * (PLOT.r - PLOT.l)) / W,
     };
-    setHover(null);
+    clearHover();
     setDragging(true);
     svg.setPointerCapture?.(e.pointerId);
   };
@@ -386,17 +436,24 @@ function BeliefChartImpl({
     }
   };
 
+  // Clear BOTH the shared hovered-θ and this chart's local card anchor.
+  const clearHover = () => {
+    setHoverTheta(null);
+    setHoverVy(null);
+  };
+
   const updateHover = (clientX: number, clientY: number) => {
     const v = pointerToView(clientX, clientY);
     if (!v || v.vx < PLOT.l - 2 || v.vx > PLOT.r + 2 || v.vy < PLOT.t - 2 || v.vy > PLOT.b + 2) {
-      setHover((h) => (h ? null : h));
+      clearHover();
       return;
     }
     const theta = Math.min(
       hi,
       Math.max(lo, lo + ((v.vx - PLOT.l) / (PLOT.r - PLOT.l)) * (hi - lo)),
     );
-    setHover({ theta, vy: v.vy });
+    setHoverTheta(theta); // publish to the panels
+    setHoverVy(v.vy); // local: where to anchor THIS chart's readout card
   };
 
   // Begin dragging a contract handle. The drag stays local (dragSpec) until release.
@@ -406,7 +463,7 @@ function BeliefChartImpl({
     dragId.current = id;
     dragBaseSpec.current = spec;
     dragLatest.current = null;
-    setHover(null);
+    clearHover();
     setDragging(true);
     svgRef.current?.setPointerCapture?.(e.pointerId);
   };
@@ -461,7 +518,7 @@ function BeliefChartImpl({
   const onPointerUp = () => endDrag();
   const onLeave = () => {
     endDrag();
-    setHover(null);
+    clearHover();
   };
   const resetView = () => setView({ xMul: 1, xOff: 0, yMul: 1 });
 
@@ -474,18 +531,26 @@ function BeliefChartImpl({
     [],
   );
 
-  // Crosshair / readout geometry, derived from the hovered θ.
+  // Crosshair / readout geometry, derived from the SHARED hovered θ (which may come
+  // from this chart or from a synced panel). The marker (crosshair + curve dots) shows
+  // for any in-domain θ; the readout CARD only when the pointer is over THIS chart
+  // (hoverVy set) — a panel-originated hover gets the marker but not our card.
   const cross = (() => {
-    if (!hover) return null;
-    const theta = Math.min(hi, Math.max(lo, hover.theta));
+    if (hoverTheta == null || hoverTheta < lo || hoverTheta > hi) return null;
+    const theta = hoverTheta;
     const tpx = sx(theta);
     const pdfV = beliefModel.pdf(theta); // true density at θ (any belief kind)
     // The market's assessed chance the outcome lands at-or-below / at-or-above θ.
     const cdfBelow = Math.min(1, Math.max(0, beliefModel.cdf(theta)));
     const payV = payoff(spec, theta);
-    const hv = Math.min(PLOT.b, Math.max(PLOT.t, hover.vy));
+    const priceSpec = hasPrice ? withParam(spec, theta) : null;
+    const priceV = priceSpec ? price(priceSpec, beliefModel) : null;
+    const card = hoverVy != null; // self-hover → draw the readout card
     const cardW = 150;
-    const cardH = 96;
+    const cardH = (showPrice && priceV != null ? 114 : 96) as number;
+    // Anchor vertically to the pointer when self-hovering, else to the belief curve.
+    const anchorY = hoverVy != null ? hoverVy : syPdf(pdfV);
+    const hv = Math.min(PLOT.b, Math.max(PLOT.t, anchorY));
     let tx = tpx + 12;
     if (tx + cardW > PLOT.r) tx = tpx - 12 - cardW;
     if (tx < PLOT.l + 2) tx = PLOT.l + 2;
@@ -498,9 +563,11 @@ function BeliefChartImpl({
       cdfBelow,
       cdfAbove: 1 - cdfBelow,
       payV,
+      priceV,
       by: syPdf(pdfV),
       py: syPay(payV),
-      hv,
+      pyPrice: priceV != null ? syPrice(priceV) : 0,
+      card,
       tx,
       ty,
       cardW,
@@ -559,7 +626,15 @@ function BeliefChartImpl({
       />
       <LegendItem x={PLOT.l + 168} color="var(--color-buy)" label="Payoff" />
       <LegendItem x={PLOT.l + 268} color="var(--color-buy)" label="In-the-money" block />
-      {showCdf && <LegendItem x={PLOT.l + 392} color="var(--color-warn)" label="P(≤θ)" />}
+      {showCdf && <LegendItem x={PLOT.l + 392} color="var(--color-warn)" label="P(≤θ)" dash />}
+      {hasPrice && (
+        <LegendItem
+          x={PLOT.l + (showCdf ? 452 : 392)}
+          color="var(--color-price)"
+          label="Price"
+          dash
+        />
+      )}
 
       {/* left-axis scale toggle: relative likelihood (peak = 1) vs absolute density */}
       <g transform={`translate(${PLOT.r - 116}, 7)`}>
@@ -780,6 +855,21 @@ function BeliefChartImpl({
           d={toPath(cdf, sx, syCdf)}
           fill="none"
           stroke="var(--color-warn)"
+          strokeWidth={2}
+          strokeDasharray="5 3"
+          opacity={0.9}
+          filter={dragging ? undefined : 'url(#bc-glow)'}
+        />
+      )}
+
+      {/* fair-price overlay: the price-vs-strike sweep on its own value scale — a
+          dashed cyan curve tracking every pan / zoom, matching the price panel exactly */}
+      {hasPrice && (
+        <path
+          className="animate-fade-in"
+          d={toPath(priceCurve, sx, syPrice)}
+          fill="none"
+          stroke="var(--color-price)"
           strokeWidth={2}
           strokeDasharray="5 3"
           opacity={0.9}
@@ -1011,120 +1101,170 @@ function BeliefChartImpl({
               strokeWidth={1.5}
             />
           )}
-          {/* translucent readout card */}
-          <g>
-            <rect
-              x={cross.tx}
-              y={cross.ty}
-              width={cross.cardW}
-              height={cross.cardH}
-              rx={6}
-              fill="var(--color-panel)"
-              stroke="var(--color-edge)"
-              strokeWidth={1}
-              opacity={0.92}
+          {hasPrice && cross.priceV != null && (
+            <circle
+              cx={cross.tpx}
+              cy={cross.pyPrice}
+              r={3.5}
+              fill="var(--color-price)"
+              stroke="var(--color-ink)"
+              strokeWidth={1.5}
             />
-            <text
-              x={cross.tx + 12}
-              y={cross.ty + 18}
-              fontSize={10.5}
-              className="fill-[var(--color-muted)]"
-            >
-              θ
-            </text>
-            <text
-              x={cross.tx + cross.cardW - 12}
-              y={cross.ty + 18}
-              textAnchor="end"
-              fontSize={11}
-              className="fill-[var(--color-fg)] font-semibold"
-            >
-              {fmt(cross.theta, xDecHover)}
-            </text>
+          )}
+          {/* translucent readout card — only when the pointer is over THIS chart */}
+          {cross.card &&
+            (() => {
+              const priceRow = showPrice && cross.priceV != null ? 18 : 0;
+              return (
+                <g>
+                  <rect
+                    x={cross.tx}
+                    y={cross.ty}
+                    width={cross.cardW}
+                    height={cross.cardH}
+                    rx={6}
+                    fill="var(--color-panel)"
+                    stroke="var(--color-edge)"
+                    strokeWidth={1}
+                    opacity={0.92}
+                  />
+                  <text
+                    x={cross.tx + 12}
+                    y={cross.ty + 18}
+                    fontSize={10.5}
+                    className="fill-[var(--color-muted)]"
+                  >
+                    θ
+                  </text>
+                  <text
+                    x={cross.tx + cross.cardW - 12}
+                    y={cross.ty + 18}
+                    textAnchor="end"
+                    fontSize={11}
+                    className="fill-[var(--color-fg)] font-semibold"
+                  >
+                    {fmt(cross.theta, xDecHover)}
+                  </text>
 
-            <circle cx={cross.tx + 15} cy={cross.ty + 33} r={3.5} fill="var(--color-accent)" />
-            <text
-              x={cross.tx + 24}
-              y={cross.ty + 36.5}
-              fontSize={10.5}
-              className="fill-[var(--color-muted)]"
-            >
-              Belief
-            </text>
-            <text
-              x={cross.tx + cross.cardW - 12}
-              y={cross.ty + 36.5}
-              textAnchor="end"
-              fontSize={11}
-              className="fill-[var(--color-accent)] font-semibold"
-            >
-              {axisMode === 'density' ? fmtDensity(cross.density) : cross.like.toFixed(2)}
-            </text>
+                  <circle
+                    cx={cross.tx + 15}
+                    cy={cross.ty + 33}
+                    r={3.5}
+                    fill="var(--color-accent)"
+                  />
+                  <text
+                    x={cross.tx + 24}
+                    y={cross.ty + 36.5}
+                    fontSize={10.5}
+                    className="fill-[var(--color-muted)]"
+                  >
+                    Belief
+                  </text>
+                  <text
+                    x={cross.tx + cross.cardW - 12}
+                    y={cross.ty + 36.5}
+                    textAnchor="end"
+                    fontSize={11}
+                    className="fill-[var(--color-accent)] font-semibold"
+                  >
+                    {axisMode === 'density' ? fmtDensity(cross.density) : cross.like.toFixed(2)}
+                  </text>
 
-            <circle cx={cross.tx + 15} cy={cross.ty + 51} r={3.5} fill="var(--color-buy)" />
-            <text
-              x={cross.tx + 24}
-              y={cross.ty + 54.5}
-              fontSize={10.5}
-              className="fill-[var(--color-muted)]"
-            >
-              Payoff
-            </text>
-            <text
-              x={cross.tx + cross.cardW - 12}
-              y={cross.ty + 54.5}
-              textAnchor="end"
-              fontSize={11}
-              className="fill-[var(--color-buy)] font-semibold"
-            >
-              {fmtCompact(cross.payV)}
-            </text>
+                  <circle cx={cross.tx + 15} cy={cross.ty + 51} r={3.5} fill="var(--color-buy)" />
+                  <text
+                    x={cross.tx + 24}
+                    y={cross.ty + 54.5}
+                    fontSize={10.5}
+                    className="fill-[var(--color-muted)]"
+                  >
+                    Payoff
+                  </text>
+                  <text
+                    x={cross.tx + cross.cardW - 12}
+                    y={cross.ty + 54.5}
+                    textAnchor="end"
+                    fontSize={11}
+                    className="fill-[var(--color-buy)] font-semibold"
+                  >
+                    {fmtCompact(cross.payV)}
+                  </text>
 
-            {/* the market's assessed chance the outcome is ≤ / ≥ this θ (belief CDF) */}
-            <line
-              x1={cross.tx + 12}
-              x2={cross.tx + cross.cardW - 12}
-              y1={cross.ty + 63}
-              y2={cross.ty + 63}
-              stroke="var(--color-edge)"
-              strokeWidth={1}
-              opacity={0.6}
-            />
-            <text
-              x={cross.tx + 12}
-              y={cross.ty + 77}
-              fontSize={10.5}
-              className="fill-[var(--color-muted)]"
-            >
-              P(≤ θ)
-            </text>
-            <text
-              x={cross.tx + cross.cardW - 12}
-              y={cross.ty + 77}
-              textAnchor="end"
-              fontSize={11}
-              className="fill-[var(--color-warn)] font-semibold"
-            >
-              {fmtPct(cross.cdfBelow)}
-            </text>
-            <text
-              x={cross.tx + 12}
-              y={cross.ty + 90}
-              fontSize={10.5}
-              className="fill-[var(--color-muted)]"
-            >
-              P(≥ θ)
-            </text>
-            <text
-              x={cross.tx + cross.cardW - 12}
-              y={cross.ty + 90}
-              textAnchor="end"
-              fontSize={11}
-              className="fill-[var(--color-warn)] font-semibold"
-            >
-              {fmtPct(cross.cdfAbove)}
-            </text>
-          </g>
+                  {/* fair price of the contract re-struck at θ (matches the price overlay/panel) */}
+                  {priceRow > 0 && cross.priceV != null && (
+                    <>
+                      <circle
+                        cx={cross.tx + 15}
+                        cy={cross.ty + 69}
+                        r={3.5}
+                        fill="var(--color-price)"
+                      />
+                      <text
+                        x={cross.tx + 24}
+                        y={cross.ty + 72.5}
+                        fontSize={10.5}
+                        className="fill-[var(--color-muted)]"
+                      >
+                        Price
+                      </text>
+                      <text
+                        x={cross.tx + cross.cardW - 12}
+                        y={cross.ty + 72.5}
+                        textAnchor="end"
+                        fontSize={11}
+                        className="fill-[var(--color-price)] font-semibold"
+                      >
+                        {fmtCompact(cross.priceV)}
+                      </text>
+                    </>
+                  )}
+
+                  {/* the market's assessed chance the outcome is ≤ / ≥ this θ (belief CDF) */}
+                  <line
+                    x1={cross.tx + 12}
+                    x2={cross.tx + cross.cardW - 12}
+                    y1={cross.ty + 63 + priceRow}
+                    y2={cross.ty + 63 + priceRow}
+                    stroke="var(--color-edge)"
+                    strokeWidth={1}
+                    opacity={0.6}
+                  />
+                  <text
+                    x={cross.tx + 12}
+                    y={cross.ty + 77 + priceRow}
+                    fontSize={10.5}
+                    className="fill-[var(--color-muted)]"
+                  >
+                    P(≤ θ)
+                  </text>
+                  <text
+                    x={cross.tx + cross.cardW - 12}
+                    y={cross.ty + 77 + priceRow}
+                    textAnchor="end"
+                    fontSize={11}
+                    className="fill-[var(--color-warn)] font-semibold"
+                  >
+                    {fmtPct(cross.cdfBelow)}
+                  </text>
+                  <text
+                    x={cross.tx + 12}
+                    y={cross.ty + 90 + priceRow}
+                    fontSize={10.5}
+                    className="fill-[var(--color-muted)]"
+                  >
+                    P(≥ θ)
+                  </text>
+                  <text
+                    x={cross.tx + cross.cardW - 12}
+                    y={cross.ty + 90 + priceRow}
+                    textAnchor="end"
+                    fontSize={11}
+                    className="fill-[var(--color-warn)] font-semibold"
+                  >
+                    {fmtPct(cross.cdfAbove)}
+                  </text>
+                </g>
+              );
+            })()}
         </g>
       )}
 

@@ -6,22 +6,59 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.tsx';
-import { BeliefChart } from '../components/BeliefChart.tsx';
+import { BeliefChart, handlesFor } from '../components/BeliefChart.tsx';
 import { BeliefHistoryChart } from '../components/BeliefHistoryChart.tsx';
 import { CdfChart } from '../components/CdfChart.tsx';
 import { ContractComposer, defaultSpec } from '../components/ContractComposer.tsx';
 import { MiniBelief } from '../components/MiniBelief.tsx';
 import { PositionPanel } from '../components/PositionPanel.tsx';
 import { PriceCurveChart } from '../components/PriceCurveChart.tsx';
+import { PriceCurvePanel } from '../components/PriceCurvePanel.tsx';
 import { QuotePanel } from '../components/QuotePanel.tsx';
 import { TradesTape } from '../components/TradesTape.tsx';
 import { ErrorNote, FlashNumber, Panel, Spinner, Stat, StatusBadge } from '../components/ui.tsx';
 import { useMarket, useMarketHistory, useMarketStats } from '../hooks/queries.ts';
 import { useMarketSocket } from '../hooks/useMarketSocket.ts';
 import { ApiError } from '../lib/api.ts';
+import { resetChartSync } from '../lib/chartSync.ts';
 import { fmt, fmtCompact, fmtPct } from '../lib/format.ts';
 import type { ContractSpec, PortfolioPosition } from '../lib/types.ts';
 import { niceDomain } from '../lib/viz.ts';
+
+type OverlayMode = 'off' | 'overlay' | 'panel';
+
+function ModeSwitch({
+  label,
+  value,
+  onChange,
+  activeClass,
+}: {
+  label: string;
+  value: OverlayMode;
+  onChange: (m: OverlayMode) => void;
+  activeClass: string;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 text-[11px] text-muted">
+      <span className="font-medium">{label}</span>
+      <div className="surface-2 flex overflow-hidden rounded-md border border-edge p-0.5">
+        {(['off', 'overlay', 'panel'] as const).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => onChange(mode)}
+            aria-pressed={value === mode}
+            className={`rounded px-2 py-0.5 transition-all duration-200 ${
+              value === mode ? activeClass : 'text-muted hover:text-fg'
+            }`}
+          >
+            {mode}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function MarketPage() {
   const { id = '' } = useParams();
@@ -35,6 +72,8 @@ export function MarketPage() {
   const [sellRequest, setSellRequest] = useState<{ qty: number; nonce: number } | null>(null);
   // Cumulative-probability P(≤θ) view: off | overlaid on the belief chart | a panel below.
   const [cdfMode, setCdfMode] = useState<'off' | 'overlay' | 'panel'>('off');
+  // Fair-price-vs-strike view: off | overlaid on the belief chart | enlarged panel below.
+  const [priceMode, setPriceMode] = useState<'off' | 'overlay' | 'panel'>('off');
 
   // Click a held position → load its contract into the composer, ask the trade
   // panel to switch to Sell pre-filled, and bring the panel into view.
@@ -52,6 +91,7 @@ export function MarketPage() {
   useEffect(() => {
     setSpec(null);
     setSellRequest(null);
+    resetChartSync(); // clear the shared pan/zoom + hover when switching markets
   }, [id]);
 
   // Seed the composer with a Call once the belief is known.
@@ -68,6 +108,25 @@ export function MarketPage() {
         max: market.data?.outcomeMax ?? null,
       }),
     [mu, sigma, market.data?.outcomeMin, market.data?.outcomeMax],
+  );
+
+  // Pre-view base x-domain shared with the synced panels (CDF / price): same μ±σ
+  // window widened to the contract's kinks the belief chart uses, so the panels'
+  // axes line up with it exactly. The panels apply the shared pan/zoom on top.
+  const kinkKey = spec
+    ? handlesFor(spec)
+        .map((h) => h.value)
+        .join(',')
+    : '';
+  // biome-ignore lint/correctness/useExhaustiveDependencies: kinkKey encodes the spec kinks
+  const base = useMemo(
+    () =>
+      niceDomain(mu, sigma, {
+        kinks: spec ? handlesFor(spec).map((h) => h.value) : [],
+        min: market.data?.outcomeMin ?? null,
+        max: market.data?.outcomeMax ?? null,
+      }),
+    [mu, sigma, kinkKey, market.data?.outcomeMin, market.data?.outcomeMax],
   );
 
   // Error must be checked BEFORE the spinner: `spec` is only ever seeded from
@@ -180,27 +239,19 @@ export function MarketPage() {
           <Panel
             title="Belief & payoff"
             right={
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1.5 text-[11px] text-muted">
-                  <span className="font-medium">CDF</span>
-                  <div className="surface-2 flex overflow-hidden rounded-md border border-edge p-0.5">
-                    {(['off', 'overlay', 'panel'] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => setCdfMode(mode)}
-                        aria-pressed={cdfMode === mode}
-                        className={`rounded px-2 py-0.5 transition-all duration-200 ${
-                          cdfMode === mode
-                            ? 'btn-glow-warn bg-warn font-semibold text-ink'
-                            : 'text-muted hover:text-fg'
-                        }`}
-                      >
-                        {mode}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <ModeSwitch
+                  label="CDF"
+                  value={cdfMode}
+                  onChange={setCdfMode}
+                  activeClass="btn-glow-warn bg-warn font-semibold text-ink"
+                />
+                <ModeSwitch
+                  label="Price"
+                  value={priceMode}
+                  onChange={setPriceMode}
+                  activeClass="bg-price font-semibold text-ink"
+                />
                 <span className="hidden text-xs text-muted lg:inline">
                   drag plot to pan · drag axes to zoom · dbl-click resets
                 </span>
@@ -221,6 +272,7 @@ export function MarketPage() {
                     : undefined
                 }
                 showCdf={cdfMode === 'overlay'}
+                showPrice={priceMode === 'overlay'}
                 spec={spec}
                 onSpecChange={setSpec}
                 outcomeUnit={m.outcomeUnit}
@@ -237,6 +289,24 @@ export function MarketPage() {
                 </div>
                 <CdfChart
                   belief={m.belief}
+                  base={base}
+                  outcomeUnit={m.outcomeUnit}
+                  outcomeMin={m.outcomeMin}
+                  outcomeMax={m.outcomeMax}
+                  thetaStar={m.thetaStar}
+                />
+              </div>
+            )}
+            {priceMode === 'panel' && (
+              <div className="animate-fade-up border-t border-edge p-3">
+                <div className="mb-1 flex items-center gap-1.5 text-xs text-muted">
+                  <span className="inline-block h-2 w-2 rounded-full bg-price" />
+                  Fair price — what the contract costs if its strike/center sat at θ
+                </div>
+                <PriceCurvePanel
+                  spec={spec}
+                  belief={m.belief}
+                  base={base}
                   outcomeUnit={m.outcomeUnit}
                   outcomeMin={m.outcomeMin}
                   outcomeMax={m.outcomeMax}
@@ -274,9 +344,15 @@ export function MarketPage() {
               <BeliefHistoryChart points={history.data?.beliefHistory ?? []} />
             </Panel>
             <Panel title="Fair price vs strike">
-              <div className="p-2">
-                <PriceCurveChart spec={spec} belief={m.belief} domain={domain} />
-              </div>
+              {priceMode === 'panel' ? (
+                <div className="flex h-full min-h-[120px] items-center justify-center p-4 text-center text-xs text-muted">
+                  Shown enlarged above ↑
+                </div>
+              ) : (
+                <div className="p-2">
+                  <PriceCurveChart spec={spec} belief={m.belief} domain={domain} />
+                </div>
+              )}
             </Panel>
           </div>
         </div>

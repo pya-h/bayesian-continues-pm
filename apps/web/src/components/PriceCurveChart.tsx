@@ -8,73 +8,19 @@ import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { beliefFromView } from '../lib/beliefFromView.ts';
 import { fmt, fmtCompact } from '../lib/format.ts';
 import { getLiveSpec, subscribeLiveSpec } from '../lib/liveSpec.ts';
+import {
+  currentParam,
+  paramLabel,
+  reshapesWhileDragging,
+  sweepKey,
+  withParam,
+} from '../lib/priceParam.ts';
 import type { Belief, ContractSpec } from '../lib/types.ts';
 import { type Domain, fitPointDomain, niceTicks, scale, toPath } from '../lib/viz.ts';
 
 const W = 360;
 const H = 140;
 const P = { l: 34, r: 10, t: 12, b: 22 };
-
-// Build a spec with its primary parameter set to x (or null if not applicable).
-function withParam(spec: ContractSpec, x: number): ContractSpec | null {
-  switch (spec.type) {
-    case 'CALL':
-    case 'PUT':
-    case 'BINARY_CALL':
-    case 'BINARY_PUT':
-      return { ...spec, strike: x };
-    case 'GAUSSIAN':
-    case 'SKEW_GAUSSIAN':
-    case 'TENT':
-    case 'SIGMOID':
-    case 'EXPONENTIAL':
-      return { ...spec, center: x };
-    case 'SPREAD': {
-      const half = (spec.upper - spec.lower) / 2;
-      return { type: 'SPREAD', lower: x - half, upper: x + half };
-    }
-    case 'TRAPEZOID': {
-      const half = (spec.upper - spec.lower) / 2;
-      return { ...spec, lower: x - half, upper: x + half };
-    }
-    default:
-      return null; // LINEAR has no strike-like parameter
-  }
-}
-
-function currentParam(spec: ContractSpec): number | null {
-  switch (spec.type) {
-    case 'CALL':
-    case 'PUT':
-    case 'BINARY_CALL':
-    case 'BINARY_PUT':
-      return spec.strike;
-    case 'GAUSSIAN':
-    case 'SKEW_GAUSSIAN':
-    case 'TENT':
-    case 'SIGMOID':
-    case 'EXPONENTIAL':
-      return spec.center;
-    case 'SPREAD':
-    case 'TRAPEZOID':
-      return (spec.lower + spec.upper) / 2;
-    default:
-      return null;
-  }
-}
-
-function paramLabel(type: ContractSpec['type']): string {
-  if (
-    type === 'GAUSSIAN' ||
-    type === 'SKEW_GAUSSIAN' ||
-    type === 'TENT' ||
-    type === 'SIGMOID' ||
-    type === 'EXPONENTIAL'
-  )
-    return 'c';
-  if (type === 'SPREAD' || type === 'TRAPEZOID') return 'mid';
-  return 'K';
-}
 
 export function PriceCurveChart({
   spec: specProp,
@@ -110,20 +56,7 @@ export function PriceCurveChart({
   // SPREAD's width, a GAUSSIAN's width). This keeps a handle drag cheap even when
   // pricing needs quadrature (Student-t): we re-price the single dot per frame, not
   // all n points, which is what made the chart lag on a fat-tailed market.
-  const sweepKey =
-    spec.type === 'GAUSSIAN'
-      ? `G:${spec.width}`
-      : spec.type === 'SPREAD'
-        ? `S:${spec.upper - spec.lower}`
-        : spec.type === 'SKEW_GAUSSIAN'
-          ? `SK:${spec.widthLeft}:${spec.widthRight}`
-          : spec.type === 'TENT'
-            ? `T:${spec.width}`
-            : spec.type === 'SIGMOID'
-              ? `SG:${spec.width}`
-              : spec.type === 'TRAPEZOID'
-                ? `TR:${spec.upper - spec.lower}:${spec.width}`
-                : spec.type; // strike family: the curve is independent of the strike value
+  const shapeKey = sweepKey(spec);
 
   // SPREAD / GAUSSIAN (Bell) DO reshape as their width handle is dragged, so their
   // curve can't be cached away like the strike family — every frame re-sweeps. With
@@ -131,17 +64,10 @@ export function PriceCurveChart({
   // full 80-point re-sweep per frame janks. While such a drag is live we coarsen the
   // sweep (cheap closed-form kinds stay full-res); it snaps back to full on release.
   const dragging = liveSpec != null;
-  const reshapesWhileDragging =
-    spec.type === 'SPREAD' ||
-    spec.type === 'GAUSSIAN' ||
-    spec.type === 'SKEW_GAUSSIAN' ||
-    spec.type === 'TENT' ||
-    spec.type === 'TRAPEZOID' ||
-    spec.type === 'SIGMOID';
   const expensive = beliefView.kind === 'student_t'; // quadrature-priced, no closed form
-  const n = dragging && reshapesWhileDragging && expensive ? 22 : 80;
+  const n = dragging && reshapesWhileDragging(spec.type) && expensive ? 22 : 80;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sweepKey encodes the spec shape
+  // biome-ignore lint/correctness/useExhaustiveDependencies: shapeKey encodes the spec shape
   const pts = useMemo(() => {
     const out: { x: number; y: number }[] = [];
     for (let i = 0; i <= n; i++) {
@@ -150,7 +76,7 @@ export function PriceCurveChart({
       if (s) out.push({ x, y: price(s, belief) });
     }
     return out;
-  }, [sweepKey, belief, lo, hi, n]);
+  }, [shapeKey, belief, lo, hi, n]);
 
   if (param == null) {
     return <p className="p-4 text-sm text-muted">Linear pays θ — no strike to sweep.</p>;
