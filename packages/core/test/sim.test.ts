@@ -152,3 +152,100 @@ describe('adaptive parameters (V2-2c)', () => {
     }
   }, 30000);
 });
+
+// adaptive-parameter STABILITY. showed adaptation helps in one
+// volatile regime; this block pins that the controller is *stable*: bounded
+// within the rails everywhere, a consistent estimator of the true noise
+// scale (more evidence ⇒ closer to σ_obs), a stable saturation in the deeply
+// volatile regime (no drift/oscillation with horizon), and a benefit that is
+// robust across seeds — not a single-seed artifact. All deterministic.
+describe('adaptive-parameter stability (V2-7)', () => {
+  const LO = 0.1 * 20; // σ_ε lower rail = 0.1·σ₀ = 2
+  const HI = 2 * 20; // σ_ε upper rail = 2·σ₀ = 40
+  const STAB: Omit<SimParams, 'adaptive'> = {
+    runs: 300,
+    traders: 80,
+    mu0: 100,
+    sigma0: 20,
+    seed: 0xb33f,
+    strikeAtRead: true,
+  };
+
+  test('σ_ε is a consistent estimator: more evidence ⇒ closer to the true noise scale', () => {
+    // Interior regime (σ_obs = 1.5·σ₀ = 30, strictly inside the rails). σ_ε starts
+    // high and should walk DOWN toward σ_obs as more trades accumulate.
+    const horizons = [30, 80, 200];
+    const se = horizons.map(
+      (traders) =>
+        runMonteCarlo({ ...STAB, sigmaObs: 30, traders, adaptive: true }).meanSigmaEpsFinal,
+    );
+    // Always within the rails (bounded — never diverges).
+    for (const v of se) {
+      expect(v).toBeGreaterThanOrEqual(LO);
+      expect(v).toBeLessThanOrEqual(HI + 1e-9);
+    }
+    // Monotone approach from above toward σ_obs=30 as the horizon grows.
+    expect(se[0]).toBeGreaterThan(se[1]);
+    expect(se[1]).toBeGreaterThan(se[2]);
+    // The long horizon's estimate is strictly closer to the truth than the short one.
+    expect(Math.abs(se[2] - 30)).toBeLessThan(Math.abs(se[0] - 30));
+  });
+
+  test('stable saturation: in the deeply volatile regime σ_ε pins at the rail, horizon-independent', () => {
+    // σ_obs = 2·σ₀ = 40: the honest σ_ε wants the upper rail and stays clamped there
+    // regardless of horizon — no drift, no oscillation (the clamp is stable).
+    const sat = [30, 80, 200].map(
+      (traders) =>
+        runMonteCarlo({ ...STAB, sigmaObs: 40, traders, adaptive: true }).meanSigmaEpsFinal,
+    );
+    for (const v of sat) expect(v).toBeGreaterThanOrEqual(0.95 * HI); // ≈ pinned high
+    const spread =
+      (Math.max(...sat) - Math.min(...sat)) / (sat.reduce((a, b) => a + b) / sat.length);
+    expect(spread).toBeLessThan(0.05); // < 5% across a 6.7× horizon range
+    expect(runMonteCarlo({ ...STAB, sigmaObs: 40, adaptive: true }).railHitRate).toBe(1);
+  });
+
+  test('the calibration benefit is robust across seeds (not a single-seed artifact)', () => {
+    const calibs: number[] = [];
+    for (const seed of [1, 2, 3, 7, 42]) {
+      const c = compareAdaptiveVsStatic({ ...STAB, sigmaObs: 40, seed });
+      expect(c.static.calibration80).toBeLessThan(0.6); // static overconfident every seed
+      expect(c.adaptive.calibration80).toBeGreaterThan(0.7); // adaptive restores an honest CI
+      expect(c.adaptive.calibration80).toBeLessThan(0.9); // without over-correcting
+      expect(c.adaptiveCalibratesBetter).toBe(true);
+      calibs.push(c.adaptive.calibration80);
+    }
+    // Low cross-seed variance ⇒ the lift is a stable property, not luck.
+    expect(Math.max(...calibs) - Math.min(...calibs)).toBeLessThan(0.12);
+  });
+
+  test('bounded everywhere; monotonically beneficial across the volatile half of the spectrum', () => {
+    // σ_ε never leaves the rails across the whole σ_obs spectrum (calm → extreme)
+    // the controller is stable even where adaptation is neutral/over-cautious (σ_obs≈σ₀).
+    for (const ratio of [0.5, 1, 1.5, 2, 3, 4]) {
+      const c = compareAdaptiveVsStatic({ ...STAB, sigmaObs: ratio * 20 });
+      expect(c.adaptive.meanSigmaEpsFinal).toBeGreaterThanOrEqual(LO);
+      expect(c.adaptive.meanSigmaEpsFinal).toBeLessThanOrEqual(HI + 1e-9);
+      // In the volatile half (σ_obs ≥ 1.5·σ₀) adaptation strictly improves calibration.
+      if (ratio >= 1.5) expect(c.calibrationErrorDelta).toBeLessThan(0);
+    }
+  }, 30000);
+
+  test('stability holds across the model zoo (σ_ε within rails for every kind)', () => {
+    const kinds: BeliefKind[] = ['gaussian', 'student_t', 'mixture', 'gen_exact'];
+    for (const beliefKind of kinds) {
+      const s = runMonteCarlo({
+        ...STAB,
+        runs: 40,
+        traders: 50,
+        sigmaObs: 40,
+        adaptive: true,
+        beliefKind,
+        cfg: { genExactShapeAdapt: false },
+      });
+      expect(s.meanSigmaEpsFinal).toBeGreaterThanOrEqual(LO);
+      expect(s.meanSigmaEpsFinal).toBeLessThanOrEqual(HI + 1e-9);
+      expect(Number.isFinite(s.calibration80)).toBe(true);
+    }
+  }, 30000);
+});

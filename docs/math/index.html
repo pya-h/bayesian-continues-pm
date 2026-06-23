@@ -1926,6 +1926,17 @@ losses.sort();
         while the adaptive \( \sigma_\varepsilon \) rises (often onto its \( 2\sigma_0 \) rail — the
         §14 <em>param-rail</em> alert) and pulls the 80% interval back toward honesty. Adaptation earns
         its keep exactly where the static guess is wrong — the volatile regime.</p>
+        <p><strong>Stability (V2-7).</strong> Beyond "does it help", the controller is <em>stable</em>: \( \sigma_\varepsilon \)
+        is <strong>bounded</strong> within the §14 rails \( [0.1,2]\,\sigma_0 \) across the entire \( \sigma_\text{obs} \)
+        spectrum (it never diverges, even in the near-neutral \( \sigma_\text{obs}\approx\sigma_0 \) zone); it is a
+        <strong>consistent estimator</strong> of the true noise scale — in an interior regime
+        (\( \sigma_\text{obs}{=}1.5\sigma_0 \)) it walks monotonically toward \( \sigma_\text{obs} \) as evidence
+        accumulates, so the long-horizon estimate is strictly closer to the truth than the short-horizon one; and in
+        the deeply volatile regime (\( \sigma_\text{obs}\ge2\sigma_0 \)) it <strong>saturates the rail stably</strong> —
+        the mean final \( \sigma_\varepsilon \) varies \( &lt;5\% \) across a 6.7&times; horizon range, with no drift or
+        oscillation. The calibration lift is robust across seeds (every seed restores \( \text{calib}_{80}\in(0.7,0.9) \)
+        from a static \( {&lt;}0.6 \)), confirming it is a property of the controller, not a single-seed artifact.
+        Verified in <code>core/test/sim.test.ts</code> ("adaptive-parameter stability").</p>
       </details>
     </section>
 

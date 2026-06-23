@@ -5,14 +5,16 @@
 | [MODEL.md](MODEL.md) | The mathematical & functional **specification** (source of truth for the math). |
 | [v1/TDD.md](v1/TDD.md) | **V1 engineering design** — Gaussian beliefs, user-composable contracts, LP, 1× cash-collateralized. Includes the corrections to `MODEL.md` (see §2). |
 | [v1/TASKS.md](v1/TASKS.md) | **V1 phased build plan** (Phases 0–11). |
-| [v2/TDD.md](v2/TDD.md) | **V2 engineering design** — multi-modal beliefs, adaptive params, robust oracles/disputes, scale. **(Stays 1× cash-collateralized.)** |
-| [v2/TASKS.md](v2/TASKS.md) | **V2 phased build plan** (Phases V2-1 … V2-8). Prereq: V1 shipped. |
+| [v2/TDD.md](v2/TDD.md) | **V2 engineering design** — multi-modal beliefs, adaptive params, robust oracles/disputes. **(Stays 1× cash-collateralized.)** |
+| [v2/TASKS.md](v2/TASKS.md) | **V2 phased build plan** (Phases V2-1 … V2-8; V2-4 *Scale* moved to the `scaling` milestone). Prereq: V1 shipped. |
+| [scaling/TASKS.md](scaling/TASKS.md) | **Scaling phased build plan** (Phases S-1 … S-5) — horizontal scale & ops (Redis lock/pub-sub, leader-per-market, read replicas, rate limiting, multi-node hardening), carved out of V2-4. Deferred until load justifies it; single-node stays the default. |
 | [v3/TDD.md](v3/TDD.md) | **V3 engineering design** — **leverage, margin, shorting, liquidation engine, insurance fund** (the borrowed-exposure stack moved out of V2) plus **hedging** (MM reserve reduction). |
 | [v3/TASKS.md](v3/TASKS.md) | **V3 phased build plan** (Phases V3-1 … V3-6). Prereq: V1 + V2 shipped. |
 | [v3/shorting-and-leverage.md](v3/shorting-and-leverage.md) | **Concepts explainer** — how shorting/leverage/margin/liquidation work, their pros & cons, and why a prediction market wants them. |
 | [v3/HEDGING.md](v3/HEDGING.md) | **Hedging explainer** (Phase V3-4 / Workstream D) — how the MM lays off tail risk to cut the reserve; companion to the V3 plan. |
 | [v2/belief-and-exposure.md](v2/belief-and-exposure.md) | **Explainer** — why two-sided expression (incl. selling) matters for belief quality. |
 | [v2/trade-to-signal.md](v2/trade-to-signal.md) | **Explainer** — how a fill becomes a belief signal (extractSignal → Bayes update). |
+| [v2/RUNBOOK.md](v2/RUNBOOK.md) | **Ops runbook** (V2-7) — triage for oracle feed failure, disputes, adaptive-param rail hits, and the circuit breakers; symptom → cause → remediation. |
 | [capacity/](capacity/README.md) | **Market capacity & the solvency gate** — why buys get gated, the options to relax it, the chosen **soft-cap** design, and its build plan. See the folder index. |
 | [multi model/](multi%20model/README.md) | **Flexible-beliefs track** — generalizing beyond Gaussian/mixture/Student-t (parametric families, general belief form), with its own plan (G0…G6). |
 | [math/](math/index.html) | **Interactive math doc** — every formula of the engine as a live widget (open `math/index.html` in a browser). |
