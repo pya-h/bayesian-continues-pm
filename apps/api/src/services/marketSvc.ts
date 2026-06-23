@@ -264,6 +264,14 @@ export async function transitionMarket(
 
       const patch: Partial<MarketRow> = { status: rule.to, updatedAt: new Date() };
       if (action === 'resolve') {
+        // Single chokepoint for the `decentralized` placeholder: the enum
+        // value + create-form option exist, but no resolution path is implemented
+        // yet. Guard here so EVERY route (the admin manual-override escape hatch
+        // included) refuses it, rather than silently resolving it like a manual
+        // admin resolve. `api`/`centralized` are gated in their own services.
+        if (m.oracleMode === OracleMode.DECENTRALIZED) {
+          throw new HttpError(501, 'Decentralized oracle resolution is not implemented yet');
+        }
         if (opts.thetaStar == null || !Number.isFinite(opts.thetaStar)) {
           throw new HttpError(400, 'resolve requires a finite thetaStar');
         }

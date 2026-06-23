@@ -49,7 +49,11 @@ async function login(username: string, password: string): Promise<string> {
 
 interface CfgView {
   base: { sigmaEps: number; s0: number; alpha: number; beta: number };
-  control: { enabled?: boolean; pinned?: Record<string, number> };
+  control: {
+    enabled?: boolean;
+    pinned?: Record<string, number>;
+    cfg?: Record<string, number | boolean>;
+  };
   source: 'static' | 'adapt' | 'pin';
   state: { emaSlow: number; emaFast: number; count: number };
   adapted: {
@@ -249,5 +253,32 @@ describe.if(hasEnv)('adaptive parameters (V2-2b integration)', () => {
     expect(cfg.adapted.rails.sigmaEps).toBe('hi');
     expect(cfg.adapted.sigmaEps).toBeCloseTo(2 * 10, 6); // sigmaEpsHiRatio·σ₀
     expect(cfg.history.some((h) => h.source === 'breaker' && h.railHit)).toBe(true);
+  });
+
+  test('a malformed cfg override is rejected (400) and never persisted', async () => {
+    const id = await createMarket({ title: 'Adaptive bad-cfg (test)' });
+    await open(id);
+
+    // Inverted σ_ε rail (lo > hi) — clamp would pin every value to the wrong edge.
+    const inverted = await req('PATCH', `/admin/markets/${id}/cfg`, {
+      token: adminToken,
+      body: { cfg: { sigmaEpsLoRatio: 2, sigmaEpsHiRatio: 0.1 } },
+    });
+    expect(inverted.status).toBe(400);
+
+    // EWMA weight ≥ 1 — the controller recursion would diverge, not converge.
+    const diverging = await req('PATCH', `/admin/markets/${id}/cfg`, {
+      token: adminToken,
+      body: { cfg: { alphaSlow: 2 } },
+    });
+    expect(diverging.status).toBe(400);
+
+    // Nothing was persisted: the controller is still on its (valid) defaults.
+    const cfg = await getCfg(id);
+    expect(cfg.control.cfg).toBeUndefined();
+
+    // A valid override on the same market still works.
+    const ok = await patchCfg(id, { cfg: { sigmaEpsHiRatio: 1.5 } });
+    expect(ok.control.cfg).toEqual({ sigmaEpsHiRatio: 1.5 });
   });
 });

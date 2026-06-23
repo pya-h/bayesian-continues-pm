@@ -74,6 +74,38 @@ export function resolveAdaptiveConfig(control: AdaptiveControlDTO | undefined): 
   return acfg;
 }
 
+// Validate the controller invariants an admin override must not break (
+// hardening). Returns a list of human-readable violations (empty ⇒ valid). The
+// trade path clamps every output to the rails, but a malformed *config*
+// (inverted rails, an EWMA weight ≥ 1 that diverges instead of converging) would
+// make those clamps nonsensical — so we reject it at ingestion rather than persist
+// it and let it silently corrupt a live market's pricing. Validates the RESOLVED
+// config (defaults + overrides) so a one-sided override (e.g. only `sigmaEpsHiRatio`
+// pushed below the default `sigmaEpsLoRatio`) is still caught.
+export function validateAdaptiveConfig(acfg: AdaptiveConfig): string[] {
+  const errs: string[] = [];
+  // EWMA weights must be in (0,1] — outside that the recursion diverges/holds.
+  for (const k of ['alphaSlow', 'alphaFast'] as const) {
+    if (!(acfg[k] > 0 && acfg[k] <= 1)) errs.push(`${k} must be in (0, 1]`);
+  }
+  // Rails must be ordered lo ≤ hi, else clamp pins every value to the wrong edge.
+  const pairs: [string, number, string, number][] = [
+    ['sigmaEpsLoRatio', acfg.sigmaEpsLoRatio, 'sigmaEpsHiRatio', acfg.sigmaEpsHiRatio],
+    ['s0Lo', acfg.s0Lo, 's0Hi', acfg.s0Hi],
+    ['alphaLo', acfg.alphaLo, 'alphaHi', acfg.alphaHi],
+    ['betaLo', acfg.betaLo, 'betaHi', acfg.betaHi],
+  ];
+  for (const [lo, loV, hi, hiV] of pairs) {
+    if (loV > hiV) errs.push(`${lo} (${loV}) must be ≤ ${hi} (${hiV})`);
+    if (loV < 0) errs.push(`${lo} must be ≥ 0`);
+  }
+  if (acfg.regimeCap < 0) errs.push('regimeCap must be ≥ 0');
+  if (acfg.warmup < 0 || !Number.isInteger(acfg.warmup)) {
+    errs.push('warmup must be a non-negative integer');
+  }
+  return errs;
+}
+
 export function loadCfgState(row: { cfgState: MarketCfgState | null }): {
   state: AdaptiveState;
   control: AdaptiveControlDTO | undefined;

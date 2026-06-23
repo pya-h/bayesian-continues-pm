@@ -5,7 +5,7 @@ Operational playbook for the V2 surface: **oracle resolution**, the **dispute** 
 > **How alerts surface.** Breakers publish a `system:alert` message to the **`system` WS topic**; the web **AlertsBanner** renders them live (transient — there is no persisted alert store). The durable trails are the **`oracles`** table (one row per feed read / resolution, including stale reads) and **`audit_events`** (every lifecycle transition + admin action). When triaging after the fact, query those, not the banner.
 
 > **Escape hatches (always available to an admin).**
-> - **Resolve any market, any mode, any time:** `POST /admin/markets/:id/resolve` (source `manual_admin`). Bypasses the oracle-mode + deadline guards — the universal manual override.
+> - **Resolve any *implemented*-mode market, any time:** `POST /admin/markets/:id/resolve` (source `manual_admin`). Bypasses the deadline + assigned-oracle guards for `centralized`/`api` markets — the universal manual override. **Exception:** a `decentralized` market is refused (`501`) here too — that mode is an unimplemented placeholder, so there is no resolution path for it yet (don't create one until V-next ships UMA).
 > - **Assigned-oracle resolve:** `POST /oracle/markets/:id/resolve` (role `oracle` or admin, post-deadline).
 > - **Dispute queue:** `GET /admin/disputes?status=open` → `POST /admin/disputes/:id/resolve` (`uphold` overrides θ*, `reject` closes it).
 > - **Adaptive control:** `GET/PATCH /admin/markets/:id/cfg` (pin σ_ε/s₀, or disable adaptation).

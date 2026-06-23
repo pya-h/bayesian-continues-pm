@@ -13,7 +13,13 @@ import { desc, eq } from 'drizzle-orm';
 import { db } from '../db/client.ts';
 import type { UserRow } from '../db/repos.ts';
 import { marketCfgHistory, markets } from '../db/schema.ts';
-import { liveEngineConfig, loadCfgState, packCfgState } from '../lib/adaptiveCfg.ts';
+import {
+  liveEngineConfig,
+  loadCfgState,
+  packCfgState,
+  resolveAdaptiveConfig,
+  validateAdaptiveConfig,
+} from '../lib/adaptiveCfg.ts';
 import { writeAudit } from '../lib/audit.ts';
 import { HttpError } from '../lib/errors.ts';
 import { publish, topics } from '../realtime.ts';
@@ -77,6 +83,14 @@ export async function setMarketCfgControl(
   if (input.enabled !== undefined) next.enabled = input.enabled;
   if (input.pinned !== undefined) next.pinned = input.pinned;
   if (input.cfg !== undefined) next.cfg = input.cfg;
+
+  // Reject a config that would break the controller's invariants (inverted rails
+  // a diverging EWMA weight) before it can be persisted — the trade path then never
+  // has to defend against a malformed persisted config.
+  const violations = validateAdaptiveConfig(resolveAdaptiveConfig(next));
+  if (violations.length > 0) {
+    throw new HttpError(400, `Invalid adaptive config: ${violations.join('; ')}`);
+  }
 
   await db.transaction(async (tx) => {
     await tx

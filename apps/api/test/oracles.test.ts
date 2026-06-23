@@ -335,6 +335,30 @@ describe.if(hasEnv)('oracles & disputes (V2-3)', () => {
     expect(credited).toBeGreaterThan(0); // the override made the binary-call pay
   });
 
+  // decentralized placeholder --------------------------------------------
+
+  test('a decentralized market refuses resolution (not implemented) on every path', async () => {
+    const id = await createMarket({
+      title: 'Decentralized placeholder',
+      oracleMode: 'decentralized',
+      resolvesAt: PAST(),
+    });
+    await open(id);
+
+    // The admin manual-override escape hatch must NOT silently resolve it.
+    const adminTry = await req('POST', `/admin/markets/${id}/resolve`, {
+      token: adminToken,
+      body: { thetaStar: 70 },
+    });
+    expect(adminTry.status).toBe(501);
+    // It stays OPEN — no θ*, no oracle report, no claims computed.
+    const m = await marketRow(id);
+    expect(m.status).toBe('OPEN');
+    expect(m.thetaStar).toBeNull();
+    const reports = await db.select().from(oracles).where(eq(oracles.marketId, id));
+    expect(reports.length).toBe(0);
+  });
+
   test('a zero-window market auto-settles immediately with no dispute', async () => {
     const id = await createMarket({
       title: 'No window',
