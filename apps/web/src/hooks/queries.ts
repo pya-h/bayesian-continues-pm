@@ -20,6 +20,7 @@ export const qk = {
   adminUsers: ['admin', 'users'] as const,
   adminOverview: (id: string) => ['admin', 'overview', id] as const,
   adminLedger: (id: string) => ['admin', 'ledger', id] as const,
+  adminCfg: (id: string) => ['admin', 'cfg', id] as const,
   adminUserTx: (id: string) => ['admin', 'userTx', id] as const,
   adminAudit: ['admin', 'audit'] as const,
 };
@@ -93,6 +94,14 @@ export function useAdminMarketLedger(id: string, enabled = true) {
   return useQuery({
     queryKey: qk.adminLedger(id),
     queryFn: () => api.adminMarketLedger(id).then((r) => r.ledger),
+    enabled,
+  });
+}
+
+export function useAdminMarketCfg(id: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.adminCfg(id),
+    queryFn: () => api.adminMarketCfg(id).then((r) => r.cfg),
     enabled,
   });
 }

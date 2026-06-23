@@ -155,6 +155,10 @@ export function useMarketSocket(marketId: string, userId?: string) {
           case 'lp_claim':
             qc.invalidateQueries({ queryKey: qk.portfolio });
             break;
+          case 'param_adapted':
+            // Adaptive parameters moved. Refresh any open admin cfg view.
+            qc.invalidateQueries({ queryKey: qk.adminCfg(marketId) });
+            break;
           default:
             break;
         }

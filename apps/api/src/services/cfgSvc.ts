@@ -16,6 +16,7 @@ import { marketCfgHistory, markets } from '../db/schema.ts';
 import { liveEngineConfig, loadCfgState, packCfgState } from '../lib/adaptiveCfg.ts';
 import { writeAudit } from '../lib/audit.ts';
 import { HttpError } from '../lib/errors.ts';
+import { publish, topics } from '../realtime.ts';
 
 const CFG_HISTORY_LIMIT = 500;
 
@@ -93,5 +94,15 @@ export async function setMarketCfgControl(
     );
   });
 
-  return getMarketCfg(marketId);
+  const updated = await getMarketCfg(marketId);
+  // Notify any open admin cfg view (this admin or another) that control changed.
+  publish(topics.market(marketId), {
+    type: 'param_adapted',
+    marketId,
+    source: updated.source,
+    sigmaEps: updated.live.sigmaEps,
+    s0: updated.live.s0,
+    railHit: updated.adapted.railHit,
+  });
+  return updated;
 }

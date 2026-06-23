@@ -430,11 +430,57 @@ export interface MarketLedger {
 export interface SystemAlert {
   type: 'system:alert';
   marketId: string;
-  kind: 'belief_divergence' | 'rapid_price_move' | 'insolvency_risk';
+  kind: 'belief_divergence' | 'rapid_price_move' | 'insolvency_risk' | 'param_rail';
   severity: 'info' | 'warning' | 'critical';
   action: 'alert' | 'suspend' | 'reject';
   message: string;
   value: number;
   threshold: number;
   at: string;
+}
+
+// Adaptive parameters ----------------------------------------------
+
+export interface AdaptiveParams {
+  sigmaEps: number;
+  s0: number;
+  alpha: number;
+  beta: number;
+}
+
+type RailSide = 'lo' | 'hi' | null;
+
+export interface CfgHistoryRow {
+  cfgHistoryId: string;
+  marketId: string;
+  sigmaEps: number;
+  s0: number;
+  alpha: number;
+  beta: number;
+  regime: number;
+  railHit: boolean;
+  source: string;
+  triggerTradeId: string | null;
+  createdAt: string;
+}
+
+export interface AdaptiveControl {
+  enabled?: boolean;
+  pinned?: { sigmaEps?: number; s0?: number; alpha?: number; beta?: number };
+  cfg?: Record<string, number | boolean>;
+}
+
+export interface MarketCfg {
+  base: AdaptiveParams;
+  initialSigma: number;
+  control: AdaptiveControl;
+  source: 'static' | 'adapt' | 'pin';
+  state: { emaSlow: number; emaFast: number; count: number };
+  adapted: AdaptiveParams & {
+    regime: number;
+    railHit: boolean;
+    rails: { sigmaEps: RailSide; s0: RailSide; alpha: RailSide; beta: RailSide };
+  };
+  live: AdaptiveParams;
+  history: CfgHistoryRow[];
 }

@@ -10,6 +10,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.tsx';
+import { AdaptiveParamsView } from '../components/AdaptiveParamsView.tsx';
 import { AlertsBanner } from '../components/AlertsBanner.tsx';
 import { AuditLogView } from '../components/AuditLogView.tsx';
 import { MarketLedgerView } from '../components/MarketLedgerView.tsx';
@@ -541,7 +542,7 @@ function MyMarkets({ creatorId }: { creatorId: string }) {
 function MarketRow({ market: m }: { market: MarketView }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<'overview' | 'ledger'>('overview');
+  const [view, setView] = useState<'overview' | 'ledger' | 'cfg'>('overview');
   const [resolving, setResolving] = useState(false);
   const [theta, setTheta] = useState('');
 
@@ -642,11 +643,16 @@ function MarketRow({ market: m }: { market: MarketView }) {
             <SubTab active={view === 'ledger'} onClick={() => setView('ledger')}>
               Cash-flow ledger
             </SubTab>
+            <SubTab active={view === 'cfg'} onClick={() => setView('cfg')}>
+              Adaptive params
+            </SubTab>
           </div>
           {view === 'overview' ? (
             <Overview marketId={m.marketId} />
-          ) : (
+          ) : view === 'ledger' ? (
             <MarketLedgerView marketId={m.marketId} />
+          ) : (
+            <AdaptiveParamsView marketId={m.marketId} />
           )}
         </div>
       )}

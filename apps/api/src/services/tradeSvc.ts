@@ -50,6 +50,8 @@ import { type Side, applyFill, execPriceFor, solveFill } from './tradeMath.ts';
 
 const OPEN_MARGIN = 1.2;
 
+type ParamSnapshot = { source: string; sigmaEps: number; s0: number; railHit: boolean };
+
 function reserveOptsFor(cfg: EngineConfig): ReserveOpts {
   return { alpha: cfg.reserveAlpha, samples: config.reserve.mcSamples };
 }
@@ -176,6 +178,7 @@ export async function executeTrade(
 
   let sigma0 = 0; // genesis σ₀, captured inside the txn for the circuit breakers
   let paramRailHit = false; // adaptive-param rail bound this step (for the breaker)
+  let cfgAdapted: ParamSnapshot | null = null;
   const result = await withMarketLock(marketId, () =>
     db.transaction(async (tx): Promise<FillResult> => {
       const mrows = await tx
@@ -287,6 +290,12 @@ export async function executeTrade(
       const nextCfgState = foldError(live.state, sig.signal, belief.mean(), live.acfg);
       const cfgHist = cfgHistoryRow(m, nextCfgState, live.acfg, live.control);
       paramRailHit = cfgHist.railHit;
+      cfgAdapted = {
+        source: cfgHist.source,
+        sigmaEps: cfgHist.sigmaEps,
+        s0: cfgHist.s0,
+        railHit: cfgHist.railHit,
+      };
       const newMmShort = round8(mmShort + filledQ);
       const newBook = withMmShort(book, spec, key, contractKey, newMmShort);
 
@@ -514,6 +523,11 @@ export async function executeTrade(
     marketId,
     tradeId: result.tradeId,
   });
+  // Adaptive parameters: tell any open admin cfg view the controller moved.
+  const snap = cfgAdapted as ParamSnapshot | null;
+  if (snap && snap.source !== 'static') {
+    publish(topics.market(marketId), { type: 'param_adapted', marketId, ...snap });
+  }
 
   // Circuit breakers — evaluate post-commit and broadcast any
   // alerts to the system topic so admins see them live. v1 alerts only (does not
@@ -574,6 +588,7 @@ export interface SellAllResult {
 export async function sellAllPositions(actor: UserRow, marketId: string): Promise<SellAllResult> {
   let sigma0 = 0;
   let paramRailHit = false;
+  let cfgAdapted: ParamSnapshot | null = null;
   const affected = new Map<string, { spec: ContractSpec; fair: number }>();
 
   const result = await withMarketLock(marketId, () =>
@@ -820,6 +835,12 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
 
       const cfgHist = cfgHistoryRow(m, cfgRunState, live.acfg, live.control);
       paramRailHit = cfgHist.railHit;
+      cfgAdapted = {
+        source: cfgHist.source,
+        sigmaEps: cfgHist.sigmaEps,
+        s0: cfgHist.s0,
+        railHit: cfgHist.railHit,
+      };
 
       await tx
         .update(markets)
@@ -898,6 +919,10 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
     cash: result.cash,
   });
   publish(topics.user(actor.userId), { type: 'trade_executed', marketId, sellAll: true });
+  const snap = cfgAdapted as ParamSnapshot | null;
+  if (snap && snap.source !== 'static') {
+    publish(topics.market(marketId), { type: 'param_adapted', marketId, ...snap });
+  }
 
   const alerts = evalBreakers({
     sigma: result.beliefAfter.sigma,

@@ -3,6 +3,7 @@
 // TanStack Query surfaces it uniformly.
 
 import type {
+  AdaptiveControl,
   AdminMarketOverview,
   AdminUser,
   AuditEvent,
@@ -13,6 +14,7 @@ import type {
   LpDepositResult,
   LpView,
   LpWithdrawResult,
+  MarketCfg,
   MarketHistory,
   MarketLedger,
   MarketStats,
@@ -166,6 +168,9 @@ export const api = {
     request<{ overview: AdminMarketOverview }>(`/admin/markets/${id}/overview`),
   adminMarketLedger: (id: string) =>
     request<{ ledger: MarketLedger }>(`/admin/markets/${id}/ledger`),
+  adminMarketCfg: (id: string) => request<{ cfg: MarketCfg }>(`/admin/markets/${id}/cfg`),
+  adminSetMarketCfg: (id: string, body: AdaptiveControl) =>
+    request<{ cfg: MarketCfg }>(`/admin/markets/${id}/cfg`, { method: 'PATCH', body }),
   adminUsers: () => request<{ users: AdminUser[] }>('/admin/users'),
   adminTopup: (userId: string, amount: number) =>
     request<{ user: PublicUser }>(`/admin/users/${userId}/topup`, { body: { amount } }),
