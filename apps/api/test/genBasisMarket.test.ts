@@ -175,4 +175,38 @@ describe.if(hasEnv)('gen_basis market (G1.2 integration)', () => {
     // No spawn ⇒ the component count can only stay flat or shrink (merge/prune).
     expect((await components(id, aliceToken)).length).toBeLessThanOrEqual(2);
   });
+
+  test('belief-history snapshots redraw the multi-modal shape (V2-8 ghost trail)', async () => {
+    const id = await createMarket({
+      title: 'Gen·basis history (test)',
+      outcomeUnit: 'USD',
+      initialMu: 70,
+      initialSigma: 10,
+      initialReserve: 10000,
+      belief: { kind: 'gen_basis', bumps: [{ mu: 70, sigma: 5, weight: 1 }] },
+    });
+    await req('POST', `/admin/markets/${id}/open`, { token: adminToken });
+    await alternatingBellBuys(id, 70, 115, 12);
+
+    const res = await req('GET', `/markets/${id}/history`);
+    expect(res.status).toBe(200);
+    const { history } = (await res.json()) as {
+      history: {
+        beliefHistory: {
+          mu: number;
+          sigma: number;
+          belief: { kind: string; components?: { pi: number; mu: number }[] } | null;
+        }[];
+      };
+    };
+
+    const pts = history.beliefHistory;
+    expect(pts.length).toBeGreaterThan(2); // genesis + one per spawn-stream fill
+    // Genesis predates any snapshot → null (the chart redraws it as a Gaussian).
+    expect(pts[0]?.belief).toBeNull();
+    // Every post-genesis point carries a full mixture snapshot to redraw its past PDF…
+    for (const p of pts.slice(1)) expect(p.belief?.kind).toBe('mixture');
+    // …and by the end of the far-camp stream a snapshot shows the second mode.
+    expect(pts.some((p) => (p.belief?.components?.length ?? 0) >= 2)).toBe(true);
+  });
 });

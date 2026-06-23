@@ -425,6 +425,87 @@ export function pnlCurve(
   }));
 }
 
+// belief ghost trail ----------------------------------------------
+
+export interface GhostInput {
+  // Stable label/key for the snapshot (an ISO timestamp in practice).
+  t: string;
+  pdf: (x: number) => number;
+}
+
+export interface GhostPolyline {
+  t: string;
+  // Stroke opacity: a monotone ramp from `minOpacity` (oldest) … `maxOpacity` (newest).
+  opacity: number;
+  newest: boolean;
+  pts: Pt[];
+}
+
+export interface GhostTrailOpts {
+  samples?: number;
+  maxGhosts?: number;
+  minOpacity?: number;
+  maxOpacity?: number;
+}
+
+// Build the belief "ghost trail": N faded PDF polylines from a time-ordered snapshot
+// series (oldest → newest), so the bump visibly drifts/narrows over the market's life
+// with time encoded as opacity. Pure — no React, no IO, no mutation of the input.
+// **Thinning:** the series is reduced to at most `maxGhosts` snapshots, evenly
+// spaced by index and ALWAYS keeping the newest (and, when >1, the oldest).
+// **Shared normalisation:** every selected curve is divided by the SAME peak (the
+// max density across the selected set — the current/narrowest belief in the usual
+// narrowing case), so a past *wider* belief draws as a *lower, broader* bump and the
+// shrink-and-sharpen is visible as height, not just width. Nothing exceeds 1.
+// **Opacity:** a monotone non-decreasing ramp old→new; a lone snapshot gets `maxOpacity`.
+export function ghostTrail(
+  series: readonly GhostInput[],
+  domain: Domain,
+  opts: GhostTrailOpts = {},
+): GhostPolyline[] {
+  const { samples = 120, maxGhosts = 8, minOpacity = 0.1, maxOpacity = 0.85 } = opts;
+  const n = series.length;
+  if (n === 0) return [];
+
+  // Thin to ≤ maxGhosts evenly-spaced indices, endpoints included (0 … n-1).
+  const k = Math.min(maxGhosts, n);
+  const picks: number[] = [];
+  if (k === 1) {
+    picks.push(n - 1); // a lone ghost is the newest snapshot
+  } else {
+    for (let j = 0; j < k; j++) picks.push(Math.round((j * (n - 1)) / (k - 1)));
+  }
+  const idxs = [...new Set(picks)].sort((a, b) => a - b); // dedupe + ascending
+  const m = idxs.length;
+
+  const [lo, hi] = domain;
+  const curves = idxs.map((si) => {
+    const s = series[si] as GhostInput;
+    const pts: Pt[] = [];
+    for (let i = 0; i <= samples; i++) {
+      const x = lo + ((hi - lo) * i) / samples;
+      pts.push({ x, y: s.pdf(x) });
+    }
+    return pts;
+  });
+
+  // One shared denominator so relative heights (shrinkage) are honest across ghosts.
+  let peak = 0;
+  for (const c of curves) for (const p of c) if (p.y > peak) peak = p.y;
+  const denom = peak > 0 ? peak : 1;
+
+  return curves.map((pts, j) => {
+    const newest = j === m - 1;
+    const frac = m === 1 ? 1 : j / (m - 1);
+    return {
+      t: (series[idxs[j] as number] as GhostInput).t,
+      opacity: minOpacity + (maxOpacity - minOpacity) * frac,
+      newest,
+      pts: pts.map((p) => ({ x: p.x, y: p.y / denom })),
+    };
+  });
+}
+
 // Zero-crossings (breakevens) of a polyline, found by linear interpolation across
 // each sign change. Used to mark where a position flips profit ⇄ loss.
 export function zeroCrossings(pts: Pt[]): number[] {

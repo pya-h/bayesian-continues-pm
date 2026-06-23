@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { beliefFromView } from '../src/lib/beliefFromView.ts';
+import type { BeliefStateDTO } from '@bmm/shared';
+import { beliefFromSnapshot, beliefFromView } from '../src/lib/beliefFromView.ts';
 import type { Belief } from '../src/lib/types.ts';
 
 const close = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) <= tol;
@@ -80,3 +81,44 @@ describe('beliefFromView', () => {
     expect(flat.variance()).toBeGreaterThan(0);
   });
 });
+
+describe('beliefFromSnapshot (V2-8 ghost-trail history reviver)', () => {
+  test('null state → Gaussian(μ,σ) from the summary (genesis / gaussian markets)', () => {
+    const b = beliefFromSnapshot(null, 100, 12);
+    expect(b.kind).toBe('gaussian');
+    expect(close(b.mean(), 100)).toBe(true);
+    expect(close(b.variance(), 144)).toBe(true);
+  });
+
+  test('mixture DTO → multi-modal belief whose components survive (the comet-tail shape)', () => {
+    const state: BeliefStateDTO = {
+      kind: 'mixture',
+      components: [
+        { pi: 0.5, mu: 40, sigma2: 25 },
+        { pi: 0.5, mu: 80, sigma2: 25 },
+      ],
+    };
+    const b = beliefFromSnapshot(state, 60, 22);
+    expect(b.kind).toBe('mixture');
+    // bimodal: density at the two camps exceeds the density in the valley between them
+    expect(b.pdf(40)).toBeGreaterThan(b.pdf(60));
+    expect(b.pdf(80)).toBeGreaterThan(b.pdf(60));
+  });
+
+  test('student_t DTO → fat-tailed belief (heavier tail than a Gaussian of equal σ)', () => {
+    const state: BeliefStateDTO = { kind: 'student_t', nu: 4, mu: 0, scale2: 1 };
+    const b = beliefFromSnapshot(state, 0, 1.41);
+    expect(b.kind).toBe('student_t');
+    expect(b.pdf(5)).toBeGreaterThan(gaussianAt(5, b.mean(), Math.sqrt(b.variance())));
+  });
+
+  test('gen_exact DTO → exp(−poly) belief reconstructed from its raw loc/scale', () => {
+    const state: BeliefStateDTO = { kind: 'gen_exact', mu: 70, sigma: 10, lambdas: [1, 0.3, 0.1] };
+    const b = beliefFromSnapshot(state, 70, 10);
+    expect(b.kind).toBe('gen_exact');
+    expect(b.pdf(70)).toBeGreaterThan(0);
+  });
+});
+
+const gaussianAt = (x: number, mu: number, sigma: number) =>
+  Math.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * Math.sqrt(2 * Math.PI));

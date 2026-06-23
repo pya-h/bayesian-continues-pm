@@ -1,0 +1,1 @@
+ALTER TABLE "belief_updates" ADD COLUMN "belief_state" jsonb;

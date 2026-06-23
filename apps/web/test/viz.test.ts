@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { Phi, payoff } from '@bmm/core';
 import type { ContractSpec } from '../src/lib/types.ts';
 import {
+  type GhostInput,
   type Pt,
   VIEW_MUL_MAX,
   VIEW_MUL_MIN,
@@ -10,6 +11,7 @@ import {
   gaussianPdf,
   genExactPdf,
   genExactPdfCurve,
+  ghostTrail,
   mixturePdf,
   mixturePdfCurve,
   niceDomain,
@@ -511,5 +513,67 @@ describe('smoothPath (shape-preserving monotone cubic)', () => {
       ),
     ).toBe('M0.00 0.00 L1.00 1.00');
     expect(smoothPath([], id, id)).toBe('');
+  });
+});
+
+describe('ghostTrail (V2-8 belief comet trail)', () => {
+  const domain = [-5, 5] as const;
+  // A narrowing belief: wide (σ=2) → … → sharp (σ=0.5), oldest-first.
+  const series: GhostInput[] = [2, 1.5, 1, 0.75, 0.5].map((sigma, i) => ({
+    t: `2026-01-0${i + 1}T00:00:00.000Z`,
+    pdf: (x: number) => gaussianPdf(x, 0, sigma),
+  }));
+
+  test('empty series → no polylines', () => {
+    expect(ghostTrail([], domain)).toEqual([]);
+  });
+
+  test('caps the count and keeps both endpoints, evenly spaced', () => {
+    const many: GhostInput[] = Array.from({ length: 40 }, (_, i) => ({
+      t: `p${i}`,
+      pdf: (x: number) => gaussianPdf(x, 0, 1),
+    }));
+    const out = ghostTrail(many, domain, { maxGhosts: 8 });
+    expect(out.length).toBeLessThanOrEqual(8);
+    expect(out[0]?.t).toBe('p0'); // oldest kept
+    expect(out.at(-1)?.t).toBe('p39'); // newest kept
+    expect(out.at(-1)?.newest).toBe(true);
+  });
+
+  test('opacity ramps monotonically old → new', () => {
+    const out = ghostTrail(series, domain);
+    for (let i = 1; i < out.length; i++) {
+      expect((out[i] as { opacity: number }).opacity).toBeGreaterThanOrEqual(
+        (out[i - 1] as { opacity: number }).opacity,
+      );
+    }
+    // bounds: oldest at the floor, newest at the ceiling
+    expect(out[0]?.opacity).toBeCloseTo(0.1, 6);
+    expect(out.at(-1)?.opacity).toBeCloseTo(0.85, 6);
+  });
+
+  test('shared normalisation: tallest (newest, narrowest) peaks at 1, older below', () => {
+    const out = ghostTrail(series, domain);
+    const peakOf = (pts: Pt[]) => Math.max(...pts.map((p) => p.y));
+    const newestPeak = peakOf(out.at(-1)?.pts ?? []);
+    const oldestPeak = peakOf(out[0]?.pts ?? []);
+    expect(newestPeak).toBeCloseTo(1, 6); // current belief sets the scale
+    expect(oldestPeak).toBeLessThan(newestPeak); // wider past belief draws shorter
+    // nothing exceeds the shared peak
+    for (const gh of out) for (const p of gh.pts) expect(p.y).toBeLessThanOrEqual(1 + 1e-9);
+  });
+
+  test('a lone snapshot is the newest, at full ramp opacity', () => {
+    const out = ghostTrail([series[0] as GhostInput], domain);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.newest).toBe(true);
+    expect(out[0]?.opacity).toBeCloseTo(0.85, 6);
+  });
+
+  test('does not mutate the input series', () => {
+    const snap = series.map((s) => ({ t: s.t }));
+    ghostTrail(series, domain);
+    expect(series.map((s) => ({ t: s.t }))).toEqual(snap);
+    expect(series).toHaveLength(5);
   });
 });

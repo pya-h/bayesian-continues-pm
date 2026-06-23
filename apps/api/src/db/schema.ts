@@ -212,6 +212,10 @@ export const beliefUpdates = pgTable(
     prevSigma: doublePrecision('prev_sigma').notNull(),
     newMu: doublePrecision('new_mu').notNull(),
     newSigma: doublePrecision('new_sigma').notNull(),
+    // Full serialized post-update belief, for the ghost-trail timeline that
+    // redraws each historical PDF. NULL for Gaussian markets (μ/σ already suffice
+    // to redraw the curve); the full multi-modal snapshot otherwise.
+    beliefState: jsonb('belief_state').$type<BeliefStateDTO>(),
     signalExtracted: doublePrecision('signal_extracted'),
     signalWeight: doublePrecision('signal_weight'),
     triggerTradeId: uuid('trigger_trade_id'),

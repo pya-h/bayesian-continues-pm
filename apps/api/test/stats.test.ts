@@ -174,13 +174,15 @@ describe.if(hasEnv)('statistics (integration)', () => {
     expect(res.status).toBe(200);
     const { history } = (await res.json()) as {
       history: {
-        beliefHistory: { mu: number; sigma: number }[];
+        beliefHistory: { mu: number; sigma: number; belief: unknown }[];
         priceHistory: { contractKey: string; points: { fair: number }[] } | null;
       };
     };
     // Genesis point + one update from the trade.
     expect(history.beliefHistory.length).toBe(2);
     expect(history.beliefHistory[0]?.mu).toBeCloseTo(100, 6); // initial μ
+    // A Gaussian market carries no belief snapshot — μ/σ already redraw the curve.
+    expect(history.beliefHistory.every((p) => p.belief === null)).toBe(true);
     expect(history.priceHistory?.points.length).toBe(2);
     expect(history.priceHistory?.points.every((p) => p.fair >= 0)).toBe(true);
   });

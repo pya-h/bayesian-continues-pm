@@ -14,6 +14,7 @@ import {
   MixtureBelief,
   StudentTBelief,
 } from '@bmm/core';
+import type { BeliefStateDTO } from '@bmm/shared';
 import type { Belief } from './types.ts';
 
 export function beliefFromView(belief: Belief): BeliefModel {
@@ -32,4 +33,30 @@ export function beliefFromView(belief: Belief): BeliefModel {
   }
   const sd = belief.sigma > 0 ? belief.sigma : 1e-6;
   return new GaussianBelief(belief.mu, sd * sd);
+}
+
+// Reconstruct a `BeliefModel` from a persisted belief-history snapshot (the
+// ghost trail). Mirrors the API's `loadBelief`, but from the serialized
+// `BeliefStateDTO` (components carry σ², a Student-t carries scale²). A NULL state
+// Gaussian markets and the genesis point — falls back to N(μ, σ²) from the point's
+// summary mean/σ. Presentation only; never the settlement path.
+export function beliefFromSnapshot(
+  state: BeliefStateDTO | null | undefined,
+  mu: number,
+  sigma: number,
+): BeliefModel {
+  if (state) {
+    switch (state.kind) {
+      case 'gaussian':
+        return GaussianBelief.fromDTO(state);
+      case 'mixture':
+        return MixtureBelief.fromDTO(state);
+      case 'student_t':
+        return StudentTBelief.fromDTO(state);
+      case 'gen_exact':
+        return GenExactBelief.fromDTO(state);
+    }
+  }
+  const sd = sigma > 0 ? sigma : 1e-6;
+  return new GaussianBelief(mu, sd * sd);
 }

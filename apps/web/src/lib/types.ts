@@ -3,6 +3,7 @@
 // ISO strings, so anything typed `Date` in the service is `string` here.
 
 import type {
+  BeliefStateDTO,
   ContractSpecDTO,
   DisputeStatus,
   MarketStatus,
@@ -163,6 +164,10 @@ export interface BeliefHistoryPoint {
   t: string;
   mu: number;
   sigma: number;
+  // Full belief snapshot for the ghost-trail timeline — redraws the past PDF
+  // (multi-modal shape included). NULL ⇒ a Gaussian(μ,σ) is redrawn for this point
+  // (Gaussian markets, and the genesis point which predates any snapshot).
+  belief?: BeliefStateDTO | null;
 }
 
 export interface MarketHistory {

@@ -392,12 +392,19 @@ export async function executeTrade(
           },
         });
 
+      // Serialize the post-update belief once: reused for both the time-series
+      // snapshot and the market row's current state.
+      const persistFields = beliefPersistFields(newBelief);
+
       await tx.insert(beliefUpdates).values({
         marketId,
         prevMu: belief.mean(),
         prevSigma: sigmaBefore,
         newMu: newBelief.mean(),
         newSigma: sigmaAfter,
+        // Full post-update belief for the ghost-trail timeline; NULL for Gaussian
+        // where μ/σ already redraw the curve.
+        beliefState: persistFields.beliefState,
         signalExtracted: sig.signal,
         signalWeight: sig.weight,
         triggerTradeId: tradeId,
@@ -406,7 +413,7 @@ export async function executeTrade(
       await tx
         .update(markets)
         .set({
-          ...beliefPersistFields(newBelief),
+          ...persistFields,
           cfgState: packCfgState(nextCfgState, live.control),
           cash: cashAfter,
           reserveRequired: reserveAfter,

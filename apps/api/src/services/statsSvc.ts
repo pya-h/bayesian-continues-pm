@@ -24,6 +24,7 @@ import {
   positionStats,
   price,
 } from '@bmm/core';
+import type { BeliefStateDTO } from '@bmm/shared';
 import { round8 } from '@bmm/shared';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { db } from '../db/client.ts';
@@ -167,6 +168,10 @@ export interface BeliefPoint {
   t: Date;
   mu: number;
   sigma: number;
+  // Full belief snapshot for the ghost-trail timeline. NULL ⇒ redraw a
+  // Gaussian(μ,σ) for this point (Gaussian markets, and the genesis point which
+  // predates any snapshot). The web ghost-builder dispatches on `belief.kind`.
+  belief: BeliefStateDTO | null;
 }
 export interface MarketHistory {
   marketId: string;
@@ -191,14 +196,16 @@ export async function marketHistory(
       createdAt: beliefUpdates.createdAt,
       mu: beliefUpdates.newMu,
       sigma: beliefUpdates.newSigma,
+      belief: beliefUpdates.beliefState,
     })
     .from(beliefUpdates)
     .where(eq(beliefUpdates.marketId, marketId))
     .orderBy(asc(beliefUpdates.createdAt));
 
   const beliefHistory: BeliefPoint[] = [
-    { t: m.createdAt, mu: m.initialMu, sigma: m.initialSigma },
-    ...updates.map((u) => ({ t: u.createdAt, mu: u.mu, sigma: u.sigma })),
+    // Genesis predates any snapshot → null ⇒ Gaussian(μ,σ) redraw (markets start unimodal).
+    { t: m.createdAt, mu: m.initialMu, sigma: m.initialSigma, belief: null },
+    ...updates.map((u) => ({ t: u.createdAt, mu: u.mu, sigma: u.sigma, belief: u.belief })),
   ];
 
   let priceHistory: MarketHistory['priceHistory'] = null;

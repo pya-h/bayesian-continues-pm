@@ -50,6 +50,13 @@
       "when": 1782223155576,
       "tag": "0006_typical_maelstrom",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782250294433,
+      "tag": "0007_light_maelstrom",
+      "breakpoints": true
     }
   ]
 }

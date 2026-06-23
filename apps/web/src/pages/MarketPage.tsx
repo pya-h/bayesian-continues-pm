@@ -9,6 +9,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.tsx';
 import { BeliefChart, handlesFor } from '../components/BeliefChart.tsx';
 import { BeliefHistoryChart } from '../components/BeliefHistoryChart.tsx';
+import { BeliefTimeline } from '../components/BeliefTimeline.tsx';
 import { CdfChart } from '../components/CdfChart.tsx';
 import { ContractComposer, defaultSpec } from '../components/ContractComposer.tsx';
 import { MiniBelief } from '../components/MiniBelief.tsx';
@@ -83,6 +84,8 @@ export function MarketPage() {
   const [cdfMode, setCdfMode] = useState<'off' | 'overlay' | 'panel'>('off');
   // Fair-price-vs-strike view: off | overlaid on the belief chart | enlarged panel below.
   const [priceMode, setPriceMode] = useState<'off' | 'overlay' | 'panel'>('off');
+  // Belief-timeline (ghost-trail) modal — kept off the trading chart so it stays clean.
+  const [timelineOpen, setTimelineOpen] = useState(false);
 
   // Click a held position → load its contract into the composer, ask the trade
   // panel to switch to Sell pre-filled, and bring the panel into view.
@@ -348,7 +351,18 @@ export function MarketPage() {
           </Panel>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Panel title="Belief μ over time">
+            <Panel
+              title="Belief μ over time"
+              right={
+                <button
+                  type="button"
+                  onClick={() => setTimelineOpen(true)}
+                  className="surface-2 rounded-md border border-edge px-2 py-1 text-[11px] font-medium text-muted transition-colors hover:border-accent hover:text-accent"
+                >
+                  📈 Belief timeline
+                </button>
+              }
+            >
               <BeliefHistoryChart points={history.data?.beliefHistory ?? []} />
             </Panel>
             <Panel title="Fair price vs strike">
@@ -410,6 +424,17 @@ export function MarketPage() {
           }}
         />
       </Panel>
+
+      {timelineOpen && (
+        <BeliefTimeline
+          points={history.data?.beliefHistory ?? []}
+          outcomeUnit={m.outcomeUnit}
+          outcomeMin={m.outcomeMin}
+          outcomeMax={m.outcomeMax}
+          thetaStar={m.thetaStar}
+          onClose={() => setTimelineOpen(false)}
+        />
+      )}
     </div>
   );
 }
