@@ -506,6 +506,23 @@ export function ghostTrail(
   });
 }
 
+// Linearly blend two index-aligned polylines (same x-grid) on their y-values
+// `(1−f)·a + f·b`. The two ghost curves from `ghostTrail` share an x-grid and a
+// common peak-normalisation, so blending them yields a valid in-between belief
+// shape — the basis for the timeline's smooth snapshot-to-snapshot morph. `f` is
+// clamped to [0,1]; x is taken from `a`. No mutation.
+export function lerpPolyline(a: readonly Pt[], b: readonly Pt[], f: number): Pt[] {
+  const t = f < 0 ? 0 : f > 1 ? 1 : f;
+  const n = Math.min(a.length, b.length);
+  const out: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const pa = a[i] as Pt;
+    const pb = b[i] as Pt;
+    out.push({ x: pa.x, y: pa.y + (pb.y - pa.y) * t });
+  }
+  return out;
+}
+
 // Zero-crossings (breakevens) of a polyline, found by linear interpolation across
 // each sign change. Used to mark where a position flips profit ⇄ loss.
 export function zeroCrossings(pts: Pt[]): number[] {

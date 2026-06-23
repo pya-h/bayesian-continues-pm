@@ -12,6 +12,7 @@ import {
   genExactPdf,
   genExactPdfCurve,
   ghostTrail,
+  lerpPolyline,
   mixturePdf,
   mixturePdfCurve,
   niceDomain,
@@ -575,5 +576,41 @@ describe('ghostTrail (V2-8 belief comet trail)', () => {
     ghostTrail(series, domain);
     expect(series.map((s) => ({ t: s.t }))).toEqual(snap);
     expect(series).toHaveLength(5);
+  });
+});
+
+describe('lerpPolyline (V2-8 snapshot morph)', () => {
+  const a: Pt[] = [
+    { x: 0, y: 0 },
+    { x: 1, y: 10 },
+    { x: 2, y: 4 },
+  ];
+  const b: Pt[] = [
+    { x: 0, y: 2 },
+    { x: 1, y: 0 },
+    { x: 2, y: 8 },
+  ];
+
+  test('f=0 returns a, f=1 returns b (y-values)', () => {
+    expect(lerpPolyline(a, b, 0).map((p) => p.y)).toEqual([0, 10, 4]);
+    expect(lerpPolyline(a, b, 1).map((p) => p.y)).toEqual([2, 0, 8]);
+  });
+
+  test('f=0.5 is the midpoint, x taken from a', () => {
+    const mid = lerpPolyline(a, b, 0.5);
+    expect(mid.map((p) => p.y)).toEqual([1, 5, 6]);
+    expect(mid.map((p) => p.x)).toEqual([0, 1, 2]);
+  });
+
+  test('clamps f to [0,1]', () => {
+    expect(lerpPolyline(a, b, -3).map((p) => p.y)).toEqual([0, 10, 4]);
+    expect(lerpPolyline(a, b, 5).map((p) => p.y)).toEqual([2, 0, 8]);
+  });
+
+  test('uses the shorter length and does not mutate inputs', () => {
+    const short: Pt[] = [{ x: 0, y: 100 }];
+    expect(lerpPolyline(a, short, 0.5)).toHaveLength(1);
+    expect(a).toHaveLength(3);
+    expect(a[1]?.y).toBe(10);
   });
 });
