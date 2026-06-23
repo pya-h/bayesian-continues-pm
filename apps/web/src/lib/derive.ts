@@ -7,6 +7,7 @@ import type {
   LpPool,
   MarketCfgInput,
   MarketView,
+  OracleMode,
   PortfolioPosition,
 } from './types.ts';
 
@@ -132,6 +133,12 @@ export interface CreateMarketDraft {
   // Gen·exact exponent shape [λ₂, λ₃, λ₄] (only when beliefKind === 'gen_exact').
   lambdas?: [number | '', number | '', number | ''];
   cfg: Record<string, number | boolean | '' | null | undefined>;
+  // oracle assignment ---
+  resolvesAt?: string;
+  oracleMode?: OracleMode;
+  oracleUserId?: string;
+  oracleToken?: string;
+  disputeWindowHours?: number | '';
 }
 
 // Sandbox-safe bounds on the Gen·exact exponent coefficients.
@@ -220,6 +227,32 @@ export function buildCreateMarketBody(draft: CreateMarketDraft): CreateMarketInp
       return n;
     }) as [number, number, number];
     body.belief = { kind: 'gen_exact', lambdas };
+  }
+
+  // oracle assignment ---
+  // `centralized` is the backend default, so it's only emitted when explicitly api/
+  // decentralized — keeping a plain Gaussian market's body minimal (no oracle noise).
+  const mode: OracleMode = draft.oracleMode ?? 'centralized';
+  if (mode !== 'centralized') body.oracleMode = mode;
+  if (draft.resolvesAt) {
+    const ts = new Date(draft.resolvesAt);
+    if (Number.isNaN(ts.getTime())) throw new Error('Resolution deadline is not a valid date.');
+    body.resolvesAt = ts.toISOString();
+  }
+  if (mode === 'api') {
+    const token = (draft.oracleToken ?? '').trim().toUpperCase();
+    if (!token) throw new Error('An API-oracle market needs a price token (e.g. "BTC").');
+    if (!body.resolvesAt) {
+      throw new Error('An API-oracle market needs a resolution deadline to auto-resolve at.');
+    }
+    body.oracleToken = token;
+  } else if (mode === 'centralized') {
+    if (draft.oracleUserId) body.oracleUserId = draft.oracleUserId;
+  }
+  if (draft.disputeWindowHours !== '' && draft.disputeWindowHours != null) {
+    const h = Number(draft.disputeWindowHours);
+    if (!(h >= 0)) throw new Error('Dispute window must be zero or more hours.');
+    body.disputeWindowSec = Math.round(h * 3600);
   }
 
   const cfg = cleanCfg(draft.cfg);

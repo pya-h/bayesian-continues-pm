@@ -32,3 +32,19 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
   }
   return <>{children}</>;
 }
+
+export function RequireOracle({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+
+  if (loading) {
+    return <div className="p-8 text-muted">Restoring session…</div>;
+  }
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+  if (user.role !== 'oracle' && user.role !== 'admin') {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+}

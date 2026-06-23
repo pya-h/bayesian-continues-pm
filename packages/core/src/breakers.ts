@@ -6,15 +6,19 @@
 // belief divergence (σ > 3·σ₀) → alert admin
 // rapid price move (|Δfair|/fair > 10%) → suspend trading
 // insolvency risk (cash < 1.2·reserve) → reject / (approaching → alert)
-// Concentration / wash-trading / oracle-timeout breakers are v2 (they need
-// cross-trade or time-series state beyond a single fill).
+// Concentration / wash-trading breakers remain v2+ (they need cross-trade or
+// time-series state beyond a single fill). The `oracle_failure` kind IS
+// defined here for a uniform alert type, but it is emitted by the oracle
+// scheduler (a stale/missing feed at resolution time), not by `evalBreakers` —
+// which only sees per-trade health, never feed liveness.
 
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 export type BreakerKind =
   | 'belief_divergence'
   | 'rapid_price_move'
   | 'insolvency_risk'
-  | 'param_rail';
+  | 'param_rail'
+  | 'oracle_failure';
 export type BreakerAction = 'alert' | 'suspend' | 'reject';
 
 export interface Alert {

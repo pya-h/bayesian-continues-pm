@@ -11,11 +11,14 @@ import { adminRoutes } from './routes/admin.ts';
 import { adminMarketRoutes } from './routes/adminMarkets.ts';
 import { authRoutes } from './routes/auth.ts';
 import { claimRoutes } from './routes/claims.ts';
+import { disputeRoutes } from './routes/disputes.ts';
 import { lpRoutes } from './routes/lp.ts';
 import { marketRoutes } from './routes/markets.ts';
+import { oracleRoutes } from './routes/oracle.ts';
 import { statsRoutes } from './routes/stats.ts';
 import { tradeRoutes } from './routes/trades.ts';
 import { userRoutes } from './routes/users.ts';
+import { startScheduler } from './services/scheduler.ts';
 import { wsRoutes } from './ws.ts';
 
 export const app = new Elysia()
@@ -65,15 +68,19 @@ export const app = new Elysia()
   .use(statsRoutes)
   .use(tradeRoutes)
   .use(claimRoutes)
+  .use(disputeRoutes)
   .use(lpRoutes)
   .use(userRoutes)
   .use(adminRoutes)
   .use(adminMarketRoutes)
+  .use(oracleRoutes)
   .use(wsRoutes);
 
 if (import.meta.main) {
   app.listen(config.port);
   setServer(app.server as unknown as { publish(topic: string, data: string): void });
+  // Start the oracle scheduler (api-mode auto-resolve + dispute-window auto-settle).
+  startScheduler();
   console.log(`🟢 BMM API on http://localhost:${config.port}  (docs: /swagger)`);
 }
 

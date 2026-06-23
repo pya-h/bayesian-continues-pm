@@ -3,6 +3,7 @@
 // the quote+execute panel, this-market positions, belief history, price-vs-strike
 // and a live trades tape. Belief μ/σ stream in via the market socket.
 
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.tsx';
@@ -16,13 +17,21 @@ import { PriceCurveChart } from '../components/PriceCurveChart.tsx';
 import { PriceCurvePanel } from '../components/PriceCurvePanel.tsx';
 import { QuotePanel } from '../components/QuotePanel.tsx';
 import { TradesTape } from '../components/TradesTape.tsx';
-import { ErrorNote, FlashNumber, Panel, Spinner, Stat, StatusBadge } from '../components/ui.tsx';
-import { useMarket, useMarketHistory, useMarketStats } from '../hooks/queries.ts';
+import {
+  Button,
+  ErrorNote,
+  FlashNumber,
+  Panel,
+  Spinner,
+  Stat,
+  StatusBadge,
+} from '../components/ui.tsx';
+import { qk, useMarket, useMarketHistory, useMarketStats } from '../hooks/queries.ts';
 import { useMarketSocket } from '../hooks/useMarketSocket.ts';
-import { ApiError } from '../lib/api.ts';
+import { ApiError, api } from '../lib/api.ts';
 import { resetChartSync } from '../lib/chartSync.ts';
 import { fmt, fmtCompact, fmtPct } from '../lib/format.ts';
-import type { ContractSpec, PortfolioPosition } from '../lib/types.ts';
+import type { ContractSpec, MarketView, PortfolioPosition } from '../lib/types.ts';
 import { niceDomain } from '../lib/viz.ts';
 
 type OverlayMode = 'off' | 'overlay' | 'panel';
@@ -219,6 +228,8 @@ export function MarketPage() {
         </div>
       </div>
 
+      <DisputeBanner market={m} />
+
       {/* financial stat strip */}
       <div className="surface grid grid-cols-2 gap-4 rounded-xl border border-edge bg-panel p-4 shadow-soft sm:grid-cols-3 lg:grid-cols-6">
         <Stat label="Pool NAV" value={fmtCompact(m.pool.nav)} />
@@ -399,6 +410,90 @@ export function MarketPage() {
           }}
         />
       </Panel>
+    </div>
+  );
+}
+
+// dispute banner — shown while a market is RESOLVED and still inside its
+// dispute window. A position holder can contest the resolution (the API enforces
+// holder-status + window; non-holders / late filers get a clear error). Once the
+// window passes (or the market settles) the banner disappears.
+function DisputeBanner({ market: m }: { market: MarketView }) {
+  const qc = useQueryClient();
+  const [reason, setReason] = useState('');
+  const [proposed, setProposed] = useState('');
+  const file = useMutation({
+    mutationFn: () =>
+      api
+        .fileDispute(m.marketId, {
+          reason: reason.trim(),
+          proposedValue: proposed.trim() === '' ? undefined : Number(proposed),
+        })
+        .then((r) => r.dispute),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.market(m.marketId) });
+    },
+  });
+
+  if (m.status !== 'RESOLVED' || m.resolvedAt == null) return null;
+  const windowEndsMs = new Date(m.resolvedAt).getTime() + m.disputeWindowSec * 1000;
+  if (Number.isFinite(windowEndsMs) && Date.now() >= windowEndsMs) return null; // window closed
+
+  const closesIn = Math.max(0, Math.round((windowEndsMs - Date.now()) / 60000));
+
+  return (
+    <div className="surface gradient-border rounded-xl border border-warn/40 bg-warn/5 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-md bg-warn/15 px-2 py-0.5 text-xs font-semibold text-warn">
+          Resolved θ* {m.thetaStar != null ? fmt(m.thetaStar, 4) : '—'}
+        </span>
+        <span className="text-xs text-muted">
+          Dispute window open{closesIn > 0 ? ` · ~${closesIn} min left` : ''}. Claims open once it
+          closes with no open dispute.
+        </span>
+      </div>
+      {file.isSuccess ? (
+        <p className="mt-2 text-sm text-fg">
+          Your dispute was filed — settlement is on hold pending admin review.
+        </p>
+      ) : (
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="flex flex-1 flex-col gap-1 text-xs text-muted">
+            Reason (you must hold a position)
+            <input
+              type="text"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="why the resolution is wrong"
+              className="input-glow w-full rounded-lg border border-edge bg-panel-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted">
+            Proposed θ* (optional)
+            <input
+              type="number"
+              inputMode="decimal"
+              value={proposed}
+              onChange={(e) => setProposed(e.target.value)}
+              placeholder="θ*"
+              className="input-glow tnum w-28 rounded-lg border border-edge bg-panel-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent"
+            />
+          </label>
+          <Button
+            variant="ghost"
+            className="px-3 py-2 text-sm"
+            disabled={reason.trim() === '' || file.isPending}
+            onClick={() => file.mutate()}
+          >
+            {file.isPending ? 'Filing…' : 'Dispute resolution'}
+          </Button>
+        </div>
+      )}
+      {file.isError && (
+        <ErrorNote>
+          {file.error instanceof ApiError ? file.error.message : 'Failed to file dispute.'}
+        </ErrorNote>
+      )}
     </div>
   );
 }

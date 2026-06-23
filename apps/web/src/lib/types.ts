@@ -2,7 +2,16 @@
 // (marketView.ts, tradeSvc.ts, lpSvc.ts, statsSvc.ts). Dates arrive over JSON as
 // ISO strings, so anything typed `Date` in the service is `string` here.
 
-import type { ContractSpecDTO, MarketStatus, TransactionKind, UserRole } from '@bmm/shared';
+import type {
+  ContractSpecDTO,
+  DisputeStatus,
+  MarketStatus,
+  OracleMode,
+  TransactionKind,
+  UserRole,
+} from '@bmm/shared';
+
+export type { OracleMode, DisputeStatus };
 
 export type ContractSpec = ContractSpecDTO;
 
@@ -63,6 +72,11 @@ export interface MarketView {
   reserveRequired: number;
   pool: { nav: number; sharesTotal: number; sharePrice: number };
   thetaStar: number | null;
+  oracleMode: OracleMode;
+  oracleUserId: string | null;
+  oracleToken: string | null;
+  resolvedAt: string | null;
+  disputeWindowSec: number;
   opensAt: string | null;
   closesAt: string | null;
   resolvesAt: string | null;
@@ -337,6 +351,30 @@ export interface CreateMarketInput {
   initialReserve: number;
   belief?: CreateBeliefInput;
   cfg?: MarketCfgInput;
+  // Resolution deadline (ISO). Required for api auto-resolve; the post-deadline
+  // gate for centralized resolution.
+  resolvesAt?: string;
+  // oracle assignment.
+  oracleMode?: OracleMode;
+  oracleUserId?: string;
+  oracleToken?: string;
+  disputeWindowSec?: number;
+}
+
+export interface Dispute {
+  disputeId: string;
+  marketId: string;
+  marketTitle?: string;
+  userId: string;
+  username?: string;
+  reason: string;
+  status: DisputeStatus;
+  proposedValue: number | null;
+  secondaryValue: number | null;
+  resolverId: string | null;
+  resolutionNote: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
 }
 
 // One row of the transaction ledger. `amount` is
@@ -430,7 +468,12 @@ export interface MarketLedger {
 export interface SystemAlert {
   type: 'system:alert';
   marketId: string;
-  kind: 'belief_divergence' | 'rapid_price_move' | 'insolvency_risk' | 'param_rail';
+  kind:
+    | 'belief_divergence'
+    | 'rapid_price_move'
+    | 'insolvency_risk'
+    | 'param_rail'
+    | 'oracle_failure';
   severity: 'info' | 'warning' | 'critical';
   action: 'alert' | 'suspend' | 'reject';
   message: string;

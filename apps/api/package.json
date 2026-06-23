@@ -23,6 +23,7 @@
     "@elysiajs/cors": "^1.1.1",
     "@elysiajs/jwt": "^1.1.1",
     "@elysiajs/swagger": "^1.1.6",
+    "cron": "^4.4.0",
     "drizzle-orm": "^0.38.3",
     "elysia": "^1.1.26",
     "postgres": "^3.4.5"

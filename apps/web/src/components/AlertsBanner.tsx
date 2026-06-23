@@ -15,6 +15,7 @@ const KIND_LABEL: Record<string, string> = {
   rapid_price_move: 'Rapid price move',
   insolvency_risk: 'Insolvency risk',
   param_rail: 'Adaptive param rail',
+  oracle_failure: 'Oracle failure',
 };
 
 export function AlertsBanner({ enabled = true }: { enabled?: boolean }) {

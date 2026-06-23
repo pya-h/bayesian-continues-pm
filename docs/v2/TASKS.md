@@ -60,7 +60,7 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 
 ---
 
-## Phase V2-3 — Oracle resolution modes & disputes `[shared, api, web]` (Workstream E)
+## Phase V2-3 — Oracle resolution modes & disputes `[shared, api, web]` (Workstream E) DONE (2026-06-23)
 **Goal:** every market resolves through one of **three explicit oracle modes** (`MODEL.md §11`). Replaces the V1 "admin types θ*" path with a first-class, per-market oracle assignment.
 
 > ** Plan revised (2026-06-23) — supersedes the original "OracleSource + ApiFeed/WeatherApi/Manual/Aggregated adapters + median aggregation" sketch, which did NOT match the intended product.** The real design is **three resolution modes chosen per market at creation**, not a bag of pluggable feed adapters with median aggregation. Aggregation/weather/election feeds are dropped from V2. The decentralized mode is a **placeholder only** this phase.
@@ -74,28 +74,25 @@ Legend: `core`/`shared`/`api`/`web` as in V1. Each phase ends with a runnable ch
 >
 > **Scheduler rule:** use the **`cron`** package (a real scheduled job) — **never `setInterval`/`setTimeout` in the backend** (none exist today; this is a forward rule). Front-end timers are fine. The scheduler is **single-node** for now; V2-4 (scale) replaces it with a leader-elected/distributed runner — noted as a handoff there.
 
-- **V2-3a — Modes, role & schema `[shared, api]`:**
-  - [ ] `shared`: `OracleMode` enum (`centralized | api | decentralized`); add **`oracle`** to `UserRole`. DTOs: `oracleMode`, `oracleUserId?`, `oracleToken?` on create/market views; `OracleResolveInput`, `DisputeInput`/`DisputeView`.
-  - [ ] `schema.ts`: `markets` += `oracle_mode` (varchar, default `centralized`), `oracle_user_id` (FK users, null = admin-resolved), `oracle_token` (varchar, null unless `api`), `resolved_at`, `dispute_window_sec` (default 86400). **Extend the existing `oracles` table as the report log** (add `token`, `stale`; it already has source/value/confidence/disputed/reportedAt) rather than a parallel `oracle_reports`. New `disputes` table (filer, reason, status `open|upheld|rejected`, proposed/secondary value, resolver, timestamps). Migration; reseed (dev-stage, no back-compat).
-  - [ ] Validation: `api` mode ⇒ `oracle_token` required + market is crypto; `centralized` ⇒ `oracle_user_id` must be a `role=oracle` (or admin) user; `decentralized` ⇒ accepted but resolution throws.
-- **V2-3b — API price oracle + cron scheduler `[api]`:**
-  - [ ] `xprices` client lib (`GET /prices/{token}`, stale/missing detection, timeout, typed result). Config base-URL via env.
-  - [ ] `cron` job: scan `api`-mode markets past `resolves_at` & still OPEN → fetch price → resolve (θ* = price), write `oracle_reports` row. Stale/unreachable → SUSPEND + `oracle_failure` breaker alert; retry next tick. Idempotent under the per-market lock.
-  - [ ] Add `oracle_failure` breaker kind to `packages/core/src/breakers.ts` (§15.1) + wire its alert.
-- **V2-3c — Centralized oracle resolution + Oracle panel API `[api]`:**
-  - [ ] Admin can grant/revoke the `oracle` role; assign an oracle user at market create.
-  - [ ] `GET /oracle/markets` (markets assigned to the caller, past deadline, awaiting resolution) + `POST /oracle/markets/:id/resolve` (θ*). AuthZ: caller is the assigned oracle **or** admin; only when `now ≥ resolves_at`. Records an `oracle_reports` row (source `centralized`).
-- **V2-3d — Dispute window + gated claims `[api]`:**
-  - [ ] On resolve (any mode): status → RESOLVED, `resolved_at = now`, claims **computed** (as today) but **credit gated**. The dispute window lives in RESOLVED.
-  - [ ] User `POST /markets/:id/dispute` (holders only, within window) → opens a `disputes` row, blocks auto-settle.
-  - [ ] Admin dispute resolution: **uphold** (override θ* via secondary value / manual → re-run `recordClaims`, finalize) or **reject**. `cron` auto-settles RESOLVED→SETTLED once the window passes **and** no dispute is open. `claimPayout` stays gated on SETTLED (no claim-path change needed — gating falls out of the lifecycle).
-- **V2-3e — Web `[web]`:**
-  - [ ] Create-market form: oracle-mode selector (+ oracle-user picker for `centralized`, token field for `api`, disabled `decentralized` placeholder).
-  - [ ] **Oracle panel** (role-gated): list assigned markets past deadline + resolve action.
-  - [ ] Admin: oracle/role management + **dispute queue** (uphold/reject/override). User: `dispute` action on a RESOLVED market within window.
-- **V2-3f — Tests + seed `[api, web]`:** API-mode resolves from a **mocked/injected** xprices fetch (deterministic, no live network in CI); stale feed suspends + alerts; centralized resolve authZ (assigned oracle , others 403, before-deadline 403); dispute blocks auto-settle & claims, admin override re-pays correctly, window-pass auto-settles. Seed an `oracle`-role user + one `api`-mode crypto demo market. **math-doc: n/a** (no model math changes; note §11 in the doc text only if needed).
+  - [x] `shared`: `OracleMode` enum (`centralized | api | decentralized`); add **`oracle`** to `UserRole`. DTOs: `oracleMode`, `oracleUserId?`, `oracleToken?` on create/market views; `OracleResolveInput`, `DisputeInput`/`DisputeView`.
+  - [x] `schema.ts`: `markets` += `oracle_mode` (varchar, default `centralized`), `oracle_user_id` (FK users, null = admin-resolved), `oracle_token` (varchar, null unless `api`), `resolved_at`, `dispute_window_sec` (default 86400). **Extend the existing `oracles` table as the report log** (add `token`, `stale`; it already has source/value/confidence/disputed/reportedAt) rather than a parallel `oracle_reports`. New `disputes` table (filer, reason, status `open|upheld|rejected`, proposed/secondary value, resolver, timestamps). Migration; reseed (dev-stage, no back-compat).
+  - [x] Validation: `api` mode ⇒ `oracle_token` required + market is crypto; `centralized` ⇒ `oracle_user_id` must be a `role=oracle` (or admin) user; `decentralized` ⇒ accepted but resolution throws.
+  - [x] `xprices` client lib (`GET /prices/{token}`, stale/missing detection, timeout, typed result). Config base-URL via env.
+  - [x] `cron` job: scan `api`-mode markets past `resolves_at` & still OPEN → fetch price → resolve (θ* = price), write `oracle_reports` row. Stale/unreachable → SUSPEND + `oracle_failure` breaker alert; retry next tick. Idempotent under the per-market lock.
+  - [x] Add `oracle_failure` breaker kind to `packages/core/src/breakers.ts` (§15.1) + wire its alert.
+  - [x] Admin can grant/revoke the `oracle` role; assign an oracle user at market create.
+  - [x] `GET /oracle/markets` (markets assigned to the caller, past deadline, awaiting resolution) + `POST /oracle/markets/:id/resolve` (θ*). AuthZ: caller is the assigned oracle **or** admin; only when `now ≥ resolves_at`. Records an `oracle_reports` row (source `centralized`).
+  - [x] On resolve (any mode): status → RESOLVED, `resolved_at = now`, claims **computed** (as today) but **credit gated**. The dispute window lives in RESOLVED.
+  - [x] User `POST /markets/:id/dispute` (holders only, within window) → opens a `disputes` row, blocks auto-settle.
+  - [x] Admin dispute resolution: **uphold** (override θ* via secondary value / manual → re-run `recordClaims`, finalize) or **reject**. `cron` auto-settles RESOLVED→SETTLED once the window passes **and** no dispute is open. `claimPayout` stays gated on SETTLED (no claim-path change needed — gating falls out of the lifecycle).
+  - [x] Create-market form: oracle-mode selector (+ oracle-user picker for `centralized`, token field for `api`, disabled `decentralized` placeholder).
+  - [x] **Oracle panel** (role-gated): list assigned markets past deadline + resolve action.
+  - [x] Admin: oracle/role management + **dispute queue** (uphold/reject/override). User: `dispute` action on a RESOLVED market within window.
+- **V2-3f — Tests + seed `[api, web]`:** `api/test/oracles.test.ts` (6): API-mode resolves from a **mocked/injected** xprices fetch (deterministic, no live network in CI); stale feed suspends + alerts + auto-retries; centralized resolve authZ (assigned oracle , non-oracle 403, before-deadline 409); dispute blocks auto-settle & claims, admin override re-pays correctly, window-pass auto-settles; zero-window auto-settles immediately. Web `derive.test.ts` (+4): oracle-mode body assembly. Seeded an `oracle`-role user + an `api`-mode BTC market + a `centralized` market (assigned to oracle). **math-doc: n/a** (no model math changes).
 
 **Checkpoint:** an `api`-mode crypto market auto-resolves from the live/mocked xprices feed at its deadline; a `centralized` market is resolved by its assigned `oracle`-role user (not by anyone else, not before deadline); a disputed resolution is overridden by an admin before claims open; a stale feed suspends instead of mis-resolving.
+
+> ** Phase V2-3 COMPLETE (2026-06-23).** Three oracle resolution modes shipped end-to-end: `centralized` (a `role=oracle` account resolves its assigned markets from a dedicated Oracle panel, post-deadline), `api` (a `cron` job auto-resolves crypto markets from the in-house **xprices** feed, suspending + alerting on a stale/missing feed via the new `oracle_failure` breaker), and `decentralized` (placeholder). Post-RESOLVED **dispute window** holds auto-settle (and therefore claims) until it elapses with no open dispute; admins uphold (override θ* + re-pay) or reject from a dispute queue. Backend is the single source of truth via the in-process `cron` scheduler (no backend `setInterval`); V2-4 replaces it with a leader-elected runner. **Verify (2026-06-23):** shared 23 · core 438 · web 204 · api 173 — 0 fail; typecheck 4/4; biome clean; web build ; reseed runs (oracle user + 8 demo markets incl. api+centralized).
 
 ---
 

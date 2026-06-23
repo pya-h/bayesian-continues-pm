@@ -35,4 +35,18 @@ export const config = {
     mcSamples: num('RESERVE_MC_SAMPLES', 50_000),
     alpha: num('RESERVE_ALPHA', 0.99),
   },
+  oracle: {
+    // in-house price service (xprices / pyth-pal). `api`-mode markets resolve
+    // from `GET {baseUrl}/prices/{token}`.
+    baseUrl: process.env.XPRICES_URL ?? 'https://xprices.umbralabs.io',
+    // Per-request timeout (ms) when fetching a price.
+    fetchTimeoutMs: num('ORACLE_FETCH_TIMEOUT_MS', 8_000),
+    // A price whose `timestamp` is older than this (seconds) — or flagged `stale` —
+    // is rejected as bad data (→ SUSPEND + alert), never used to resolve.
+    maxStalenessSec: num('ORACLE_MAX_STALENESS_SEC', 300),
+    // The cron scheduler's tick cadence (the resolver/auto-settle sweep).
+    cron: process.env.ORACLE_CRON ?? '*/30 * * * * *', // every 30s
+    // Master switch for the background scheduler (off in tests; they drive it directly).
+    schedulerEnabled: (process.env.ORACLE_SCHEDULER ?? 'true') !== 'false',
+  },
 } as const;

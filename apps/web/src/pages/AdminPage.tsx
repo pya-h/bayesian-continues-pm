@@ -17,6 +17,7 @@ import { MarketLedgerView } from '../components/MarketLedgerView.tsx';
 import { Button, ErrorNote, Panel, Spinner, Stat, StatusBadge } from '../components/ui.tsx';
 import {
   qk,
+  useAdminDisputes,
   useAdminOverview,
   useAdminUserTransactions,
   useAdminUsers,
@@ -26,14 +27,15 @@ import { ApiError, api } from '../lib/api.ts';
 import { type CreateMarketDraft, buildCreateMarketBody, lifecycleActions } from '../lib/derive.ts';
 import { fmt, fmtCompact, fmtPct, fmtSigned, timeAgo } from '../lib/format.ts';
 import { txLabel } from '../lib/txView.ts';
-import type { AdminUser, MarketView } from '../lib/types.ts';
+import type { AdminUser, Dispute, MarketView } from '../lib/types.ts';
 import { oneOf, usePersistentState } from '../lib/usePersistentState.ts';
 
-type AdminTab = 'markets' | 'users' | 'create' | 'system' | 'audit';
+type AdminTab = 'markets' | 'users' | 'create' | 'disputes' | 'system' | 'audit';
 const TABS: { key: AdminTab; label: string }[] = [
   { key: 'markets', label: 'Markets' },
   { key: 'users', label: 'Users' },
   { key: 'create', label: 'Create market' },
+  { key: 'disputes', label: 'Disputes' },
   { key: 'system', label: 'System' },
   { key: 'audit', label: 'Audit' },
 ];
@@ -79,6 +81,7 @@ export function AdminPage() {
         {tab === 'markets' && <MyMarkets creatorId={user?.userId ?? ''} />}
         {tab === 'users' && <UsersSection />}
         {tab === 'create' && <CreateMarketForm />}
+        {tab === 'disputes' && <DisputesSection />}
         {tab === 'system' && <SystemSection />}
         {tab === 'audit' && <AuditLogView />}
       </div>
@@ -185,6 +188,101 @@ function ModelButton({
         {meta.sub}
       </span>
     </button>
+  );
+}
+
+const SELECT_CLS =
+  'input-glow rounded-lg border border-edge bg-panel-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent';
+
+// oracle assignment for the create form: pick the resolution mode + deadline
+// and the mode-specific extras — the assigned `oracle`-role account (centralized)
+// the xprices token (api), or a disabled placeholder (decentralized).
+function OracleSection({
+  draft,
+  set,
+}: {
+  draft: CreateMarketDraft;
+  set: <K extends keyof CreateMarketDraft>(k: K, v: CreateMarketDraft[K]) => void;
+}) {
+  const mode = draft.oracleMode ?? 'centralized';
+  const usersQ = useAdminUsers();
+  const oracleUsers = (usersQ.data ?? []).filter((u) => u.role === 'oracle' || u.role === 'admin');
+
+  return (
+    <div className="border-t border-edge px-4 py-3">
+      <div className="mb-2 text-xs text-muted">Oracle &amp; resolution</div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Field label="Resolution mode">
+          <select
+            className={SELECT_CLS}
+            value={mode}
+            onChange={(e) => set('oracleMode', e.target.value as CreateMarketDraft['oracleMode'])}
+          >
+            <option value="centralized">Centralized (assigned oracle)</option>
+            <option value="api">API price feed (xprices)</option>
+            <option value="decentralized" disabled>
+              Decentralized — coming soon
+            </option>
+          </select>
+        </Field>
+
+        <Field label="Resolution deadline">
+          <input
+            type="datetime-local"
+            className={SELECT_CLS}
+            value={draft.resolvesAt ?? ''}
+            onChange={(e) => set('resolvesAt', e.target.value)}
+          />
+        </Field>
+
+        <Field label="Dispute window (hours)">
+          <Num
+            value={draft.disputeWindowHours ?? ''}
+            onChange={(v) => set('disputeWindowHours', v)}
+            placeholder="24"
+          />
+        </Field>
+
+        {mode === 'centralized' && (
+          <Field label="Assigned oracle">
+            <select
+              className={SELECT_CLS}
+              value={draft.oracleUserId ?? ''}
+              onChange={(e) => set('oracleUserId', e.target.value)}
+            >
+              <option value="">Admin (resolve myself)</option>
+              {oracleUsers.map((u) => (
+                <option key={u.userId} value={u.userId}>
+                  {u.username} ({u.role})
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+
+        {mode === 'api' && (
+          <Field label="Price token (xprices)" className="sm:col-span-2">
+            <Text
+              value={draft.oracleToken ?? ''}
+              onChange={(v) => set('oracleToken', v)}
+              placeholder="BTC"
+            />
+          </Field>
+        )}
+
+        {mode === 'decentralized' && (
+          <div className="sm:col-span-2 self-end text-xs text-muted">
+            Decentralized resolution (e.g. UMA) is a placeholder — not yet available.
+          </div>
+        )}
+      </div>
+      {mode === 'api' && (
+        <p className="mt-2 text-[11px] text-muted">
+          At the deadline the scheduler fetches this token's price from xprices and resolves the
+          market with it. A stale or unreachable feed suspends the market and alerts instead.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -307,6 +405,8 @@ function CreateMarketForm() {
           />
         </Field>
       </div>
+
+      <OracleSection draft={draft} set={set} />
 
       {/* Belief model: two primary generals lead; the three classics fold away under
           "More models". Every kind stays one click from creatable (multi-model G3). */}
@@ -759,6 +859,11 @@ function UserRow({ user: u }: { user: AdminUser }) {
       setAmount('');
     },
   });
+  const setRole = useMutation({
+    mutationFn: (role: AdminUser['role']) =>
+      api.adminSetUserRole(u.userId, role).then((r) => r.user),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.adminUsers }),
+  });
   const n = Number(amount);
   const valid = amount !== '' && Number.isFinite(n) && n > 0;
 
@@ -768,11 +873,28 @@ function UserRow({ user: u }: { user: AdminUser }) {
         <button type="button" onClick={() => setOpen((o) => !o)} className="text-left">
           <span className="mr-1.5 text-muted">{open ? '▾' : '▸'}</span>
           <span className="font-semibold">{u.username}</span>
-          <span className="ml-2 rounded bg-panel-2 px-1.5 py-0.5 text-xs text-muted">{u.role}</span>
           <div className="tnum pl-5 text-xs text-muted">
             {u.isInfinite ? '∞ balance' : `$${fmt(u.balance)}`}
           </div>
         </button>
+        <div className="flex items-center gap-2">
+          {/* Role (V2-3: grant `oracle`). Backend blocks self-demotion. */}
+          <select
+            value={u.role}
+            disabled={setRole.isPending}
+            onChange={(e) => setRole.mutate(e.target.value as AdminUser['role'])}
+            className="input-glow rounded-lg border border-edge bg-panel-2 px-2 py-1.5 text-xs text-fg outline-none focus:border-accent"
+          >
+            <option value="user">user</option>
+            <option value="oracle">oracle</option>
+            <option value="admin">admin</option>
+          </select>
+          {setRole.isError && (
+            <span className="text-xs text-sell">
+              {setRole.error instanceof ApiError ? setRole.error.message : 'Failed.'}
+            </span>
+          )}
+        </div>
         {!u.isInfinite && (
           <div className="flex items-center gap-2">
             <input
@@ -917,6 +1039,126 @@ function SystemSection() {
 }
 
 // form primitives ---
+
+// disputes ---
+
+function DisputesSection() {
+  const disputesQ = useAdminDisputes();
+  if (disputesQ.isLoading) return <Spinner label="Loading disputes…" />;
+  if (disputesQ.error || !disputesQ.data) return <ErrorNote>Failed to load disputes.</ErrorNote>;
+  const all = disputesQ.data;
+  const open = all.filter((d) => d.status === 'open');
+  const closed = all.filter((d) => d.status !== 'open');
+
+  return (
+    <Panel title={`Disputes (${open.length} open)`}>
+      <div className="flex flex-col gap-3 p-4">
+        {all.length === 0 && <p className="text-sm text-muted">No disputes filed.</p>}
+        {open.map((d) => (
+          <DisputeCard key={d.disputeId} dispute={d} />
+        ))}
+        {closed.length > 0 && (
+          <>
+            <div className="mt-2 text-xs text-muted">Resolved</div>
+            {closed.map((d) => (
+              <DisputeCard key={d.disputeId} dispute={d} />
+            ))}
+          </>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function DisputeCard({ dispute: d }: { dispute: Dispute }) {
+  const qc = useQueryClient();
+  const [secondary, setSecondary] = useState('');
+  const [note, setNote] = useState('');
+  const isOpen = d.status === 'open';
+
+  const resolve = useMutation({
+    mutationFn: (body: { action: 'uphold' | 'reject'; secondaryValue?: number; note?: string }) =>
+      api.adminResolveDispute(d.disputeId, body).then((r) => r.dispute),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'disputes'] });
+      qc.invalidateQueries({ queryKey: qk.markets });
+      qc.invalidateQueries({ queryKey: qk.market(d.marketId) });
+    },
+  });
+
+  const uphold = () => {
+    const v = Number(secondary);
+    if (secondary.trim() === '' || !Number.isFinite(v)) return;
+    resolve.mutate({ action: 'uphold', secondaryValue: v, note: note.trim() || undefined });
+  };
+
+  return (
+    <div className="surface-2 rounded-lg border border-edge bg-panel-2 p-3">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <StatusBadge
+          status={
+            d.status === 'open' ? 'SUSPENDED' : d.status === 'upheld' ? 'RESOLVED' : 'CANCELLED'
+          }
+        />
+        <span className="font-semibold text-fg">{d.marketTitle ?? d.marketId}</span>
+        <span className="text-muted">
+          by {d.username ?? d.userId} · {timeAgo(d.createdAt)}
+        </span>
+      </div>
+      <p className="mt-2 text-sm text-fg">{d.reason}</p>
+      <div className="mt-1 text-xs text-muted">
+        {d.proposedValue != null && <span>proposed θ* {fmt(d.proposedValue, 4)} · </span>}
+        {d.secondaryValue != null && <span>set θ* {fmt(d.secondaryValue, 4)} · </span>}
+        {d.resolutionNote && <span>note: {d.resolutionNote}</span>}
+      </div>
+
+      {isOpen && (
+        <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-edge pt-3">
+          <Field label="Corrected θ* (to uphold)">
+            <input
+              type="number"
+              inputMode="decimal"
+              value={secondary}
+              onChange={(e) => setSecondary(e.target.value)}
+              placeholder={d.proposedValue != null ? String(d.proposedValue) : 'θ*'}
+              className="input-glow tnum w-32 rounded-lg border border-edge bg-panel px-2.5 py-1.5 text-sm text-fg outline-none focus:border-accent"
+            />
+          </Field>
+          <Field label="Note (optional)" className="flex-1">
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="reason for the decision"
+              className="input-glow w-full rounded-lg border border-edge bg-panel px-2.5 py-1.5 text-sm text-fg outline-none focus:border-accent"
+            />
+          </Field>
+          <Button
+            variant="primary"
+            className="px-3 py-1.5 text-xs"
+            disabled={resolve.isPending}
+            onClick={uphold}
+          >
+            Uphold (override θ*)
+          </Button>
+          <Button
+            variant="ghost"
+            className="px-3 py-1.5 text-xs"
+            disabled={resolve.isPending}
+            onClick={() => resolve.mutate({ action: 'reject', note: note.trim() || undefined })}
+          >
+            Reject
+          </Button>
+        </div>
+      )}
+      {resolve.isError && (
+        <ErrorNote>
+          {resolve.error instanceof ApiError ? resolve.error.message : 'Failed to resolve dispute.'}
+        </ErrorNote>
+      )}
+    </div>
+  );
+}
 
 function Field({
   label,

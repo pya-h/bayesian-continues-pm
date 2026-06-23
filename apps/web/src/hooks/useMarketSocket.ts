@@ -159,6 +159,13 @@ export function useMarketSocket(marketId: string, userId?: string) {
             // Adaptive parameters moved. Refresh any open admin cfg view.
             qc.invalidateQueries({ queryKey: qk.adminCfg(marketId) });
             break;
+          case 'dispute_filed':
+          case 'dispute_resolved':
+            // a dispute opened/closed — refresh the market (status/θ*/window)
+            // and any admin dispute queue.
+            qc.invalidateQueries({ queryKey: qk.market(marketId) });
+            qc.invalidateQueries({ queryKey: ['admin', 'disputes'] });
+            break;
           default:
             break;
         }

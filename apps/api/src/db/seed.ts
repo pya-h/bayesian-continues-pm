@@ -9,7 +9,7 @@ import { users } from './schema.ts';
 async function upsertUser(opts: {
   username: string;
   password: string;
-  role: 'user' | 'admin';
+  role: 'user' | 'admin' | 'oracle';
   isInfinite: boolean;
   balance: number;
 }) {
@@ -53,6 +53,15 @@ try {
       balance: 10_000,
     });
   }
+
+  // a demo oracle account that can be assigned to centralized markets.
+  await upsertUser({
+    username: 'oracle',
+    password: 'password',
+    role: 'oracle',
+    isInfinite: false,
+    balance: 10_000,
+  });
 
   const all = await db
     .select({ username: users.username, role: users.role, balance: users.balance })

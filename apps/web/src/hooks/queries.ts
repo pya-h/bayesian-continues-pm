@@ -23,6 +23,8 @@ export const qk = {
   adminCfg: (id: string) => ['admin', 'cfg', id] as const,
   adminUserTx: (id: string) => ['admin', 'userTx', id] as const,
   adminAudit: ['admin', 'audit'] as const,
+  adminDisputes: (status?: string) => ['admin', 'disputes', status ?? 'all'] as const,
+  oracleMarkets: ['oracle', 'markets'] as const,
 };
 
 export function useMarkets() {
@@ -118,6 +120,22 @@ export function useAdminAudit(enabled = true) {
   return useQuery({
     queryKey: qk.adminAudit,
     queryFn: () => api.adminAudit().then((r) => r.events),
+    enabled,
+  });
+}
+
+export function useAdminDisputes(status?: 'open' | 'upheld' | 'rejected', enabled = true) {
+  return useQuery({
+    queryKey: qk.adminDisputes(status),
+    queryFn: () => api.adminDisputes(status).then((r) => r.disputes),
+    enabled,
+  });
+}
+
+export function useOracleMarkets(enabled = true) {
+  return useQuery({
+    queryKey: qk.oracleMarkets,
+    queryFn: () => api.oracleMarkets().then((r) => r.markets),
     enabled,
   });
 }

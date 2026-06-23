@@ -2,7 +2,7 @@
 // client. Foundational set for; extended per feature phase.
 
 import { z } from 'zod';
-import { DisputeStatus, OracleMode, UserRole } from './enums.ts';
+import { type DisputeStatus, OracleMode, UserRole } from './enums.ts';
 
 const finite = z.number().finite();
 const positive = z.number().finite().positive();
@@ -246,7 +246,12 @@ export const createMarketSchema = z.object({
   // `api`: the xprices token symbol whose price becomes θ* at the deadline (e.g. "BTC").
   oracleToken: z.string().min(1).max(32).optional(),
   // Post-RESOLVED dispute window in seconds (0 ⇒ claims open immediately).
-  disputeWindowSec: z.number().int().min(0).max(30 * 24 * 3600).optional(),
+  disputeWindowSec: z
+    .number()
+    .int()
+    .min(0)
+    .max(30 * 24 * 3600)
+    .optional(),
 });
 export const createMarketSchemaChecked = createMarketSchema.superRefine((val, ctx) => {
   if (

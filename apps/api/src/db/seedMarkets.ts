@@ -28,7 +28,29 @@ interface SeedMarket {
   trades: SeedTrade[];
 }
 
+const DEMO_DEADLINE = new Date(Date.now() + 30 * 86_400_000).toISOString();
+
 const SEED_MARKETS: SeedMarket[] = [
+  // 0) API oracle — a crypto market that auto-resolves from the xprices BTC feed at
+  // its deadline. θ* is BTC's price (kUSD). Centralized markets default
+  // this one opts into the price-feed oracle.
+  {
+    dto: {
+      title: 'Demo · BTC price @ deadline (API oracle)',
+      description: 'Auto-resolves from the xprices BTC feed at the deadline. θ* = BTC price (USD).',
+      outcomeUnit: 'USD',
+      initialMu: 62_000,
+      initialSigma: 8_000,
+      initialReserve: 80_000,
+      oracleMode: 'api',
+      oracleToken: 'BTC',
+      resolvesAt: DEMO_DEADLINE,
+    },
+    trades: [
+      { trader: 'alice', spec: { type: 'BINARY_CALL', strike: 70_000 }, q: 40 },
+      { trader: 'bob', spec: { type: 'CALL', strike: 60_000 }, q: 1 },
+    ],
+  },
   // 1) Gaussian — a plain price level.
   {
     dto: {
@@ -154,6 +176,24 @@ try {
     alice: await mustUser('alice'),
     bob: await mustUser('bob'),
   };
+  const oracle = await mustUser('oracle');
+
+  // centralized demo: a market the `oracle` account resolves manually after its
+  // deadline (built at runtime since it needs the oracle user's id).
+  const centralizedMarket: SeedMarket = {
+    dto: {
+      title: 'Demo · Cup final winner (Centralized oracle)',
+      description: 'Resolved manually by the assigned oracle account after the deadline.',
+      outcomeUnit: 'goals',
+      initialMu: 2,
+      initialSigma: 1.5,
+      initialReserve: 30_000,
+      oracleMode: 'centralized',
+      oracleUserId: oracle.userId,
+      resolvesAt: DEMO_DEADLINE,
+    },
+    trades: [{ trader: 'alice', spec: { type: 'BINARY_CALL', strike: 3 }, q: 60 }],
+  };
 
   const existing = new Set(
     (await db.select({ title: markets.title }).from(markets)).map((r) => r.title),
@@ -161,7 +201,7 @@ try {
 
   let created = 0;
   let skipped = 0;
-  for (const m of SEED_MARKETS) {
+  for (const m of [...SEED_MARKETS, centralizedMarket]) {
     if (existing.has(m.dto.title)) {
       console.log(`   ↷ skip (exists): ${m.dto.title}`);
       skipped++;

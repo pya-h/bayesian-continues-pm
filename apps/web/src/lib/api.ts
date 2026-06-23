@@ -2,6 +2,7 @@
 // non-2xx into a thrown `ApiError` carrying the server's `{ error }` message so
 // TanStack Query surfaces it uniformly.
 
+import type { UserRole } from '@bmm/shared';
 import type {
   AdaptiveControl,
   AdminMarketOverview,
@@ -9,6 +10,7 @@ import type {
   AuditEvent,
   AuthResponse,
   CreateMarketInput,
+  Dispute,
   Fill,
   LpClaimResult,
   LpDepositResult,
@@ -177,4 +179,27 @@ export const api = {
   adminUserTransactions: (userId: string) =>
     request<UserTransactions>(`/admin/users/${userId}/transactions`),
   adminAudit: () => request<{ events: AuditEvent[] }>('/admin/audit'),
+  // grant/revoke a user's role (mint oracle accounts).
+  adminSetUserRole: (userId: string, role: UserRole) =>
+    request<{ user: PublicUser }>(`/admin/users/${userId}/role`, {
+      method: 'PATCH',
+      body: { role },
+    }),
+  // dispute queue.
+  adminDisputes: (status?: 'open' | 'upheld' | 'rejected') =>
+    request<{ disputes: Dispute[] }>(`/admin/disputes${status ? `?status=${status}` : ''}`),
+  adminResolveDispute: (
+    disputeId: string,
+    body: { action: 'uphold' | 'reject'; secondaryValue?: number; note?: string },
+  ) =>
+    request<{ dispute: Dispute }>(`/admin/disputes/${disputeId}/resolve`, { method: 'POST', body }),
+
+  // oracle panel (role=oracle / admin) ---
+  oracleMarkets: () => request<{ markets: MarketView[] }>('/oracle/markets'),
+  oracleResolve: (id: string, thetaStar: number) =>
+    request<{ market: MarketView }>(`/oracle/markets/${id}/resolve`, { body: { thetaStar } }),
+
+  // disputes (user) ---
+  fileDispute: (id: string, body: { reason: string; proposedValue?: number }) =>
+    request<{ dispute: Dispute }>(`/markets/${id}/dispute`, { body }),
 };

@@ -43,3 +43,19 @@ export const requireAdmin = new Elysia({ name: 'requireAdmin' })
       return { error: 'Forbidden' };
     }
   });
+
+// oracle-panel guard: the caller must hold the `oracle` role (or be an admin).
+// Per-market assignment (`market.oracleUserId === caller`) is enforced in the
+// handler — this gate only keeps non-oracle users out of the panel entirely.
+export const requireOracle = new Elysia({ name: 'requireOracle' })
+  .use(authPlugin)
+  .onBeforeHandle({ as: 'scoped' }, ({ user, set }) => {
+    if (!user) {
+      set.status = 401;
+      return { error: 'Unauthorized' };
+    }
+    if (user.role !== 'oracle' && user.role !== 'admin') {
+      set.status = 403;
+      return { error: 'Forbidden' };
+    }
+  });

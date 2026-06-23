@@ -391,6 +391,52 @@ describe('buildCreateMarketBody', () => {
       expect(body.belief).toEqual(c.belief);
     }
   });
+
+  // oracle assignment ---
+  test('default (centralized) market emits no oracle fields', () => {
+    const body = buildCreateMarketBody(base);
+    expect('oracleMode' in body).toBe(false);
+    expect('oracleToken' in body).toBe(false);
+    expect('resolvesAt' in body).toBe(false);
+  });
+
+  test('api mode requires a token + deadline, and uppercases the token', () => {
+    const deadline = '2027-01-01T00:00';
+    const body = buildCreateMarketBody({
+      ...base,
+      oracleMode: 'api',
+      oracleToken: ' btc ',
+      resolvesAt: deadline,
+    });
+    expect(body.oracleMode).toBe('api');
+    expect(body.oracleToken).toBe('BTC');
+    expect(body.resolvesAt).toBe(new Date(deadline).toISOString());
+
+    expect(() =>
+      buildCreateMarketBody({ ...base, oracleMode: 'api', resolvesAt: deadline }),
+    ).toThrow('price token');
+    expect(() => buildCreateMarketBody({ ...base, oracleMode: 'api', oracleToken: 'BTC' })).toThrow(
+      'deadline',
+    );
+  });
+
+  test('centralized mode carries the assigned oracle user but omits the default mode', () => {
+    const body = buildCreateMarketBody({
+      ...base,
+      oracleMode: 'centralized',
+      oracleUserId: 'user-123',
+    });
+    expect('oracleMode' in body).toBe(false); // centralized is the backend default
+    expect(body.oracleUserId).toBe('user-123');
+  });
+
+  test('dispute window converts hours to seconds (and rejects negatives)', () => {
+    expect(buildCreateMarketBody({ ...base, disputeWindowHours: 12 }).disputeWindowSec).toBe(43200);
+    expect(buildCreateMarketBody({ ...base, disputeWindowHours: 0 }).disputeWindowSec).toBe(0);
+    expect(() => buildCreateMarketBody({ ...base, disputeWindowHours: -1 })).toThrow(
+      'zero or more hours',
+    );
+  });
 });
 
 describe('lifecycleActions', () => {

@@ -64,6 +64,11 @@ export function Layout() {
             <NavLink to="/guide" className={navCls}>
               Guide
             </NavLink>
+            {(user?.role === 'oracle' || user?.role === 'admin') && (
+              <NavLink to="/oracle" className={navCls}>
+                Oracle
+              </NavLink>
+            )}
             {user?.role === 'admin' && (
               <NavLink to="/admin" className={navCls}>
                 Admin

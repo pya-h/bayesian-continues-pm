@@ -236,10 +236,13 @@ export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Prom
 }
 
 export async function transitionMarket(
-  actor: UserRow,
+  // `null` ⇒ a system-driven transition (e.g. the oracle scheduler auto-
+  // resolving an `api` market or auto-settling after the dispute window); the audit
+  // row then carries a null actor.
+  actor: UserRow | null,
   marketId: string,
   action: LifecycleAction,
-  opts: { thetaStar?: number; oracleSource?: string } = {},
+  opts: { thetaStar?: number; oracleSource?: string; oracleConfidence?: number } = {},
 ): Promise<MarketRow> {
   const rule = ACTIONS[action];
 
@@ -272,7 +275,7 @@ export async function transitionMarket(
           source: opts.oracleSource ?? 'manual_admin',
           token: m.oracleToken,
           resolvedValue: opts.thetaStar,
-          confidence: 1,
+          confidence: opts.oracleConfidence ?? 1,
         });
         // Compute every open position's payout into uncredited `claims` rows.
         await recordClaims(tx, marketId, opts.thetaStar);
@@ -356,7 +359,7 @@ export async function transitionMarket(
       // transition (refunds/claims included) that actually happened.
       await writeAudit(
         {
-          actorId: actor.userId,
+          actorId: actor?.userId ?? null,
           action: `market_${action}`,
           targetId: marketId,
           payload:
