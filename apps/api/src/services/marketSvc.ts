@@ -15,7 +15,7 @@ import {
   makeEngineConfig,
 } from '@bmm/core';
 import type { CreateMarketDTO, MarketStatus, ModelTag } from '@bmm/shared';
-import { TransactionKind, addMoney, round8, subMoney } from '@bmm/shared';
+import { OracleMode, TransactionKind, UserRole, addMoney, round8, subMoney } from '@bmm/shared';
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../db/client.ts';
 import { type MarketRow, type UserRow, marketRepo } from '../db/repos.ts';
@@ -78,6 +78,40 @@ function resolveModel(dto: CreateMarketDTO): ModelTag {
   return dto.belief?.kind ?? 'gaussian';
 }
 
+// Validate + normalize the oracle assignment from the create DTO. `api` mode
+// requires a token (schema-enforced) and ignores any oracleUserId; `centralized`
+// mode may name a `role=oracle`/admin account that will resolve it (null ⇒ admin
+// only); `decentralized` is accepted as a placeholder but cannot resolve yet.
+async function resolveOracleAssignment(dto: CreateMarketDTO): Promise<{
+  oracleMode: OracleMode;
+  oracleUserId: string | null;
+  oracleToken: string | null;
+  disputeWindowSec: number;
+}> {
+  const oracleMode: OracleMode = dto.oracleMode ?? OracleMode.CENTRALIZED;
+  const disputeWindowSec = dto.disputeWindowSec ?? 86400;
+
+  if (oracleMode === OracleMode.API) {
+    if (!dto.oracleToken) throw new HttpError(400, 'oracleToken is required for api oracle mode');
+    return { oracleMode, oracleUserId: null, oracleToken: dto.oracleToken, disputeWindowSec };
+  }
+
+  let oracleUserId: string | null = null;
+  if (oracleMode === OracleMode.CENTRALIZED && dto.oracleUserId) {
+    const rows = await db
+      .select({ role: users.role })
+      .from(users)
+      .where(eq(users.userId, dto.oracleUserId));
+    const u = rows[0];
+    if (!u) throw new HttpError(400, 'Assigned oracle user not found');
+    if (u.role !== UserRole.ORACLE && u.role !== UserRole.ADMIN) {
+      throw new HttpError(400, 'Assigned oracle must have the oracle (or admin) role');
+    }
+    oracleUserId = dto.oracleUserId;
+  }
+  return { oracleMode, oracleUserId, oracleToken: null, disputeWindowSec };
+}
+
 export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Promise<MarketRow> {
   const cfg: EngineConfig = makeEngineConfig(dto.initialMu, dto.initialSigma, dto.cfg ?? {});
   const reserve = dto.initialReserve;
@@ -91,6 +125,7 @@ export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Prom
   const initialBelief: BeliefModel = makeInitialBelief(dto);
   const beliefFields = beliefPersistFields(initialBelief);
   const model = resolveModel(dto);
+  const oracle = await resolveOracleAssignment(dto);
 
   const market = await db.transaction(async (tx) => {
     // Non-infinite creators fund the reserve from their balance. Re-read the row
@@ -135,6 +170,10 @@ export async function createMarket(creator: UserRow, dto: CreateMarketDTO): Prom
         cash: reserve,
         reserveRequired: 0,
         lpSharesTotal: reserve,
+        oracleMode: oracle.oracleMode,
+        oracleUserId: oracle.oracleUserId,
+        oracleToken: oracle.oracleToken,
+        disputeWindowSec: oracle.disputeWindowSec,
         opensAt: toDate(dto.opensAt),
         closesAt: toDate(dto.closesAt),
         resolvesAt: toDate(dto.resolvesAt),
@@ -226,9 +265,12 @@ export async function transitionMarket(
           throw new HttpError(400, 'resolve requires a finite thetaStar');
         }
         patch.thetaStar = opts.thetaStar;
+        // stamp resolution time — this opens the post-RESOLVED dispute window.
+        patch.resolvedAt = new Date();
         await tx.insert(oracles).values({
           marketId,
           source: opts.oracleSource ?? 'manual_admin',
+          token: m.oracleToken,
           resolvedValue: opts.thetaStar,
           confidence: 1,
         });

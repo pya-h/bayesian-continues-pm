@@ -2,6 +2,7 @@
 // client. Foundational set for; extended per feature phase.
 
 import { z } from 'zod';
+import { DisputeStatus, OracleMode, UserRole } from './enums.ts';
 
 const finite = z.number().finite();
 const positive = z.number().finite().positive();
@@ -237,6 +238,15 @@ export const createMarketSchema = z.object({
   opensAt: z.string().datetime().optional(),
   closesAt: z.string().datetime().optional(),
   resolvesAt: z.string().datetime().optional(),
+  // oracle assignment. Defaults to `centralized` resolved by the admin (null
+  // oracleUserId) — the V1 manual-resolve behaviour.
+  oracleMode: z.nativeEnum(OracleMode).optional(),
+  // `centralized`: the role=oracle (or admin) account that may resolve. null ⇒ admin-only.
+  oracleUserId: z.string().uuid().optional(),
+  // `api`: the xprices token symbol whose price becomes θ* at the deadline (e.g. "BTC").
+  oracleToken: z.string().min(1).max(32).optional(),
+  // Post-RESOLVED dispute window in seconds (0 ⇒ claims open immediately).
+  disputeWindowSec: z.number().int().min(0).max(30 * 24 * 3600).optional(),
 });
 export const createMarketSchemaChecked = createMarketSchema.superRefine((val, ctx) => {
   if (
@@ -250,8 +260,67 @@ export const createMarketSchemaChecked = createMarketSchema.superRefine((val, ct
       path: ['outcomeMax'],
     });
   }
+  // `api` oracle mode is only meaningful for a crypto-price market: it needs a token
+  // symbol to query. Without one there is nothing for the scheduler to resolve from.
+  if (val.oracleMode === OracleMode.API && !val.oracleToken) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'oracleToken is required when oracleMode is "api"',
+      path: ['oracleToken'],
+    });
+  }
 });
 export type CreateMarketDTO = z.infer<typeof createMarketSchema>;
+
+// Oracles & disputes -----------------------------------------------
+
+// Body for a centralized-oracle (or admin) resolution: the reported outcome θ*.
+export const oracleResolveSchema = z.object({ thetaStar: outcome });
+export type OracleResolveDTO = z.infer<typeof oracleResolveSchema>;
+
+export const setRoleSchema = z.object({ role: z.nativeEnum(UserRole) });
+export type SetRoleDTO = z.infer<typeof setRoleSchema>;
+
+export const disputeSchema = z.object({
+  reason: z.string().min(1).max(1000),
+  // Optional: the θ* the disputer believes is correct (context for the admin).
+  proposedValue: outcome.optional(),
+});
+export type DisputeDTO = z.infer<typeof disputeSchema>;
+
+// Admin closing a dispute: uphold (override θ* to secondaryValue) or reject.
+export const resolveDisputeSchema = z
+  .object({
+    action: z.enum(['uphold', 'reject']),
+    secondaryValue: outcome.optional(),
+    note: z.string().max(1000).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.action === 'uphold' && val.secondaryValue === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'secondaryValue (the corrected θ*) is required when upholding a dispute',
+        path: ['secondaryValue'],
+      });
+    }
+  });
+export type ResolveDisputeDTO = z.infer<typeof resolveDisputeSchema>;
+
+export interface DisputeView {
+  disputeId: string;
+  marketId: string;
+  marketTitle?: string;
+  userId: string;
+  username?: string;
+  reason: string;
+  status: DisputeStatus;
+  proposedValue: number | null;
+  secondaryValue: number | null;
+  resolverId: string | null;
+  resolutionNote: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+}
 
 // Trading -----------------------------------------------------------------
 

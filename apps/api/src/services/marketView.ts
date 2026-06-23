@@ -9,7 +9,7 @@ import {
   StudentTBelief,
   expectedLiability,
 } from '@bmm/core';
-import { type ModelTag, round8 } from '@bmm/shared';
+import { type ModelTag, type OracleMode, round8 } from '@bmm/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.ts';
 import { contracts } from '../db/schema.ts';
@@ -48,6 +48,12 @@ export interface MarketView {
   reserveRequired: number;
   pool: { nav: number; sharesTotal: number; sharePrice: number };
   thetaStar: number | null;
+  oracleMode: OracleMode;
+  oracleUserId: string | null;
+  oracleToken: string | null;
+  // When θ* was set (opens the dispute window); null until resolved.
+  resolvedAt: Date | null;
+  disputeWindowSec: number;
   opensAt: Date | null;
   closesAt: Date | null;
   resolvesAt: Date | null;
@@ -112,6 +118,11 @@ export async function buildMarketView(m: MarketRow): Promise<MarketView> {
     reserveRequired: m.reserveRequired,
     pool: { nav, sharesTotal, sharePrice },
     thetaStar: m.thetaStar,
+    oracleMode: m.oracleMode,
+    oracleUserId: m.oracleUserId,
+    oracleToken: m.oracleToken,
+    resolvedAt: m.resolvedAt,
+    disputeWindowSec: m.disputeWindowSec,
     opensAt: m.opensAt,
     closesAt: m.closesAt,
     resolvesAt: m.resolvesAt,

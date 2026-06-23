@@ -7,10 +7,12 @@
 import type {
   BeliefStateDTO,
   ContractType,
+  DisputeStatus,
   LpLedgerKind,
   MarketCfgState,
   MarketStatus,
   ModelTag,
+  OracleMode,
   TransactionKind,
   UserRole,
 } from '@bmm/shared';
@@ -19,6 +21,7 @@ import {
   customType,
   doublePrecision,
   index,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -92,6 +95,20 @@ export const markets = pgTable('markets', {
   reserveRequired: money('reserve_required').notNull().default(0),
   lpSharesTotal: money('lp_shares_total').notNull().default(0),
   thetaStar: doublePrecision('theta_star'),
+  // oracle assignment. `oracle_mode` picks WHO/WHAT resolves the market after
+  // `resolves_at`: `centralized` (the `oracle_user_id` account, or admin if null)
+  // `api` (scheduler fetches `oracle_token`'s price from xprices), or `decentralized`
+  // (placeholder). `resolved_at` stamps when θ* was set (opens the dispute window).
+  oracleMode: varchar('oracle_mode', { length: 16 })
+    .$type<OracleMode>()
+    .notNull()
+    .default('centralized'),
+  oracleUserId: uuid('oracle_user_id').references(() => users.userId),
+  oracleToken: varchar('oracle_token', { length: 32 }),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  // Post-RESOLVED dispute window (seconds). Auto-settle fires once it elapses with
+  // no open dispute; 0 ⇒ claims open immediately on resolve.
+  disputeWindowSec: integer('dispute_window_sec').notNull().default(86400),
   opensAt: timestamp('opens_at', { withTimezone: true }),
   closesAt: timestamp('closes_at', { withTimezone: true }),
   resolvesAt: timestamp('resolves_at', { withTimezone: true }),
@@ -283,19 +300,63 @@ export const lpLedger = pgTable(
   (t) => ({ idxMarketTime: index('idx_lpledger_market_time').on(t.marketId, t.createdAt) }),
 );
 
-// oracles -----------------------------------------------------------------
+// oracles (resolution report log) -----------------------------------------
 
-export const oracles = pgTable('oracles', {
-  oracleId: uuid('oracle_id').defaultRandom().primaryKey(),
-  marketId: uuid('market_id')
-    .notNull()
-    .references(() => markets.marketId),
-  source: varchar('source', { length: 100 }).notNull(),
-  resolvedValue: doublePrecision('resolved_value').notNull(),
-  confidence: doublePrecision('confidence'),
-  disputed: boolean('disputed').notNull().default(false),
-  reportedAt: timestamp('reported_at', { withTimezone: true }).notNull().defaultNow(),
-});
+// One row per oracle report that resolved (or re-resolved) a market — the audit
+// trail of WHERE each θ* came from. `source` is the originating mode/identity
+// ("centralized", "api:xprices", "admin_override"), `token` the xprices symbol for
+// `api` reports, `stale` flags a feed read that was rejected as bad data.
+export const oracles = pgTable(
+  'oracles',
+  {
+    oracleId: uuid('oracle_id').defaultRandom().primaryKey(),
+    marketId: uuid('market_id')
+      .notNull()
+      .references(() => markets.marketId),
+    source: varchar('source', { length: 100 }).notNull(),
+    token: varchar('token', { length: 32 }),
+    resolvedValue: doublePrecision('resolved_value').notNull(),
+    confidence: doublePrecision('confidence'),
+    stale: boolean('stale').notNull().default(false),
+    disputed: boolean('disputed').notNull().default(false),
+    reportedAt: timestamp('reported_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ idxMarket: index('idx_oracle_market').on(t.marketId) }),
+);
+
+// disputes --------------------------
+
+// A challenge to a market's resolution, filed by a position holder within the
+// dispute window. Blocks auto-settle while `open`. An admin closes it: `upheld`
+// (θ* overridden to `secondaryValue`, claims re-computed) or `rejected` (the
+// resolution stands). Resolution stays gated behind SETTLED, so an open dispute
+// holds claims by holding settlement.
+export const disputes = pgTable(
+  'disputes',
+  {
+    disputeId: uuid('dispute_id').defaultRandom().primaryKey(),
+    marketId: uuid('market_id')
+      .notNull()
+      .references(() => markets.marketId),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.userId),
+    reason: text('reason').notNull(),
+    status: varchar('status', { length: 16 }).$type<DisputeStatus>().notNull().default('open'),
+    // The θ* the disputer claims is correct (optional context for the admin).
+    proposedValue: doublePrecision('proposed_value'),
+    // What the admin set θ* to when upholding (the secondary/override value).
+    secondaryValue: doublePrecision('secondary_value'),
+    resolverId: uuid('resolver_id').references(() => users.userId),
+    resolutionNote: text('resolution_note'),
+    createdAt: createdAt(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  },
+  (t) => ({
+    idxMarket: index('idx_dispute_market').on(t.marketId),
+    idxStatus: index('idx_dispute_status').on(t.status),
+  }),
+);
 
 // claims (trader settlement) ----------------------------------------------
 
@@ -383,6 +444,7 @@ export const schema = {
   lpPositions,
   lpLedger,
   oracles,
+  disputes,
   claims,
   auditEvents,
   transactions,

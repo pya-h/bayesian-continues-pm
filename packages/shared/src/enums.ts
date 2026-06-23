@@ -32,8 +32,35 @@ export type ContractType = (typeof ContractType)[keyof typeof ContractType];
 export const UserRole = {
   USER: 'user',
   ADMIN: 'admin',
+  // an account that may resolve `centralized`-mode markets it is assigned to.
+  ORACLE: 'oracle',
 } as const;
 export type UserRole = (typeof UserRole)[keyof typeof UserRole];
+
+// oracle resolution mode — chosen per market at creation. Drives WHO/WHAT
+// resolves the market once its deadline (`resolves_at`) passes
+// `centralized` — a specific `role=oracle` account (or an admin) resolves it
+// manually from the Oracle panel. Default / migration mode.
+// `api` — a scheduled job fetches the configured `oracle_token`'s
+// price from the in-house xprices service and auto-resolves.
+// Crypto-price markets only (requires `oracle_token`).
+// `decentralized`— placeholder (e.g. UMA); the enum value + UI option exist but
+// the resolution path is not implemented this phase.
+export const OracleMode = {
+  CENTRALIZED: 'centralized',
+  API: 'api',
+  DECENTRALIZED: 'decentralized',
+} as const;
+export type OracleMode = (typeof OracleMode)[keyof typeof OracleMode];
+
+// dispute lifecycle. A dispute opens within the post-RESOLVED window and is
+// closed by an admin: `upheld` (θ* overridden) or `rejected` (resolution stands).
+export const DisputeStatus = {
+  OPEN: 'open',
+  UPHELD: 'upheld',
+  REJECTED: 'rejected',
+} as const;
+export type DisputeStatus = (typeof DisputeStatus)[keyof typeof DisputeStatus];
 
 export const BeliefKind = {
   GAUSSIAN: 'gaussian',
