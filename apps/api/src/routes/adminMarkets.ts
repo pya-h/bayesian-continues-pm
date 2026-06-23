@@ -1,7 +1,8 @@
-import { createMarketSchemaChecked } from '@bmm/shared';
+import { adaptiveControlSchema, createMarketSchemaChecked } from '@bmm/shared';
 import { Elysia } from 'elysia';
 import { requireAdmin } from '../auth/plugin.ts';
 import type { UserRow } from '../db/repos.ts';
+import { getMarketCfg, setMarketCfgControl } from '../services/cfgSvc.ts';
 import { getMarketLedger } from '../services/marketLedgerSvc.ts';
 import { createMarket, transitionMarket } from '../services/marketSvc.ts';
 import { buildMarketView } from '../services/marketView.ts';
@@ -57,4 +58,17 @@ export const adminMarketRoutes = new Elysia({ prefix: '/admin/markets' })
   })
   .get('/:id/ledger', async ({ params }) => {
     return { ledger: await getMarketLedger(params.id) };
+  })
+  // Adaptive parameters (V2-2): live σ_ε/s₀/α/β + their history.
+  .get('/:id/cfg', async ({ params }) => {
+    return { cfg: await getMarketCfg(params.id) };
+  })
+  // Admin pin/override/enable for the adaptive controller.
+  .patch('/:id/cfg', async ({ params, body, user, set }) => {
+    const parsed = adaptiveControlSchema.safeParse(body);
+    if (!parsed.success) {
+      set.status = 400;
+      return { error: 'Validation failed', issues: parsed.error.issues };
+    }
+    return { cfg: await setMarketCfgControl(user as UserRow, params.id, parsed.data) };
   });

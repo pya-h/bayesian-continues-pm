@@ -36,6 +36,13 @@
       "when": 1781744661005,
       "tag": "0004_mysterious_pete_wisdom",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782213919531,
+      "tag": "0005_chilly_anthem",
+      "breakpoints": true
     }
   ]
 }

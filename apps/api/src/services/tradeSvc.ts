@@ -29,7 +29,16 @@ import { and, eq } from 'drizzle-orm';
 import { config } from '../config.ts';
 import { db } from '../db/client.ts';
 import { type UserRow, marketRepo } from '../db/repos.ts';
-import { beliefUpdates, contracts, markets, positions, trades, users } from '../db/schema.ts';
+import {
+  beliefUpdates,
+  contracts,
+  marketCfgHistory,
+  markets,
+  positions,
+  trades,
+  users,
+} from '../db/schema.ts';
+import { cfgHistoryRow, foldError, liveEngineConfig, packCfgState } from '../lib/adaptiveCfg.ts';
 import { writeAudit } from '../lib/audit.ts';
 import { beliefPersistFields, loadBelief, mixtureOpsFor } from '../lib/belief.ts';
 import { assertContractCompatible, paramsFromSpec, specFromRow } from '../lib/contract.ts';
@@ -76,7 +85,8 @@ export async function quote(marketId: string, dto: QuoteDTO): Promise<QuoteResul
 
   const spec = validateContract(dto.spec);
   assertContractCompatible(spec, m);
-  const cfg = m.cfg as unknown as EngineConfig;
+  // Live (adaptive) engine config — read-only preview, no state mutation here.
+  const cfg = liveEngineConfig(m).cfg;
   const belief = loadBelief(m);
   const q = dto.q;
   const side: Side = q >= 0 ? 'buy' : 'sell';
@@ -165,6 +175,7 @@ export async function executeTrade(
   const side: Side = q >= 0 ? 'buy' : 'sell';
 
   let sigma0 = 0; // genesis σ₀, captured inside the txn for the circuit breakers
+  let paramRailHit = false; // adaptive-param rail bound this step (for the breaker)
   const result = await withMarketLock(marketId, () =>
     db.transaction(async (tx): Promise<FillResult> => {
       const mrows = await tx
@@ -178,7 +189,10 @@ export async function executeTrade(
       sigma0 = m.initialSigma;
 
       assertContractCompatible(spec, m);
-      const cfg = m.cfg as unknown as EngineConfig;
+      // Live (adaptive) engine config for THIS trade, derived from the pre-trade
+      // controller state; the trade's signal error advances the state below.
+      const live = liveEngineConfig(m);
+      const cfg = live.cfg;
       const reserveOpts = reserveOptsFor(cfg);
       const belief = loadBelief(m);
       const fair = price(spec, belief);
@@ -268,6 +282,11 @@ export async function executeTrade(
       // placement (center + signed strength), otherwise the standard extracted signal.
       const sig = tradeSignal(spec, filledQ, belief, cfg, m.model);
       const newBelief = updateBeliefForTrade(spec, filledQ, belief, cfg, m.model, mixtureOpsFor(m));
+      // Adaptive controller: fold this trade's signal error |s − μ_prior| into the
+      // EWMA state for the NEXT trade. Pure; persisted with the belief below.
+      const nextCfgState = foldError(live.state, sig.signal, belief.mean(), live.acfg);
+      const cfgHist = cfgHistoryRow(m, nextCfgState, live.acfg, live.control);
+      paramRailHit = cfgHist.railHit;
       const newMmShort = round8(mmShort + filledQ);
       const newBook = withMmShort(book, spec, key, contractKey, newMmShort);
 
@@ -379,11 +398,25 @@ export async function executeTrade(
         .update(markets)
         .set({
           ...beliefPersistFields(newBelief),
+          cfgState: packCfgState(nextCfgState, live.control),
           cash: cashAfter,
           reserveRequired: reserveAfter,
           updatedAt: new Date(),
         })
         .where(eq(markets.marketId, marketId));
+
+      // Adaptive-parameter time series: what the next trade will price at.
+      await tx.insert(marketCfgHistory).values({
+        marketId,
+        sigmaEps: cfgHist.sigmaEps,
+        s0: cfgHist.s0,
+        alpha: cfgHist.alpha,
+        beta: cfgHist.beta,
+        regime: cfgHist.regime,
+        railHit: cfgHist.railHit,
+        source: cfgHist.source,
+        triggerTradeId: tradeId,
+      });
 
       let newBalance: number | null = null;
       if (!u.isInfinite) {
@@ -493,6 +526,7 @@ export async function executeTrade(
     priceMovePct,
     cash: result.cash,
     reserve: result.reserveRequired,
+    paramRailHit,
   });
   for (const alert of alerts) {
     publish(topics.system, {
@@ -539,6 +573,7 @@ export interface SellAllResult {
 // so the per-contract audit trail is identical to selling one at a time.
 export async function sellAllPositions(actor: UserRow, marketId: string): Promise<SellAllResult> {
   let sigma0 = 0;
+  let paramRailHit = false;
   const affected = new Map<string, { spec: ContractSpec; fair: number }>();
 
   const result = await withMarketLock(marketId, () =>
@@ -553,8 +588,12 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
       if (m.status !== 'OPEN') throw new HttpError(409, 'Market is not open for trading');
       sigma0 = m.initialSigma;
 
-      const cfg = m.cfg as unknown as EngineConfig;
+      // Live (adaptive) engine config, fixed for the whole sell-all (params adapt
+      // after the event); the controller state evolves per close in `cfgRunState`.
+      const live = liveEngineConfig(m);
+      const cfg = live.cfg;
       const reserveOpts = reserveOptsFor(cfg);
+      let cfgRunState = live.state;
 
       const urows = await tx
         .select()
@@ -652,6 +691,8 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
           m.model,
           mixtureOpsFor(m),
         );
+        // Fold each close's signal error into the controller (sequential).
+        cfgRunState = foldError(cfgRunState, sig.signal, belief.mean(), live.acfg);
         const newMmShort = round8(mmShort + filledQ);
         mmShortByKey.set(key, newMmShort);
         const newBook = buildBook();
@@ -777,15 +818,31 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
         affected.set(key, { spec: v.spec, fair: price(v.spec, liveBelief) });
       }
 
+      const cfgHist = cfgHistoryRow(m, cfgRunState, live.acfg, live.control);
+      paramRailHit = cfgHist.railHit;
+
       await tx
         .update(markets)
         .set({
           ...beliefPersistFields(liveBelief),
+          cfgState: packCfgState(cfgRunState, live.control),
           cash: liveCash,
           reserveRequired: reserveAfter,
           updatedAt: new Date(),
         })
         .where(eq(markets.marketId, marketId));
+
+      await tx.insert(marketCfgHistory).values({
+        marketId,
+        sigmaEps: cfgHist.sigmaEps,
+        s0: cfgHist.s0,
+        alpha: cfgHist.alpha,
+        beta: cfgHist.beta,
+        regime: cfgHist.regime,
+        railHit: cfgHist.railHit,
+        source: cfgHist.source,
+        triggerTradeId: fills[fills.length - 1]?.tradeId,
+      });
 
       let newBalance: number | null = null;
       if (!u.isInfinite) {
@@ -848,6 +905,7 @@ export async function sellAllPositions(actor: UserRow, marketId: string): Promis
     priceMovePct: result.priceMovePct,
     cash: result.cash,
     reserve: result.reserveRequired,
+    paramRailHit,
   });
   for (const alert of alerts) {
     publish(topics.system, {

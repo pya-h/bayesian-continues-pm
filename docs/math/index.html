@@ -1351,6 +1351,44 @@
           <div><div class="controls"></div><div class="readout"></div></div>
         </div>
       </div>
+
+      <details>
+        <summary>V2 — adaptive parameters (self-tuning \( \sigma_\varepsilon \) &amp; \( s_0 \))</summary>
+        <p>In V1 the engine constants are fixed at market creation. V2 lets the two that govern
+        responsiveness <strong>track the market's own flow</strong> (MODEL.md §14.2). The controller is
+        <em>belief-kind agnostic</em>: it watches one scalar per trade — the <strong>signal surprise</strong>
+        \( e_t=|s_t-\mu_t| \), the distance of the extracted signal \( s_t \) from the pre-trade belief mean —
+        and keeps two exponentially-weighted moving averages of it, a slow one and a fast one:</p>
+        <div class="eqbox named"><span>$$
+        \bar e^{\text{slow}}_t=(1-\alpha_s)\,\bar e^{\text{slow}}_{t-1}+\alpha_s\,e_t,\qquad
+        \bar e^{\text{fast}}_t=(1-\alpha_f)\,\bar e^{\text{fast}}_{t-1}+\alpha_f\,e_t,\quad \alpha_f>\alpha_s .
+        $$</span><span class="eqlabel">adaptive.ts</span></div>
+        <p><strong>Signal noise \( \sigma_\varepsilon \).</strong> Under the model \( \varepsilon\sim\mathcal N(0,\sigma_\varepsilon^2) \),
+        the mean absolute deviation is \( \mathbb E|\varepsilon|=\sigma_\varepsilon\sqrt{2/\pi} \). So the running
+        mean surprise is debiased by the half-normal factor \( \sqrt{\pi/2}\approx1.253 \) to estimate \( \sigma_\varepsilon \):</p>
+        <div class="eqbox">$$ \sigma_{\varepsilon,t}=\operatorname{clamp}\!\Big(\sqrt{\tfrac{\pi}{2}}\;\bar e^{\text{slow}}_t,\ \;\sigma_\varepsilon^{\text{lo}},\ \sigma_\varepsilon^{\text{hi}}\Big),\qquad [\sigma_\varepsilon^{\text{lo}},\sigma_\varepsilon^{\text{hi}}]=[0.1,2]\cdot\sigma_0 . $$</div>
+        <p>A larger \( \sigma_\varepsilon \) lowers each trade's Bayesian precision \( w/\sigma_\varepsilon^2 \)
+        (§7), so a noisy/disagreeing market moves its belief <em>less</em> per trade — the intended whipsaw
+        damper. Because the precision term is shared by every kind's update, the same \( \sigma_\varepsilon \)
+        tunes Gaussian, Mixture, Gen·basis and Gen·exact identically.</p>
+        <p><strong>Spread floor \( s_0 \) — volatility regime.</strong> The fast/slow ratio is a unit-free
+        volatility detector: when recent surprises outrun the slow baseline it widens the base spread, then
+        relaxes as the two re-converge.</p>
+        <div class="eqbox named"><span>$$
+        \rho_t=\operatorname{clamp}\!\Big(\tfrac{\bar e^{\text{fast}}_t}{\bar e^{\text{slow}}_t}-1,\ 0,\ \rho_{\max}\Big),\qquad
+        s_{0,t}=\operatorname{clamp}\big(s_0\,(1+\rho_t),\ 0.001,\ 0.02\big).
+        $$</span><span class="eqlabel">§14.1 rails</span></div>
+        <p>Optionally \( \alpha,\beta \) (signal strength) damp by the inverse noise ratio
+        \( \sigma_\varepsilon^{\text{base}}/\sigma_{\varepsilon,t} \), clamped to \( \alpha\in[0.5,2] \),
+        \( \beta\in[0.5,1.5] \) (off by default). Every adapted value is clamped to its §14.1 rail; a clamp
+        that <em>binds</em> raises the <strong>param-rail</strong> circuit breaker of §14 (an info alert — the
+        controller is at the edge of its safe envelope, so an admin may widen the rail or pin the value).</p>
+        <p><strong>Causality &amp; persistence.</strong> A trade is priced and updated with the parameters
+        derived from the controller's <em>pre-trade</em> state; the trade's own surprise then advances the EWMAs
+        for the <em>next</em> trade (`cfg_state` jsonb), and the resulting live \( (\sigma_\varepsilon,s_0,\alpha,\beta) \)
+        are appended to a `market_cfg_history` series for the admin chart. An admin can pin any parameter or
+        disable adaptation entirely, freezing the static V1 values.</p>
+      </details>
     </section>
 
     <!-- =============================================================== -->
@@ -1565,8 +1603,12 @@ losses.sort();
           <tr><td>Rapid price move</td><td>\( |\Delta\text{Price}|/\text{Price} &gt; 10\% \)</td><td>critical → suspend (recommended)</td></tr>
           <tr><td>Insolvency risk</td><td>\( \text{cash} &lt; 1.2\,\text{reserve} \)</td><td>critical → reject new risk</td></tr>
           <tr><td>Insolvency warning</td><td>\( \text{cash} &lt; 1.5\,\text{reserve} \)</td><td>warning → alert</td></tr>
+          <tr><td>Parameter rail (V2)</td><td>an adaptive \( \sigma_\varepsilon/s_0/\alpha/\beta \) clamps to a §14.1 rail</td><td>info → alert</td></tr>
         </tbody>
       </table></div>
+      <p>The parameter-rail breaker (V2) fires when the self-tuning controller of §8 saturates one of its
+      §14.1 clamps — the controller wants to adapt past its safe envelope, so the admin is told to widen the
+      rail or pin the value.</p>
     </section>
 
     <!-- =============================================================== -->

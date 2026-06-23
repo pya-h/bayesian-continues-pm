@@ -268,6 +268,42 @@ export const tradeSchema = z.object({
 });
 export type TradeDTO = z.infer<typeof tradeSchema>;
 
+// Adaptive parameters ----------------------------------------------
+
+export interface AdaptiveStateDTO {
+  emaSlow: number;
+  emaFast: number;
+  count: number;
+}
+
+export interface AdaptiveControlDTO {
+  enabled?: boolean;
+  pinned?: { sigmaEps?: number; s0?: number; alpha?: number; beta?: number };
+  cfg?: Record<string, number | boolean>;
+}
+
+export interface MarketCfgState {
+  adaptive: AdaptiveStateDTO;
+  control?: AdaptiveControlDTO;
+}
+
+export const adaptiveControlSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    pinned: z
+      .object({
+        sigmaEps: positive.optional(),
+        s0: positive.optional(),
+        alpha: positive.optional(),
+        beta: positive.optional(),
+      })
+      .strict()
+      .optional(),
+    cfg: z.record(z.union([z.number().finite(), z.boolean()])).optional(),
+  })
+  .strict();
+export type AdaptiveControlInput = z.infer<typeof adaptiveControlSchema>;
+
 // LP ----------------------------------------------------------------------
 
 export const lpDepositSchema = z.object({ amount: positive });

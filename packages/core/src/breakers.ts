@@ -10,7 +10,11 @@
 // cross-trade or time-series state beyond a single fill).
 
 export type AlertSeverity = 'info' | 'warning' | 'critical';
-export type BreakerKind = 'belief_divergence' | 'rapid_price_move' | 'insolvency_risk';
+export type BreakerKind =
+  | 'belief_divergence'
+  | 'rapid_price_move'
+  | 'insolvency_risk'
+  | 'param_rail';
 export type BreakerAction = 'alert' | 'suspend' | 'reject';
 
 export interface Alert {
@@ -30,6 +34,7 @@ export interface BreakerInput {
   priceMovePct: number;
   cash: number;
   reserve: number;
+  paramRailHit?: boolean;
 }
 
 export interface BreakerThresholds {
@@ -102,6 +107,20 @@ export function evalBreakers(
         threshold: t.reserveWarnRatio * input.reserve,
       });
     }
+  }
+
+  // 4. Adaptive-parameter rail — a self-tuned parameter (σ_ε / s₀ / α / β)
+  // saturated a clamp. Informational: the controller is at the edge of its
+  // safe envelope, so an admin may want to widen the rail or pin the param.
+  if (input.paramRailHit) {
+    alerts.push({
+      kind: 'param_rail',
+      severity: 'info',
+      action: 'alert',
+      message: 'Adaptive parameter clamped to a §14.1 rail — controller at its safe envelope edge.',
+      value: 1,
+      threshold: 1,
+    });
   }
 
   return alerts;

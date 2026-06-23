@@ -65,6 +65,19 @@ describe('evalBreakers — MODEL.md §15.1', () => {
     expect(evalBreakers({ ...OK, cash: 0, reserve: 0 })).toEqual([]);
   });
 
+  test('param rail fires when an adaptive parameter clamps (info/alert)', () => {
+    const a = evalBreakers({ ...OK, paramRailHit: true });
+    expect(a).toHaveLength(1);
+    expect(a[0]?.kind).toBe('param_rail');
+    expect(a[0]?.action).toBe('alert');
+    expect(a[0]?.severity).toBe('info');
+  });
+
+  test('param rail does not fire when no rail is hit', () => {
+    expect(evalBreakers({ ...OK, paramRailHit: false })).toEqual([]);
+    expect(evalBreakers(OK)).toEqual([]); // undefined ⇒ off
+  });
+
   test('multiple breakers fire together', () => {
     const a = evalBreakers({
       sigma: 5000,
@@ -72,9 +85,15 @@ describe('evalBreakers — MODEL.md §15.1', () => {
       priceMovePct: 0.5,
       cash: 1000,
       reserve: 10_000,
+      paramRailHit: true,
     });
     const kinds = a.map((x) => x.kind).sort();
-    expect(kinds).toEqual(['belief_divergence', 'insolvency_risk', 'rapid_price_move']);
+    expect(kinds).toEqual([
+      'belief_divergence',
+      'insolvency_risk',
+      'param_rail',
+      'rapid_price_move',
+    ]);
   });
 
   test('thresholds are overridable', () => {

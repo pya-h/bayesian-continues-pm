@@ -49,6 +49,18 @@ export {
 // config
 export { DEFAULT_PARAMS, makeEngineConfig } from './config.ts';
 
+// adaptive parameters
+export {
+  type AdaptiveState,
+  type AdaptiveConfig,
+  type AdaptedParams,
+  type RailHits,
+  DEFAULT_ADAPTIVE,
+  initAdaptiveState,
+  observeError,
+  adaptParams,
+} from './adaptive.ts';
+
 // contracts
 export {
   payoff,

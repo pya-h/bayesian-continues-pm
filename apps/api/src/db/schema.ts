@@ -8,6 +8,7 @@ import type {
   BeliefStateDTO,
   ContractType,
   LpLedgerKind,
+  MarketCfgState,
   MarketStatus,
   ModelTag,
   TransactionKind,
@@ -82,6 +83,11 @@ export const markets = pgTable('markets', {
   // current_mu/current_sigma are kept in sync as the summary mean/σ for cheap reads.
   beliefState: jsonb('belief_state').$type<BeliefStateDTO>(),
   cfg: jsonb('cfg').$type<Record<string, number | boolean>>().notNull(),
+  // Adaptive-parameter controller state: rolling EWMA state + admin control
+  // (enable/pin/overrides). NULL ⇒ fresh controller with defaults (no migration of
+  // existing rows needed). The static `cfg` above stays the baseline; the live
+  // engine config is `adaptParams(cfg, σ₀, cfgState.adaptive)` with pins applied.
+  cfgState: jsonb('cfg_state').$type<MarketCfgState>(),
   cash: money('cash').notNull().default(0),
   reserveRequired: money('reserve_required').notNull().default(0),
   lpSharesTotal: money('lp_shares_total').notNull().default(0),
@@ -196,6 +202,37 @@ export const beliefUpdates = pgTable(
   },
   (t) => ({
     idxMarketTime: index('idx_belief_market_time').on(t.marketId, t.createdAt),
+  }),
+);
+
+// market_cfg_history ---------------------------
+// Time series of the live engine parameters after each fill that moved the
+// controller, so an admin can chart how σ_ε / s₀ / α / β adapted over the market's
+// life and see when a rail bound. Append-only; reconstructed-from nothing else, so
+// it is a real write (unlike the market ledger, which is aggregated).
+
+export const marketCfgHistory = pgTable(
+  'market_cfg_history',
+  {
+    cfgHistoryId: uuid('cfg_history_id').defaultRandom().primaryKey(),
+    // Derived observability log with no downstream references → cascade on market
+    // delete (keeps test teardown / market cancel simple; nothing depends on it).
+    marketId: uuid('market_id')
+      .notNull()
+      .references(() => markets.marketId, { onDelete: 'cascade' }),
+    sigmaEps: doublePrecision('sigma_eps').notNull(),
+    s0: doublePrecision('s0').notNull(),
+    alpha: doublePrecision('alpha').notNull(),
+    beta: doublePrecision('beta').notNull(),
+    regime: doublePrecision('regime').notNull(),
+    railHit: boolean('rail_hit').notNull().default(false),
+    // 'adapt' (EWMA-driven), 'pin' (admin override active), or 'breaker' (rail bound).
+    source: varchar('source', { length: 16 }).notNull(),
+    triggerTradeId: uuid('trigger_trade_id'),
+    createdAt: createdAt(),
+  },
+  (t) => ({
+    idxMarketTime: index('idx_cfg_history_market_time').on(t.marketId, t.createdAt),
   }),
 );
 
