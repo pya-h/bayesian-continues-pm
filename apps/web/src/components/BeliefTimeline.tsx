@@ -208,7 +208,14 @@ export function BeliefTimeline({
                     <stop offset="55%" stopColor="var(--color-accent)" stopOpacity={0.12} />
                     <stop offset="100%" stopColor="var(--color-accent)" stopOpacity={0} />
                   </linearGradient>
+                  <radialGradient id="bt-bg" cx="50%" cy="2%" r="95%">
+                    <stop offset="0%" stopColor="var(--color-accent)" stopOpacity={0.07} />
+                    <stop offset="70%" stopColor="var(--color-accent)" stopOpacity={0} />
+                  </radialGradient>
                 </defs>
+
+                {/* a soft accent wash from the top, for depth */}
+                <rect x={0} y={0} width={W} height={H} fill="url(#bt-bg)" />
 
                 {/* baseline */}
                 <line
@@ -277,9 +284,19 @@ export function BeliefTimeline({
                   filter="url(#bt-glow)"
                 />
 
-                {/* comet head: a glowing dot riding the live mode */}
+                {/* comet head: a glowing dot riding the live mode, with a faint drop guide */}
                 {head && headFill && (
                   <g>
+                    <line
+                      x1={sx(head.x)}
+                      x2={sx(head.x)}
+                      y1={sy(head.y)}
+                      y2={baselineY}
+                      stroke="var(--color-accent)"
+                      strokeWidth={1}
+                      strokeDasharray="2 4"
+                      opacity={0.35}
+                    />
                     <circle
                       cx={sx(head.x)}
                       cy={sy(head.y)}
@@ -288,6 +305,30 @@ export function BeliefTimeline({
                       opacity={0.5}
                       filter="url(#bt-head-glow)"
                     />
+                    {/* a gentle radar pulse — motion-gated so reduced-motion stays still */}
+                    {animate && (
+                      <circle
+                        cx={sx(head.x)}
+                        cy={sy(head.y)}
+                        r={4}
+                        fill="none"
+                        stroke="var(--color-accent)"
+                        strokeWidth={1.5}
+                      >
+                        <animate
+                          attributeName="r"
+                          values="4;13"
+                          dur="1.8s"
+                          repeatCount="indefinite"
+                        />
+                        <animate
+                          attributeName="opacity"
+                          values="0.5;0"
+                          dur="1.8s"
+                          repeatCount="indefinite"
+                        />
+                      </circle>
+                    )}
                     <circle
                       cx={sx(head.x)}
                       cy={sy(head.y)}
@@ -328,10 +369,10 @@ export function BeliefTimeline({
               <button
                 type="button"
                 onClick={togglePlay}
-                aria-label={playing ? 'Pause' : 'Play timeline'}
+                aria-label={playing ? 'Pause' : atNow ? 'Replay timeline' : 'Play timeline'}
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-accent bg-grad-accent text-ink glow-accent transition-transform duration-150 [transition-timing-function:var(--ease-spring)] hover:scale-110 active:scale-95"
               >
-                {playing ? '❚❚' : '▶'}
+                {playing ? '❚❚' : atNow ? '↻' : '▶'}
               </button>
 
               {/* custom track: progress fill + snapshot dots + thumb, native range overlaid for input */}
