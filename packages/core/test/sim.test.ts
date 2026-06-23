@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { Rng } from '../src/numerics.ts';
-import { type SimParams, runMonteCarlo, simulateRun } from '../src/sim.ts';
+import { type SimParams, compareAdaptiveVsStatic, runMonteCarlo, simulateRun } from '../src/sim.ts';
+import type { BeliefKind } from '../src/types.ts';
 
 const BASE: SimParams = { runs: 100, traders: 60, mu0: 100, sigma0: 20, seed: 42 };
 
@@ -84,4 +85,70 @@ describe('simulateRun', () => {
     const r = simulateRun(BASE, new Rng(5));
     expect(r.trades).toBeGreaterThan(0);
   });
+});
+
+describe('adaptive parameters (V2-2c)', () => {
+  // A "volatile" regime: traders are noisier (σ_obs = 2·σ₀) than the static σ_ε
+  // assumes, and bet struck at their read so the signal surprise reflects that noise.
+  const VOL: SimParams = {
+    runs: 600,
+    traders: 80,
+    mu0: 100,
+    sigma0: 20,
+    sigmaObs: 40,
+    seed: 0xb33f,
+    strikeAtRead: true,
+  };
+
+  test('an adaptive run is deterministic for a given seed', () => {
+    const a = runMonteCarlo({ ...VOL, adaptive: true });
+    const b = runMonteCarlo({ ...VOL, adaptive: true });
+    expect(a).toEqual(b);
+  });
+
+  test('adaptive σ_ε stays within the §14.1 rails [0.1, 2]·σ₀', () => {
+    const s = runMonteCarlo({ ...VOL, adaptive: true });
+    expect(s.meanSigmaEpsFinal).toBeGreaterThanOrEqual(0.1 * VOL.sigma0 - 1e-9);
+    expect(s.meanSigmaEpsFinal).toBeLessThanOrEqual(2 * VOL.sigma0 + 1e-9);
+  });
+
+  test('adaptation is OFF by default (params stay at the static baseline)', () => {
+    const s = runMonteCarlo(VOL); // no `adaptive`
+    expect(s.adaptive).toBe(false);
+    expect(s.railHitRate).toBe(0);
+    // σ_ε held at the static default (= σ₀ via sigmaEpsRatio 1.0).
+    expect(s.meanSigmaEpsFinal).toBeCloseTo(VOL.sigma0, 6);
+  });
+
+  test('in a volatile/noisy regime, adaptation improves calibration vs static', () => {
+    const c = compareAdaptiveVsStatic(VOL);
+    // Static σ_ε is too small for this noise ⇒ overconfident (calib ≪ 0.80).
+    expect(c.static.calibration80).toBeLessThan(0.65);
+    // Adaptive lifts σ_ε (here onto its rail), restoring an honest 80% CI.
+    expect(c.adaptive.calibration80).toBeGreaterThan(c.static.calibration80 + 0.1);
+    expect(c.adaptive.calibrationError).toBeLessThan(c.static.calibrationError);
+    expect(c.adaptiveCalibratesBetter).toBe(true);
+    expect(c.calibrationErrorDelta).toBeLessThan(0); // adaptive closer to ideal
+  });
+
+  test('the model zoo runs end-to-end under adaptation (every kind, finite metrics)', () => {
+    const kinds: BeliefKind[] = ['gaussian', 'student_t', 'mixture', 'gen_exact'];
+    for (const beliefKind of kinds) {
+      // Small smoke run; gen_exact uses the cheaper v1 fixed-shape update here.
+      const s = runMonteCarlo({
+        ...VOL,
+        runs: 8,
+        traders: 20,
+        adaptive: true,
+        beliefKind,
+        cfg: { genExactShapeAdapt: false },
+      });
+      expect(s.beliefKind).toBe(beliefKind);
+      for (const v of [s.meanBeliefError, s.calibration80, s.meanMmPnl, s.meanSigmaEpsFinal]) {
+        expect(Number.isFinite(v)).toBe(true);
+      }
+      expect(s.calibration80).toBeGreaterThanOrEqual(0);
+      expect(s.calibration80).toBeLessThanOrEqual(1);
+    }
+  }, 30000);
 });

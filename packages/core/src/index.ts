@@ -141,6 +141,8 @@ export {
   type SimParams,
   type SimRun,
   type SimSummary,
+  type AdaptiveComparison,
   simulateRun,
   runMonteCarlo,
+  compareAdaptiveVsStatic,
 } from './sim.ts';
