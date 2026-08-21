@@ -1,13 +1,13 @@
-/* ============================================================================
-   app.js — interactive layer for the BMM math doc.
-     • KaTeX auto-render (vendored, offline)
-     • TOC scrollspy
-     • A small canvas Plot helper + the live widgets, each driven by math.js
-   All numbers come from window.BMM so the plots match the real engine.
-   ========================================================================== */
+// ============================================================================
+// app.js — interactive layer for the BMM math doc.
+// • KaTeX auto-render (vendored, offline)
+// • TOC scrollspy
+// • A small canvas Plot helper + the live widgets, each driven by math.js
+// All numbers come from window.BMM so the plots match the real engine.
+// ==========================================================================
 (() => {
   const M = window.BMM;
-  const redraws = []; // each widget registers its draw() so a theme switch can repaint
+  const redraws = []; // each widget registers its draw so a theme switch can repaint
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
   const fmt = (n, d = 2) =>
@@ -16,7 +16,6 @@
       : n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
   const fmtS = (n, d = 2) => (n >= 0 ? '+' : '−') + fmt(Math.abs(n), d);
 
-  /* ---- KaTeX ----------------------------------------------------------- */
   function renderMath() {
     if (!window.renderMathInElement) return;
     window.renderMathInElement(document.body, {
@@ -29,7 +28,6 @@
     });
   }
 
-  /* ---- TOC scrollspy --------------------------------------------------- */
   function scrollspy() {
     const links = $$('nav.toc a[href^="#"]');
     const map = new Map();
@@ -53,7 +51,6 @@
     map.forEach((_, sec) => obs.observe(sec));
   }
 
-  /* ---- canvas Plot helper --------------------------------------------- */
   function Plot(canvas, opts) {
     opts = opts || {};
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -220,7 +217,6 @@
     return api;
   }
 
-  /* ---- control factory ------------------------------------------------- */
   function slider(host, { label, min, max, step, value, fmt: f }) {
     const wrap = document.createElement('div');
     wrap.className = 'control';
@@ -278,9 +274,6 @@
     return { get: () => cur, on: (cb) => cbs.push(cb) };
   }
 
-  /* ===================================================================== */
-  /*  Widget 1 — Belief (Gaussian)                                          */
-  /* ===================================================================== */
   function vizBelief() {
     const root = $('#viz-belief');
     if (!root) return;
@@ -330,11 +323,7 @@
     draw();
   }
 
-  /* ===================================================================== */
-  /*  Widget 1b — Belief-model sandbox (Gaussian vs Mixture vs Student-t)   */
-  /*  Shows each model against the equal-(μ,σ) Gaussian, how its fair price */
-  /*  diverges, and how a trade reshapes it under the kind-aware update.    */
-  /* ===================================================================== */
+  // Shows each model against the equal-(μ,σ) Gaussian, how its fair price
   function vizBeliefModels() {
     const root = $('#viz-models');
     if (!root) return;
@@ -503,11 +492,6 @@
     draw();
   }
 
-  /* ===================================================================== */
-  /*  Widget 1c — Flexible parametric families (design study, §19)          */
-  /*  Morph each candidate family + read its flexibility-vs-implementation  */
-  /*  scorecard (shape DOF, pricing path, update, off-chain / on-chain).    */
-  /* ===================================================================== */
   function vizFlexBeliefs() {
     const root = $('#viz-flex');
     if (!root) return;
@@ -705,9 +689,6 @@
     draw();
   }
 
-  /* ===================================================================== */
-  /*  Widget 2 — Pricing: fair = E[payoff]                                  */
-  /* ===================================================================== */
   function vizPricing() {
     const root = $('#viz-pricing');
     if (!root) return;
@@ -815,9 +796,6 @@
     draw();
   }
 
-  /* ===================================================================== */
-  /*  Widget 3 — Bayesian update (the learning loop)                        */
-  /* ===================================================================== */
   function vizBayes() {
     const root = $('#viz-bayes');
     if (!root) return;
@@ -893,12 +871,9 @@
     draw();
   }
 
-  /* ===================================================================== */
-  /*  Widget 3b — Gen·exact update: v1 (fixed shape) vs v2 (moment-proj.)   */
-  /*  Self-contained, faithful port of bayes.ts / gen_exact.ts. A console   */
-  /*  parity self-check verifies it matches packages/core (lockstep, not    */
-  /*  trust). Touches no other widget — only the local #viz-shape-update.   */
-  /* ===================================================================== */
+  // Widget 3b — Gen·exact update: v1 (fixed shape) vs v2 (moment-proj.)
+  // parity self-check verifies it matches packages/core (lockstep, not
+  // trust). Touches no other widget — only the local #viz-shape-update.
   function vizShapeUpdate() {
     const root = $('#viz-shape-update');
     if (!root) return;
@@ -906,7 +881,7 @@
       controls = $('.controls', root),
       out = $('.readout', root);
 
-    // ---- ported numerics (verified bit-equivalent to @bmm/core, Δ<5e-9) ----
+    // ported numerics ----
     const GL = 7,
       GN = 2000,
       L3MAX = 0.35,
@@ -1100,7 +1075,7 @@
       return GE(mu, sigma, lam);
     }
 
-    // ---- parity self-check vs packages/core (logged once, never throws) ----
+    // parity self-check vs packages/core (logged once, never throws) ----
     (function parityCheck() {
       try {
         const cs = [
@@ -1136,7 +1111,7 @@
       }
     })();
 
-    // ---- widget ----------------------------------------------------------
+    // widget ----------------------------------------------------------
     const P = Plot(cv);
     const cfg = M.makeEngineConfig(100, 12);
     let prior = GE(100, 12, [1, 0, 0]);
@@ -1242,9 +1217,6 @@
     draw();
   }
 
-  /* ===================================================================== */
-  /*  Widget 4 — Spread breakdown                                           */
-  /* ===================================================================== */
   function vizSpread() {
     const root = $('#viz-spread');
     if (!root) return;
@@ -1285,7 +1257,7 @@
       volatility: '--sell',
     };
     const PARTS = ['base', 'inventory', 'adverseSelection', 'volatility'];
-    // Build the bar rows once; draw() only updates widths/values so CSS can
+    // Build the bar rows once; draw only updates widths/values so CSS can
     // animate the transition smoothly instead of replacing the DOM each tick.
     const rows = {};
     bars.innerHTML = PARTS.map(
@@ -1330,9 +1302,6 @@
     draw();
   }
 
-  /* ===================================================================== */
-  /*  Widget 5 — Reserve & solvency                                         */
-  /* ===================================================================== */
   function vizReserve() {
     const root = $('#viz-reserve');
     if (!root) return;
@@ -1407,9 +1376,6 @@
     draw();
   }
 
-  /* ===================================================================== */
-  /*  Widget 6 — LP share accounting                                        */
-  /* ===================================================================== */
   function vizLp() {
     const root = $('#viz-lp');
     if (!root) return;
@@ -1465,11 +1431,8 @@
     );
   }
 
-  /* ===================================================================== */
-  /*  Widget 7 — Price impact: size · count · liquidity (one buy/sell switch)*/
-  /*  Same probe (Bin·Call @ μ, so price = P(θ≥K) ∈ [0,1]); each chart       */
-  /*  isolates one lever of ΔFair ≈ (∂P/∂μ)·Δμ, driven by ι = |q|/Q_max.     */
-  /* ===================================================================== */
+  // Same probe (Bin·Call @ μ, so price = P(θ≥K) ∈ [0,1]); each chart
+  // isolates one lever of ΔFair ≈ (∂P/∂μ)·Δμ, driven by ι = |q|/Q_max.
   function vizImpact() {
     const root = $('#viz-impact');
     if (!root) return;
@@ -1513,7 +1476,6 @@
       const tone = buy ? 'buy' : 'sell';
       const cfg = cfgWith(BASE_Q);
 
-      /* ① price vs trade size --------------------------------------------- */
       P1.clear().domain(0, BASE_Q, 0, 1);
       P1.grid([0, 250, 500], YT, { xfmt: (v) => fmt(v, 0), yfmt });
       P1.hline(fair0, P1.COL.muted, '', true);
@@ -1525,7 +1487,6 @@
       o1.innerHTML =
         cell('price @150u', fmt(pm, 3), tone) + cell('Δ from 0.50', fmtS(pm - fair0, 3));
 
-      /* ② price over trade count ------------------------------------------ */
       const Q2 = 120,
         NMAX = 24;
       let bel = base();
@@ -1553,7 +1514,7 @@
         cell('after 24× 120u', fmt(seq[NMAX], 3), tone) +
         cell('per-trade now', fmtS(seq[NMAX] - seq[NMAX - 1], 4));
 
-      /* ③ price impact vs liquidity (LP → depth Q ≈ 0.5·LP) --------------- */
+      // ③ price impact vs liquidity (LP → depth Q ≈ 0.5·LP) ---------------
       const QF = 150,
         LP0 = 200,
         LP1 = 4000;
@@ -1573,12 +1534,6 @@
     draw();
   }
 
-  /* ===================================================================== */
-  /*  Widget 8 — Continuous (BMM) vs discrete markets: impact & slippage    */
-  /*  All four mechanisms on a binary @ mid 0.5, matched to one liquidity    */
-  /*  budget L. Shows impact ∝ 1/liquidity (curves flatten as L grows) and   */
-  /*  the cost-packaging difference (single-price spread vs walk-the-curve). */
-  /* ===================================================================== */
   function vizMechCompare() {
     const root = $('#viz-mech');
     if (!root) return;
@@ -1601,7 +1556,7 @@
 
     const ctrls = $('.impact-controls', root);
     // Liquidity is LOG-scaled: the slider carries log10(L) so one drag sweeps
-    // $400 → ~$2B. Lval() exponentiates back to real LP capital.
+    // $400 → ~$2B. Lval exponentiates back to real LP capital.
     const LMIN = Math.log10(400),
       LMAX = Math.log10(2e9);
     const sLiq = slider(ctrls, {
@@ -1622,7 +1577,7 @@
       fmt: (v) => fmt(v, 0),
     });
     // Soft-cap fix (default OFF): the capacity-aware congestion premium from
-    // docs/capacity/soft-cap.md, folded into the BMM curves so you can A/B the
+    // .md, folded into the BMM curves so you can A/B the
     // "gentle drift then a hard wall" of today against the smooth price ramp.
     const softSeg = seg(ctrls, {
       label: 'Soft-cap fix — capacity congestion premium',
@@ -1642,7 +1597,7 @@
 
     // matched-liquidity mappings (canonical depth ∝ L; ratios tuned so initial slopes line up)
     const params = (L) => ({ Q: 2 * L, b: 2 * L, R: 2 * L, rho: 8 * L });
-    // --- marginal price after buying x shares ---
+    // marginal price after buying x shares ---
     function bmmImpact(x, Q) {
       const c = M.makeEngineConfig(MU, SG, { qMax: Q });
       const s = M.extractSignal(spec, x, base(), c);
@@ -1658,7 +1613,7 @@
       return u / (R * R + u);
     }
     const bookImpact = (x, rho) => Math.min(1, 0.5 + x / rho);
-    // --- premium over mid to FILL x shares (slippage) ---
+    // premium over mid to FILL x shares (slippage) ---
     function bmmSlip(x, Q) {
       const c = M.makeEngineConfig(MU, SG, { qMax: Q });
       return M.computeSpread(spec, x, 0, base(), c).total;
@@ -1668,10 +1623,10 @@
     const cpmmSlip = (x, R) => (x < 1 ? 0 : cpmmT(x, R) / x - 0.5);
     const bookSlip = (x, rho) => Math.min(0.5, x / (2 * rho));
 
-    // --- soft-cap congestion premium (docs/capacity/soft-cap.md §3) ---------
+    // soft-cap congestion premium ---------
     // u = utilisation toward the solvency frontier; capacity (in shares) ∝ L.
     // congestion = κ·|fair|·u^a /(1−min(u,1−ε)), ≈0 with headroom, →∞ at the wall.
-    const CAP_C = 0.7; // capacity ≈ CAP_C · L  (stylised: shares the pool can underwrite)
+    const CAP_C = 0.7; // capacity ≈ CAP_C · L (stylised: shares the pool can underwrite)
     const capacityOf = (L) => CAP_C * L;
     function congestion(x, L) {
       const u = x / capacityOf(L);
@@ -1703,7 +1658,6 @@
         cM = PI.COL.muted;
       const xcap = capacityOf(L);
 
-      /* LEFT — price impact (marginal price) ------------------------------ */
       PI.clear().domain(0, XMAX, 0, 1);
       PI.grid([0, 400, 800, 1200], YT, { xfmt: (v) => fmt(v, 0), yfmt: (v) => fmt(v, 2) });
       PI.hline(0.5, PI.COL.muted, '', true);
@@ -1726,7 +1680,6 @@
         cell('CPMM', fmt(cpmmImpact(qm, p.R), 3), 'buy') +
         cell('Order book', fmt(bookImpact(qm, p.rho), 3), 'sell');
 
-      /* RIGHT — slippage (premium to fill) -------------------------------- */
       let smax = 1e-3;
       for (let i = 1; i <= 60; i++) {
         const x = (i / 60) * XMAX;
@@ -1765,9 +1718,6 @@
     draw();
   }
 
-  /* ===================================================================== */
-  /*  Trader widget A — "the price is the chance" (no formulas shown)        */
-  /* ===================================================================== */
   function vizUserPrice() {
     const root = $('#u-viz-price');
     if (!root) return;
@@ -1823,9 +1773,6 @@
     return getComputedStyle(document.documentElement).getPropertyValue('--tint-buy-strong').trim();
   }
 
-  /* ===================================================================== */
-  /*  Trader widget B — "place a trade", plain-language, real engine         */
-  /* ===================================================================== */
   function vizUserTrade() {
     const root = $('#u-viz-trade');
     if (!root) return;
@@ -1892,7 +1839,6 @@
     draw();
   }
 
-  /* ---- reading-mode switch (trader / developer, persisted) ------------- */
   function modeSwitch() {
     const root = document.documentElement;
     const wrap = $('#mode-switch');
@@ -1922,7 +1868,6 @@
     });
   }
 
-  /* ---- theme toggle (persisted) --------------------------------------- */
   function theme() {
     const root = document.documentElement;
     const btn = $('#theme-toggle');
@@ -1943,7 +1888,6 @@
     });
   }
 
-  /* ---- reading-progress bar ------------------------------------------- */
   function progress() {
     const bar = $('#progress');
     if (!bar) return;
@@ -1957,7 +1901,6 @@
     tick();
   }
 
-  /* ---- scroll-reveal --------------------------------------------------- */
   function reveal() {
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     document.body.classList.add('reveal-ready');
@@ -1975,7 +1918,6 @@
     targets.forEach((t) => obs.observe(t));
   }
 
-  /* ---- boot ------------------------------------------------------------ */
   function boot() {
     renderMath();
     scrollspy();

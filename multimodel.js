@@ -1,15 +1,15 @@
-/* ============================================================================
-   multimodel.js — candidate PARAMETRIC belief families for the "flexible
-   beliefs" design study (math doc §19). Exploration only, NOT the shipped
-   engine: these extend the curve's shape power while staying parametric
-   (continuous θ, closed-form-or-quadrature pricing). Built on window.BMM
-   (math.js), loaded before app.js. Attaches to window.MMODEL.
-   ========================================================================== */
+// ============================================================================
+// multimodel.js — candidate PARAMETRIC belief families for the "flexible
+// beliefs" design study (math doc ). Exploration only, NOT the shipped
+// engine: these extend the curve's shape power while staying parametric
+// (continuous θ, closed-form-or-quadrature pricing). Built on window.BMM
+// (math.js), loaded before app.js. Attaches to window.MMODEL.
+// ==========================================================================
 ((global) => {
   const B = global.BMM; // the faithful engine port (phi, Phi, lgamma, payoff, …)
   const G = (z) => Math.exp(B.lgamma(z)); // Γ via lgamma
 
-  // ---- 1.1 Skew-normal: one bump that can lean left/right (skew α) -------
+  // 1.1 Skew-normal: one bump that can lean left/right (skew α) -------
   function skewNormal(xi, omega, alpha) {
     const delta = alpha / Math.sqrt(1 + alpha * alpha);
     const mean = xi + omega * delta * Math.sqrt(2 / Math.PI);
@@ -23,7 +23,7 @@
     };
   }
 
-  // ---- 1.2 Generalized normal (exp-power): peak ↔ flat (β), σ held -------
+  // 1.2 Generalized normal (exp-power): peak ↔ flat (β), σ held -------
   // β=2 → Gaussian, β=1 → Laplace (sharp), β→∞ → flat-top. We solve the scale
   // α so the stddev equals `s` regardless of β, isolating the peakedness knob.
   function genNormal(mu, s, beta) {
@@ -38,7 +38,7 @@
     };
   }
 
-  // ---- 1.3 Beta on [lo,hi]: U / J / skew / flat / peak (bounded) ---------
+  // 1.3 Beta on [lo,hi]: U / J / skew / flat / peak (bounded) ---------
   function betaScaled(lo, hi, a, b) {
     const w = hi - lo;
     const logB = B.lgamma(a) + B.lgamma(b) - B.lgamma(a + b);
@@ -59,7 +59,7 @@
     };
   }
 
-  // ---- 1.6 Fixed-basis Gaussian density: near-arbitrary smooth shape -----
+  // 1.6 Fixed-basis Gaussian density: near-arbitrary smooth shape -----
   // N narrow Gaussian bumps on a fixed grid; the WEIGHTS are the free params.
   // Closed-form priced (it IS a mixture), so no quadrature. `modes` synthesises
   // a wiggly weight profile so the slider sweeps simple → multi-peaked.
@@ -85,7 +85,7 @@
     return new B.MixtureBelief(comps); // kind='mixture' → closed-form pricing
   }
 
-  // ---- a "few distinct camps" mixture, K modes evenly spread ------------
+  // a "few distinct camps" mixture, K modes evenly spread ------------
   function fewCamps(center, spread, K, sigma) {
     const comps = [];
     for (let k = 0; k < K; k++) {
@@ -95,12 +95,12 @@
     return new B.MixtureBelief(comps);
   }
 
-  // ---- THE GENERAL FORM: max-entropy / moment-expansion ------------------
+  // THE GENERAL FORM: max-entropy / moment-expansion ------------------
   // p(θ) ∝ exp(−[½λ₂u² + λ₃u³ + λ₄u⁴ + λ₆u⁶]), u=(θ−μ)/s — an exponential-family
-  // density whose exponent is a polynomial. Each added term is one more shape knob,
-  // and the mode count is bounded by the polynomial degree (deg 2m → up to m modes):
-  //   λ₂ → Gaussian, +λ₃ → skew, +λ₄>0 → fat tails / flat-top, λ₂<0 → bimodal.
-  // (3+ modes need a higher-degree poly with finely-balanced wells — see the basis
+  // density whose exponent is a polynomial. Each added term is one more shape knob
+  // and the mode count is bounded by the polynomial degree (deg 2m → up to m modes)
+  // λ₂ → Gaussian, +λ₃ → skew, +λ₄>0 → fat tails / flat-top, λ₂<0 → bimodal.
+  // (3+ modes need a higher-degree poly with finely-balanced wells
   // form for arbitrary multi-bump.) No closed-form price (quadrature), but always a
   // valid density — a small u⁶ term, scaled up with |λ₃|, keeps the tails decaying
   // (integrable) and stops skew dragging the mean off. Moments cached.
@@ -147,7 +147,7 @@
     };
   }
 
-  // ---- pricing that also covers the non-engine families (quadrature) ----
+  // pricing that also covers the non-engine families (quadrature) ----
   function priceFlex(spec, belief) {
     if (belief.kind === 'gaussian' || belief.kind === 'mixture' || belief.kind === 'student_t') {
       return B.priceAny(spec, belief);
@@ -156,7 +156,7 @@
     return B.expectF((t) => B.payoff(spec, t), belief); // skew/gen-normal/beta
   }
 
-  // ---- scorecard metadata (flexibility vs implementation difficulty) -----
+  // scorecard metadata (flexibility vs implementation difficulty) -----
   // flex 1–5; off/on are difficulty notes; price = pricing path.
   const META = {
     gaussian: {

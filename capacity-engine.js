@@ -1,26 +1,22 @@
-/* ============================================================================
-   capacity-engine.js — the pure, DOM-free engine behind the capacity sandbox.
-
-   Everything here is deterministic math: the book reserve, the admission gate,
-   the soft-cap congestion premium, the per-fix modifiers, and the forward step
-   that drives a synthetic crowd into the no-buy band. It owns NO DOM and NO
-   rendering — capacity-sandbox.js wires this into the page; the test suite
-   (docs/math/capacity-sandbox.test logic) drives the very same functions
-   headlessly to prove the sandbox computes what the real engine does.
-
-   All belief/price/spread/signal math comes from the injected `M` (window.BMM,
-   the math.js port of packages/core), so every number matches the server. The
-   only thing this module adds on top of BMM is the *book-level* reserve quantile
-   and the capacity gate/congestion that the soft-cap design (docs/capacity/
-   soft-cap.md §3) layers over the base engine.
-
-   Usage:
-     const CAP = CapEngine.makeCapEngine(window.BMM);   // browser
-     const CAP = require('./capacity-engine').makeCapEngine(BMM); // node
-   ========================================================================== */
+// ============================================================================
+// capacity-engine.js — the pure, DOM-free engine behind the capacity sandbox.
+// Everything here is deterministic math: the book reserve, the admission gate
+// the soft-cap congestion premium, the per-fix modifiers, and the forward step
+// that drives a synthetic crowd into the no-buy band. It owns NO DOM and NO
+// rendering — capacity-sandbox.js wires this into the page; the test suite
+// drives the very same functions
+// headlessly to prove the sandbox computes what the real engine does.
+// All belief/price/spread/signal math comes from the injected `M` (window.BMM
+// the math.js port of packages/core), so every number matches the server. The
+// only thing this module adds on top of BMM is the *book-level* reserve quantile
+// and the capacity gate/congestion that the soft-cap design (
+// soft-cap.md ) layers over the base engine.
+// Usage
+// const CAP = CapEngine.makeCapEngine(window.BMM); // browser
+// const CAP = require('./capacity-engine').makeCapEngine(BMM); // node
+// ==========================================================================
 ((global) => {
   function makeCapEngine(M) {
-    /* ---- the market --------------------------------------------------- */
     const MU0 = 100;
     const SIGMA0 = 12;
     const CROWD_SPEC = { type: 'CALL', strike: 100 }; // the one-sided bet that fills the book to the gate
@@ -32,7 +28,6 @@
     const cfg = () => M.makeEngineConfig(MU0, SIGMA0); // belief/spread/signal config never changes with a fix
     const round8 = M.round8;
 
-    /* ---- contract identity / labels (BMM has no contractKey export) --- */
     function keyOf(s) {
       switch (s.type) {
         case 'LINEAR':
@@ -67,12 +62,12 @@
       }
     }
 
-    /* ---- reserve: stratified α-quantile of the book liability ---------
-       The same VaR M.requiredReserve estimates by Monte-Carlo, evaluated here
-       on N evenly-spaced belief quantiles θ_i = μ + σ·Φ⁻¹((i+0.5)/N). Sorting
-       handles non-monotone books; the result is exact and noise-free, so the
-       gate boundary and price ramp are smooth (no MC jitter). It matches the
-       engine's MC reserve to within sampling error (asserted in the tests). */
+    // reserve: stratified α-quantile of the book liability ---------
+    // The same VaR M.requiredReserve estimates by Monte-Carlo, evaluated here
+    // on N evenly-spaced belief quantiles θ_i = μ + σ·Φ⁻¹((i+0.5)/N). Sorting
+    // handles non-monotone books; the result is exact and noise-free, so the
+    // gate boundary and price ramp are smooth (no MC jitter). It matches the
+    // engine's MC reserve to within sampling error (asserted in the tests).
     function reserveBook(book, belief, alpha) {
       if (!book.length) return 0;
       const a = alpha != null ? alpha : 0.99;
@@ -87,11 +82,11 @@
       return Math.max(0, arr[idx]);
     }
 
-    /* ==================================================================
-       FIXES — each returns an "engine modifier". The forward step (stepBuy)
-       reads these fields; anything unset falls back to the baseline gate.
-         margin/alpha/extraCash/reserveScale/soft/haircut/autoDelev/explainOnly
-       ================================================================== */
+    // ==================================================================
+    // FIXES — each returns an "engine modifier". The forward step (stepBuy)
+    // reads these fields; anything unset falls back to the baseline gate.
+    // margin/alpha/extraCash/reserveScale/soft/haircut/autoDelev/explainOnly
+    // ==================================================================
     const EPS = 1e-3; // congestion floor ε
     const FIXES = {
       none: {
@@ -254,7 +249,6 @@
       return mod;
     }
 
-    /* ---- engine wrappers (book-level gate + congestion), fix-aware ----- */
     const backing = (cash, mod) => cash + mod.extraCash;
     const reserveMod = (book, belief, mod) =>
       reserveBook(book, belief, mod.alpha) * mod.reserveScale;
@@ -278,7 +272,6 @@
       );
     }
 
-    /* Quote a buy of `size` of `spec` from a state under `mod`: exec price + gate test. */
     function quoteBuy(spec, key, size, st, mod) {
       const f = M.price(spec, st.belief);
       const spr = M.computeSpread(spec, size, mmOf(st.book, key), st.belief, cfg());
@@ -298,7 +291,7 @@
       return { fairPx: f, spread: spr, congestion: cong, exec, cost, Rb, Ra, admit };
     }
 
-    /* Largest feasible fill ≤ target (binary search; both constraints monotone in size). */
+    // Largest feasible fill ≤ target (binary search; both constraints monotone in size).
     function solveFill(spec, key, target, st, mod) {
       if (quoteBuy(spec, key, target, st, mod).admit) return target;
       let lo = 0,
@@ -311,7 +304,6 @@
       return lo * (1 - 1e-6);
     }
 
-    /* ---- state -------------------------------------------------------- */
     function genesis(cash0) {
       return {
         belief: new M.Belief(MU0, SIGMA0),
@@ -332,7 +324,6 @@
       return p;
     }
 
-    /* Apply a buy of `spec` to `st` in place, attributed to `trader`, under `mod`. */
     function stepBuy(st, spec, reqSize, trader, mod) {
       const key = keyOf(spec);
       let forcedNow = 0;
@@ -395,7 +386,6 @@
       return st.last;
     }
 
-    /* ---- the buy-tape: drive a fresh baseline market to the gate ------- */
     function buildTape(cash0) {
       const st = genesis(cash0);
       const base = modifierFor('none');
@@ -415,7 +405,6 @@
       return st;
     }
 
-    /* ---- pure gate read-out (status text/CSS live in the UI layer) ----- */
     function gateInfo(st, mod) {
       const R = reserveMod(st.book, st.belief, mod);
       const cashB = backing(st.cash, mod);
@@ -425,10 +414,10 @@
       return { R, cashB, rho, m, blocked };
     }
 
-    /* Marginal ask for the (q+1)-th contract of `spec`, used by the price-ramp
-       chart. Quotes the *next unit* (size 1) on a book already grown by q, so the
-       reserve actually ticks up and the soft-cap congestion term is reflected — a
-       size-0 quote would leave Ra==Rb and hide the whole congestion ramp. */
+    // Marginal ask for the (q+1)-th contract of `spec`, used by the price-ramp
+    // chart. Quotes the *next unit* (size 1) on a book already grown by q, so the
+    // reserve actually ticks up and the soft-cap congestion term is reflected — a
+    // size-0 quote would leave Ra==Rb and hide the whole congestion ramp.
     function marginalAsk(spec, key, q, st, mod) {
       const shifted = {
         belief: st.belief,

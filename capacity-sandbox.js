@@ -1,20 +1,18 @@
-/* ============================================================================
-   capacity-sandbox.js — the DOM/rendering layer of the "market at the gate"
-   sandbox. It boots a market into the solvency-gate "no-buy band", then lets you
-   apply each capacity fix (A–I from docs/capacity/expanding-capacity.md) and
-   watch — live — how it changes the gate, the price ramp, the pool stats, the
-   payouts, and the positions.
-
-   ALL math lives in capacity-engine.js (CapEngine.makeCapEngine), which is built
-   on window.BMM (math.js, a direct port of packages/core). This file owns only
-   the page: controls, canvases, tables, and status text. Keeping the two split
-   means the test suite can drive the identical engine headlessly and prove the
-   sandbox computes exactly what the server does.
-
-   Fix coverage (per the design decision): A,B,C,D,E,G fully live; F a tagged
-   approximation; H,I explained (they redefine the product/menu, so they can't be
-   simulated by mutating this one book).
-   ========================================================================== */
+// ============================================================================
+// capacity-sandbox.js — the DOM/rendering layer of the "market at the gate"
+// sandbox. It boots a market into the solvency-gate "no-buy band", then lets you
+// apply each capacity fix and
+// watch — live — how it changes the gate, the price ramp, the pool stats, the
+// payouts, and the positions.
+// ALL math lives in capacity-engine.js (CapEngine.makeCapEngine), which is built
+// on window.BMM (math.js, a direct port of packages/core). This file owns only
+// the page: controls, canvases, tables, and status text. Keeping the two split
+// means the test suite can drive the identical engine headlessly and prove the
+// sandbox computes exactly what the server does.
+// Fix coverage: A,B,C,D,E,G fully live; F a tagged
+// approximation; H,I explained (they redefine the product/menu, so they can't be
+// simulated by mutating this one book).
+// ==========================================================================
 (() => {
   const M = window.BMM;
   const root = document.getElementById('cap-sandbox');
@@ -45,7 +43,6 @@
     marginalAsk,
   } = CAP;
 
-  /* ---- UI helpers ------------------------------------------------------- */
   const $ = (s, r) => (r || root).querySelector(s);
   const $$ = (s, r) => Array.from((r || root).querySelectorAll(s));
   const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
@@ -56,9 +53,9 @@
   const money = (n, d = 0) => (n < 0 ? '−$' : '$') + fmt(Math.abs(n), d);
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
-  /* ======================================================================
-     RENDERING
-     ====================================================================== */
+  // ======================================================================
+  // RENDERING
+  // ======================================================================
   let TAPE = [];
   let STATE = null;
   let curFix = 'none';
@@ -242,7 +239,6 @@
     );
   }
 
-  /* ---- tiny canvas plotter --------------------------------------------- */
   function plot(canvas, draw) {
     const rect = canvas.getBoundingClientRect();
     const W = Math.max(280, rect.width || canvas.clientWidth || 360);
@@ -444,7 +440,6 @@
     });
   }
 
-  /* ---- main render ------------------------------------------------------ */
   function render() {
     if (!STATE) return;
     const mod = activeMod();
@@ -476,7 +471,6 @@
     drawRamp(STATE, mod);
   }
 
-  /* ---- actions ---------------------------------------------------------- */
   function selectFix(id) {
     curFix = id;
     $$('.cap-fix-btn', root).forEach((b) => b.classList.toggle('active', b.dataset.fix === id));
@@ -573,7 +567,6 @@
     if (btn) btn.disabled = readCash() === builtCash;
   }
 
-  /* ---- buy-contract controls ------------------------------------------- */
   function buildBuyControls() {
     const seg = $('#cap-buy-type', root);
     if (seg) {
@@ -629,7 +622,6 @@
         buyType === 'SPREAD' ? 'centre' : buyType === 'GAUSSIAN' ? 'centre' : 'strike K';
   }
 
-  /* ---- wire up the static DOM ------------------------------------------ */
   function mount() {
     const sel = $('#cap-fix-select', root);
     sel.innerHTML = '';

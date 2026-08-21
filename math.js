@@ -1,13 +1,13 @@
-/* ============================================================================
-   math.js — a faithful browser port of the BMM engine (packages/core).
-   Every interactive widget on the page computes through THESE functions, so the
-   plots reproduce exactly what the server does. Kept in lockstep with:
-     numerics.ts · gaussian.ts · pricing.ts · contracts.ts · signal.ts
-     bayes.ts · spread.ts · solvency.ts · config.ts
-   Pure functions, no deps, attached to the global `BMM`.
-   ========================================================================== */
+// ============================================================================
+// math.js — a faithful browser port of the BMM engine (packages/core).
+// Every interactive widget on the page computes through THESE functions, so the
+// plots reproduce exactly what the server does. Kept in lockstep with
+// numerics.ts · gaussian.ts · pricing.ts · contracts.ts · signal.ts
+// bayes.ts · spread.ts · solvency.ts · config.ts
+// Pure functions, no deps, attached to the global `BMM`.
+// ==========================================================================
 ((global) => {
-  // ---- shared/money.ts : round8 (round-half-even) -----------------------
+  // shared/money.ts: round8 (round-half-even) -----------------------
   // Core passes every money result through round8; mirrored here so applyFill
   // and the LP helpers are byte-identical to the server, not just close.
   const MONEY_SCALE = 1e8;
@@ -23,11 +23,11 @@
     return r / MONEY_SCALE;
   }
 
-  // ---- numerics.ts -------------------------------------------------------
+  // numerics.ts -------------------------------------------------------
   const SQRT2 = Math.SQRT2;
   const INV_SQRT2PI = 1 / Math.sqrt(2 * Math.PI);
 
-  /** Standard normal PDF φ(x). */
+  // Standard normal PDF φ(x).
   function phi(x) {
     return INV_SQRT2PI * Math.exp(-0.5 * x * x);
   }
@@ -44,7 +44,7 @@
     return (2 / Math.sqrt(Math.PI)) * sum;
   }
   function erfcCF(z) {
-    if (z === Number.POSITIVE_INFINITY) return 0; // erfc(+∞)=0 ⇒ Φ(±∞)=1/0, not NaN (mirrors core C20)
+    if (z === Number.POSITIVE_INFINITY) return 0; // erfc(+∞)=0 ⇒ Φ(±∞)=1/0, not NaN
     const tiny = 1e-300;
     let f = tiny,
       c = f,
@@ -74,12 +74,11 @@
     if (x <= -2) return 2 - erfcCF(-x);
     return 1 - erf(x);
   }
-  /** Standard normal CDF Φ(x) = ½·erfc(−x/√2). */
+  // Standard normal CDF Φ(x) = ½·erfc(−x/√2).
   function Phi(x) {
     return 0.5 * erfc(-x / SQRT2);
   }
 
-  /** Inverse normal CDF (Acklam) + one Halley step — enough for sampling/plots. */
   function normInv(p) {
     if (p <= 0) return Number.NEGATIVE_INFINITY;
     if (p >= 1) return Number.POSITIVE_INFINITY;
@@ -122,7 +121,6 @@
     return x;
   }
 
-  /** mulberry32 — seeded PRNG, matches numerics.ts Rng for reproducible MC. */
   function Rng(seed) {
     let state = seed >>> 0 || 0x9e3779b9;
     this.next = () => {
@@ -140,7 +138,7 @@
     };
   }
 
-  // ---- gaussian.ts -------------------------------------------------------
+  // gaussian.ts -------------------------------------------------------
   function Belief(mu, sigma) {
     this.kind = 'gaussian';
     this.mu = mu;
@@ -170,7 +168,7 @@
     return out;
   };
 
-  // ---- contracts.ts : payoff(spec, θ) -----------------------------------
+  // contracts.ts: payoff(spec, θ) -----------------------------------
   function payoff(spec, t) {
     switch (spec.type) {
       case 'LINEAR':
@@ -192,7 +190,7 @@
     }
   }
 
-  // ---- pricing.ts : fair price = E_belief[payoff] -----------------------
+  // pricing.ts: fair price = E_belief[payoff] -----------------------
   function priceGaussianPayoff(c, w, mu, sigma2) {
     const w2 = w * w,
       denom = w2 + sigma2;
@@ -224,7 +222,7 @@
         throw new Error('price: unknown ' + spec.type);
     }
   }
-  /** ∂Price/∂μ — drives the adverse-selection spread term. */
+  // ∂Price/∂μ — drives the adverse-selection spread term.
   function dPriceDMu(spec, b) {
     const mu = b.mu,
       sigma = b.sigma;
@@ -252,7 +250,7 @@
     }
   }
 
-  // ---- config.ts : DEFAULT_PARAMS + makeEngineConfig --------------------
+  // config.ts: DEFAULT_PARAMS + makeEngineConfig --------------------
   const DEFAULT_PARAMS = {
     s0: 0.01,
     gamma: 0.0005,
@@ -289,12 +287,12 @@
     return Object.assign(base, overrides || {});
   }
 
-  // ---- spread.ts : computeSpread ----------------------------------------
+  // spread.ts: computeSpread ----------------------------------------
   function computeSpread(spec, q, mmShort, b, cfg) {
     // Kind-aware fair / ∂P/∂μ (priceAny/dPriceDMuAny), mirroring core spread.ts: the
-    // Gaussian closed forms mis-price mixture/Student-t beliefs (t binary spread −23%,
+    // Gaussian closed forms mis-price mixture/Student-t beliefs (t binary spread −23%
     // mixture SPREAD fair 2.2×), so the spread's fair + adverse-selection term must
-    // dispatch by belief kind too (REVIEW-FINDINGS C52). Gaussian beliefs fall straight
+    // dispatch by belief kind too. Gaussian beliefs fall straight
     // through to the closed forms, so this is exact for the current widget call sites.
     const fair = priceAny(spec, b);
     const absFair = Math.abs(fair);
@@ -309,7 +307,6 @@
     const total = base + inventory + adverseSelection + volatility;
     return { base, inventory, adverseSelection, volatility, total, fair };
   }
-  /** Payoff range per contract kind — the bounded kinds all pay in [0,1] (mirrors core contracts.ts). */
   function payoffBounds(spec) {
     switch (spec.type) {
       case 'BINARY_CALL':
@@ -321,12 +318,10 @@
         return { bounded: false };
     }
   }
-  /**
-   * Ask (buy) = fair + half-spread; bid (sell) = fair − half-spread, each clamped to the
-   * contract's payoff bounds (mirrors core tradeMath.ts execPriceFor, REVIEW-FINDINGS C45):
-   * a bounded contract's ask never exceeds its max payout — yet the adverse-selection term
-   * diverges as ν→2 and can push a binary ask above 1. Unbounded kinds keep the bid's 0 floor.
-   */
+  // Ask (buy) = fair + half-spread; bid (sell) = fair − half-spread, each clamped to the
+  // contract's payoff bounds
+  // a bounded contract's ask never exceeds its max payout — yet the adverse-selection term
+  // diverges as ν→2 and can push a binary ask above 1. Unbounded kinds keep the bid's 0 floor.
   function execPriceFor(side, fair, spreadTotal, spec) {
     const b = spec ? payoffBounds(spec) : { bounded: false };
     if (side === 'buy') {
@@ -337,7 +332,7 @@
     return Math.max(floor, fair - spreadTotal);
   }
 
-  // ---- signal.ts : extractSignal ----------------------------------------
+  // signal.ts: extractSignal ----------------------------------------
   function pointBet(target, mu, direction, alpha, sigma, intensity) {
     if (direction > 0) return target;
     const away = Math.sign(mu - target) || 1;
@@ -376,7 +371,7 @@
     return { signal, weight };
   }
 
-  // ---- bayes.ts : bayesUpdate -------------------------------------------
+  // bayes.ts: bayesUpdate -------------------------------------------
   function bayesUpdate(b, signal, weight, cfg) {
     const sigmaMin2 = cfg.sigmaMin * cfg.sigmaMin;
     if (weight <= 0) return new Belief(b.mu, Math.sqrt(Math.max(b.sigma2, sigmaMin2)));
@@ -393,7 +388,7 @@
     return new Belief(muNew, Math.sqrt(Math.max(sigma2New, sigmaMin2)));
   }
 
-  // ---- solvency.ts : liability + requiredReserve (MC quantile) ----------
+  // solvency.ts: liability + requiredReserve (MC quantile) ----------
   function liability(book, t) {
     let s = 0;
     for (const e of book) s += e.mmShort * payoff(e.spec, t);
@@ -404,7 +399,6 @@
     for (const e of book) s += e.mmShort * price(e.spec, b);
     return s;
   }
-  /** α-quantile of liability over the belief — MC. Fewer samples than prod for UI speed. */
   function requiredReserve(book, b, opts) {
     opts = opts || {};
     if (!book.length) return 0;
@@ -419,7 +413,7 @@
     return Math.max(0, losses[idx]);
   }
 
-  // ---- lpMath.ts (round8 applied, as in core) ---------------------------
+  // lpMath.ts (round8 applied, as in core) ---------------------------
   function lpSharePrice(nav, sharesTotal) {
     return sharesTotal > 0 ? round8(nav / sharesTotal) : 1;
   }
@@ -433,7 +427,7 @@
     return sharesTotal > 0 ? round8((shares / sharesTotal) * cashFinal) : 0;
   }
 
-  // ---- applyFill (tradeMath.ts, round8 applied) -------------------------
+  // applyFill (tradeMath.ts, round8 applied) -------------------------
   function applyFill(pos, q, execPrice) {
     if (q >= 0) {
       const newQty = round8(pos.quantity + q);
@@ -452,12 +446,12 @@
   }
 
   // =======================================================================
-  //  V2 — multi-modal beliefs (mixture.ts · student_t.ts · pricing.ts ·
-  //  mixture_ops.ts · bayes.ts). Faithful browser port so the belief-model
-  //  sandbox computes through the same math the server runs.
+  // V2 — multi-modal beliefs (mixture.ts · student_t.ts · pricing.ts ·
+  // mixture_ops.ts · bayes.ts). Faithful browser port so the belief-model
+  // sandbox computes through the same math the server runs.
   // =======================================================================
 
-  // ---- student_t.ts : lgamma (Lanczos) ----------------------------------
+  // student_t.ts: lgamma (Lanczos) ----------------------------------
   const LANCZOS_G = 7;
   const LANCZOS_C = [
     0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
@@ -473,7 +467,7 @@
     return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
   }
 
-  // ---- student_t.ts : regularized incomplete beta (for the t CDF) -------
+  // student_t.ts: regularized incomplete beta (for the t CDF) -------
   function betacf(a, b, x) {
     const FPMIN = 1e-300;
     const qab = a + b,
@@ -515,7 +509,7 @@
     return 1 - (bt * betacf(b, a, 1 - x)) / b;
   }
 
-  // ---- mixture.ts : MixtureBelief ---------------------------------------
+  // mixture.ts: MixtureBelief ---------------------------------------
   // components: [{ pi, mu, sigma2 }]. mu/sigma exposed (mean & total stddev) so
   // the kind-agnostic extractSignal/spread read them like a Gaussian.
   function MixtureBelief(components) {
@@ -571,7 +565,7 @@
     return out;
   };
 
-  // ---- student_t.ts : StudentT (location-scale, ν>2) --------------------
+  // student_t.ts: StudentT (location-scale, ν>2) --------------------
   function StudentT(nu, mu, scale2) {
     this.kind = 'student_t';
     this.nu = nu;
@@ -626,8 +620,8 @@
     return out;
   };
 
-  // ---- pricing.ts : expectF + kind-agnostic price / dPriceDMu -----------
-  /** E_p[g(θ)] via composite Simpson over a ±L·σ window (lighter nodes for UI). */
+  // pricing.ts: expectF + kind-agnostic price / dPriceDMu -----------
+  // E_p[g(θ)] via composite Simpson over a ±L·σ window (lighter nodes for UI).
   function expectF(fn, belief, opts) {
     opts = opts || {};
     const mean = belief.mean(),
@@ -643,14 +637,12 @@
     for (let i = 1; i < n; i++) sum += (i % 2 === 0 ? 2 : 4) * ig(a + i * h);
     return (sum * h) / 3;
   }
-  /**
-   * E[exp(-(θ-c)²/(2·bw²))] under any belief — the GAUSSIAN "bell" payoff integrated
-   * robustly (mirrors core pricing.ts expectGaussianBump, REVIEW-FINDINGS C42). The plain
-   * expectF window (mean ± L·σ, fixed nodes) mis-prices the bell two ways: a far center
-   * (|c − μ| ≳ L·σ) sits outside the window ⇒ priced ≈0, and a width narrower than the
-   * cell (bw ≲ σ/200) lands inside one Simpson cell. So the window must cover BOTH the
-   * bell (c ± L·bw) and the belief (μ ± L·σ) and the node count must resolve the NARROWER.
-   */
+  // E[exp(-(θ-c)²/(2·bw²))] under any belief — the GAUSSIAN "bell" payoff integrated
+  // robustly. The plain
+  // expectF window (mean ± L·σ, fixed nodes) mis-prices the bell two ways: a far center
+  // (|c − μ| ≳ L·σ) sits outside the window ⇒ priced ≈0, and a width narrower than the
+  // cell (bw ≲ σ/200) lands inside one Simpson cell. So the window must cover BOTH the
+  // bell (c ± L·bw) and the belief (μ ± L·σ) and the node count must resolve the NARROWER.
   function expectGaussianBump(belief, c, bw) {
     const mean = belief.mean(),
       sigma = belief.stddev();
@@ -668,7 +660,7 @@
     return (sum * h) / 3;
   }
 
-  /** Fair price for any belief kind: closed-form for Gaussian/mixture/t (bell-aware quadrature for the smooth GAUSSIAN payoff under t). */
+  // Fair price for any belief kind: closed-form for Gaussian/mixture/t (bell-aware quadrature for the smooth GAUSSIAN payoff under t).
   function priceAny(spec, belief) {
     if (!belief.kind || belief.kind === 'gaussian') return price(spec, belief);
     if (belief.kind === 'mixture') {
@@ -719,7 +711,7 @@
       return s;
     }
     if (belief.kind === 'student_t') {
-      // location-family identities (mirrors core pricing.ts dPriceDMu)
+      // location-family identities
       const K = spec.strike;
       switch (spec.type) {
         case 'LINEAR':
@@ -744,7 +736,7 @@
     return (up - dn) / (2 * h);
   }
 
-  // ---- mixture_ops.ts : prune / merge / cap -----------------------------
+  // mixture_ops.ts: prune / merge / cap -----------------------------
   function mergeTwo(a, b) {
     const pi = a.pi + b.pi;
     const mu = (a.pi * a.mu + b.pi * b.mu) / pi;
@@ -783,7 +775,7 @@
     return new MixtureBelief(list);
   }
 
-  // ---- bayes.ts : kind-aware updates ------------------------------------
+  // bayes.ts: kind-aware updates ------------------------------------
   function bayesUpdateStudentT(belief, signal, weight, cfg) {
     const sigmaMin2 = cfg.sigmaMin * cfg.sigmaMin,
       nu = belief.nu,
@@ -835,7 +827,6 @@
     });
     return manageMixture(updated);
   }
-  /** Kind-agnostic dispatcher — mirrors core's updateBelief. */
   function updateBelief(belief, signal, weight, cfg) {
     if (belief.kind === 'mixture') return bayesUpdateMixture(belief, signal, weight, cfg);
     if (belief.kind === 'student_t') return bayesUpdateStudentT(belief, signal, weight, cfg);
